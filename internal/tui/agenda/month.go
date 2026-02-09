@@ -12,6 +12,7 @@ import (
 	"wydo/internal/notes"
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/shared"
 )
 
 var (
@@ -202,14 +203,7 @@ func (m MonthModel) View() string {
 	// Title line
 	monthStr := m.viewMonth.Format("January 2006")
 	title := calMonthTitleStyle.Render(fmt.Sprintf(" %s", monthStr))
-	nav := navHintStyle.Render("[h/l: day] [k/j: week] [H/L: month] [t: today] [enter: detail]")
-
-	titleLine := title
-	padding := m.width - lipgloss.Width(title) - lipgloss.Width(nav) - 1
-	if padding > 0 {
-		titleLine += strings.Repeat(" ", padding) + nav
-	}
-	sb.WriteString(titleLine)
+	sb.WriteString(title)
 	sb.WriteString("\n\n")
 
 	// Calendar grid
@@ -219,7 +213,16 @@ func (m MonthModel) View() string {
 	// Detail panel for selected day
 	sb.WriteString(m.renderDetailPanel())
 
-	return sb.String()
+	var hintsText string
+	if m.inDetail {
+		hintsText = "[j/k] navigate  [enter] open  [esc] back"
+	} else {
+		hintsText = "[h/l] day  [j/k] week  [H/L] month  [t] today  [enter] detail"
+	}
+	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center,
+		navHintStyle.Render(hintsText),
+	)
+	return shared.CenterWithBottomHints(sb.String(), hints, m.height)
 }
 
 func (m MonthModel) renderCalendar() string {
@@ -299,9 +302,6 @@ func (m MonthModel) renderDetailPanel() string {
 
 	countStr := weekCountStyle.Render(fmt.Sprintf("(%d items)", len(m.detailItems)))
 	sb.WriteString(header + " " + countStr)
-	if m.inDetail {
-		sb.WriteString("  " + navHintStyle.Render("[j/k: navigate] [enter: open] [esc: back]"))
-	}
 	sb.WriteString("\n")
 
 	for i, item := range m.detailItems {

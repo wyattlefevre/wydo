@@ -56,18 +56,15 @@ func (m *InfoBarModel) View() string {
 }
 
 func (m *InfoBarModel) renderModeLine() string {
-	var mode string
-	var hints string
-
 	if m.InputContext == nil {
-		mode = modeStyle.Render("[Normal]")
-		hints = hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  enter:edit  space:toggle")
-	} else {
-		mode = modeStyle.Render("[" + m.InputContext.String() + "]")
-		hints = m.getHintsForMode()
+		return modeStyle.Render("[Normal]")
 	}
+	return modeStyle.Render("[" + m.InputContext.String() + "]")
+}
 
-	return mode + "  " + hints
+// RenderHints returns the styled keybind hints for the current mode.
+func (m *InfoBarModel) RenderHints() string {
+	return m.getHintsForMode()
 }
 
 func (m *InfoBarModel) getHintsForMode() string {

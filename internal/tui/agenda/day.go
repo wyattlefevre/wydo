@@ -12,6 +12,7 @@ import (
 	"wydo/internal/notes"
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/shared"
 )
 
 var (
@@ -142,107 +143,102 @@ func (m DayModel) View() string {
 	// Title line
 	dateStr := m.date.Format("Monday, Jan 2 2006")
 	title := titleStyle.Render(fmt.Sprintf(" Agenda: %s", dateStr))
-	nav := navHintStyle.Render("[h: prev] [t: today] [l: next]")
-
-	titleLine := title
-	padding := m.width - lipgloss.Width(title) - lipgloss.Width(nav) - 1
-	if padding > 0 {
-		titleLine += strings.Repeat(" ", padding) + nav
-	}
-	sb.WriteString(titleLine)
+	sb.WriteString(title)
 	sb.WriteString("\n\n")
 
 	if len(m.items) == 0 {
 		sb.WriteString(emptyStyle.Render("  No items scheduled for this day."))
 		sb.WriteString("\n")
-		return sb.String()
-	}
-
-	// Separate tasks, cards, notes, and completed items from buckets
-	var allTasks, allCards, allNotes, allCompleted []agendapkg.AgendaItem
-	for _, bucket := range m.buckets {
-		allTasks = append(allTasks, bucket.Tasks...)
-		allCards = append(allCards, bucket.Cards...)
-		allNotes = append(allNotes, bucket.Notes...)
-		allCompleted = append(allCompleted, bucket.AllCompletedItems()...)
-	}
-
-	cursorIdx := 0
-
-	// Overdue section
-	if len(m.overdueItems) > 0 {
-		sb.WriteString(overdueHeaderStyle.Render(fmt.Sprintf(" Overdue (%d)", len(m.overdueItems))))
-		sb.WriteString("\n")
-		for _, item := range m.overdueItems {
-			selected := cursorIdx == m.cursor
-			line := RenderItemLine(item, selected, m.width-4)
-			sb.WriteString("   ")
-			sb.WriteString(line)
-			sb.WriteString("\n")
-			cursorIdx++
+	} else {
+		// Separate tasks, cards, notes, and completed items from buckets
+		var allTasks, allCards, allNotes, allCompleted []agendapkg.AgendaItem
+		for _, bucket := range m.buckets {
+			allTasks = append(allTasks, bucket.Tasks...)
+			allCards = append(allCards, bucket.Cards...)
+			allNotes = append(allNotes, bucket.Notes...)
+			allCompleted = append(allCompleted, bucket.AllCompletedItems()...)
 		}
-		sb.WriteString("\n")
-	}
 
-	// Tasks section
-	if len(allTasks) > 0 {
-		sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Tasks (%d)", len(allTasks))))
-		sb.WriteString("\n")
-		for _, item := range allTasks {
-			selected := cursorIdx == m.cursor
-			line := RenderItemLine(item, selected, m.width-4)
-			sb.WriteString("   ")
-			sb.WriteString(line)
+		cursorIdx := 0
+
+		// Overdue section
+		if len(m.overdueItems) > 0 {
+			sb.WriteString(overdueHeaderStyle.Render(fmt.Sprintf(" Overdue (%d)", len(m.overdueItems))))
 			sb.WriteString("\n")
-			cursorIdx++
-		}
-		sb.WriteString("\n")
-	}
-
-	// Cards section
-	if len(allCards) > 0 {
-		sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Cards (%d)", len(allCards))))
-		sb.WriteString("\n")
-		for _, item := range allCards {
-			selected := cursorIdx == m.cursor
-			line := RenderItemLine(item, selected, m.width-4)
-			sb.WriteString("   ")
-			sb.WriteString(line)
+			for _, item := range m.overdueItems {
+				selected := cursorIdx == m.cursor
+				line := RenderItemLine(item, selected, m.width-4)
+				sb.WriteString("   ")
+				sb.WriteString(line)
+				sb.WriteString("\n")
+				cursorIdx++
+			}
 			sb.WriteString("\n")
-			cursorIdx++
 		}
-		sb.WriteString("\n")
-	}
 
-	// Notes section
-	if len(allNotes) > 0 {
-		sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Notes (%d)", len(allNotes))))
-		sb.WriteString("\n")
-		for _, item := range allNotes {
-			selected := cursorIdx == m.cursor
-			line := RenderItemLine(item, selected, m.width-4)
-			sb.WriteString("   ")
-			sb.WriteString(line)
+		// Tasks section
+		if len(allTasks) > 0 {
+			sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Tasks (%d)", len(allTasks))))
 			sb.WriteString("\n")
-			cursorIdx++
-		}
-		sb.WriteString("\n")
-	}
-
-	// Completed section
-	if len(allCompleted) > 0 {
-		header := lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(fmt.Sprintf(" Completed (%d)", len(allCompleted)))
-		sb.WriteString(header)
-		sb.WriteString("\n")
-		for _, item := range allCompleted {
-			selected := cursorIdx == m.cursor
-			line := RenderItemLine(item, selected, m.width-4)
-			sb.WriteString("   ")
-			sb.WriteString(line)
+			for _, item := range allTasks {
+				selected := cursorIdx == m.cursor
+				line := RenderItemLine(item, selected, m.width-4)
+				sb.WriteString("   ")
+				sb.WriteString(line)
+				sb.WriteString("\n")
+				cursorIdx++
+			}
 			sb.WriteString("\n")
-			cursorIdx++
+		}
+
+		// Cards section
+		if len(allCards) > 0 {
+			sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Cards (%d)", len(allCards))))
+			sb.WriteString("\n")
+			for _, item := range allCards {
+				selected := cursorIdx == m.cursor
+				line := RenderItemLine(item, selected, m.width-4)
+				sb.WriteString("   ")
+				sb.WriteString(line)
+				sb.WriteString("\n")
+				cursorIdx++
+			}
+			sb.WriteString("\n")
+		}
+
+		// Notes section
+		if len(allNotes) > 0 {
+			sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Notes (%d)", len(allNotes))))
+			sb.WriteString("\n")
+			for _, item := range allNotes {
+				selected := cursorIdx == m.cursor
+				line := RenderItemLine(item, selected, m.width-4)
+				sb.WriteString("   ")
+				sb.WriteString(line)
+				sb.WriteString("\n")
+				cursorIdx++
+			}
+			sb.WriteString("\n")
+		}
+
+		// Completed section
+		if len(allCompleted) > 0 {
+			header := lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(fmt.Sprintf(" Completed (%d)", len(allCompleted)))
+			sb.WriteString(header)
+			sb.WriteString("\n")
+			for _, item := range allCompleted {
+				selected := cursorIdx == m.cursor
+				line := RenderItemLine(item, selected, m.width-4)
+				sb.WriteString("   ")
+				sb.WriteString(line)
+				sb.WriteString("\n")
+				cursorIdx++
+			}
 		}
 	}
 
-	return sb.String()
+	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center,
+		navHintStyle.Render("[h] prev  [t] today  [l] next  [j/k] navigate  [enter] open"),
+	)
+	return shared.CenterWithBottomHints(sb.String(), hints, m.height)
 }

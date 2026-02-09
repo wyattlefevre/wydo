@@ -21,6 +21,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const maxContentWidth = 120
+
 // AppModel is the root model that dispatches to child views
 type AppModel struct {
 	cfg         *config.Config
@@ -132,14 +134,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		contentHeight := msg.Height - 3 // Reserve space for status bar
-		m.dayView.SetSize(msg.Width, contentHeight)
-		m.weekView.SetSize(msg.Width, contentHeight)
-		m.monthView.SetSize(msg.Width, contentHeight)
+		contentWidth := min(msg.Width, maxContentWidth)
+		m.dayView.SetSize(contentWidth, contentHeight)
+		m.weekView.SetSize(contentWidth, contentHeight)
+		m.monthView.SetSize(contentWidth, contentHeight)
 		m.pickerView.SetSize(msg.Width, contentHeight)
 		if m.boardLoaded {
 			m.boardView.SetSize(msg.Width, contentHeight)
 		}
-		m.taskManagerView.SetSize(msg.Width, contentHeight)
+		m.taskManagerView.SetSize(contentWidth, contentHeight)
 		m.projectsView.SetSize(msg.Width, contentHeight)
 		if m.projectDetailLoaded {
 			m.projectDetailView.SetSize(msg.Width, contentHeight)
@@ -438,14 +441,18 @@ func (m AppModel) View() string {
 	}
 
 	var content string
+	centerContent := false
 
 	switch m.currentView {
 	case ViewAgendaDay:
 		content = m.dayView.View()
+		centerContent = true
 	case ViewAgendaWeek:
 		content = m.weekView.View()
+		centerContent = true
 	case ViewAgendaMonth:
 		content = m.monthView.View()
+		centerContent = true
 	case ViewKanbanPicker:
 		content = m.pickerView.View()
 	case ViewKanbanBoard:
@@ -456,6 +463,7 @@ func (m AppModel) View() string {
 		}
 	case ViewTaskManager:
 		content = m.taskManagerView.View()
+		centerContent = true
 	case ViewProjects:
 		content = m.projectsView.View()
 	case ViewProjectDetail:
@@ -464,6 +472,15 @@ func (m AppModel) View() string {
 		} else {
 			content = m.renderPlaceholder("Project Detail", "No project loaded")
 		}
+	}
+
+	if centerContent && m.width > maxContentWidth {
+		leftPad := strings.Repeat(" ", (m.width-maxContentWidth)/2)
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			lines[i] = leftPad + line
+		}
+		content = strings.Join(lines, "\n")
 	}
 
 	// Status bar — show different hints based on view

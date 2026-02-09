@@ -12,6 +12,7 @@ import (
 	"wydo/internal/notes"
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/shared"
 )
 
 var (
@@ -156,77 +157,29 @@ func (m WeekModel) View() string {
 	// Title line
 	titleStr := fmt.Sprintf(" Week: %s - %s", start.Format("Jan 2"), end.Format("Jan 2 2006"))
 	title := titleStyle.Render(titleStr)
-	nav := navHintStyle.Render("[h: prev] [t: today] [l: next]")
-
-	titleLine := title
-	padding := m.width - lipgloss.Width(title) - lipgloss.Width(nav) - 1
-	if padding > 0 {
-		titleLine += strings.Repeat(" ", padding) + nav
-	}
-	sb.WriteString(titleLine)
+	sb.WriteString(title)
 	sb.WriteString("\n\n")
 
 	if len(m.allItems) == 0 {
 		sb.WriteString(emptyStyle.Render("  No items scheduled for this week."))
 		sb.WriteString("\n")
-		return sb.String()
-	}
+	} else {
+		// Build a map of date -> bucket for rendering
+		bucketMap := make(map[string]*agendapkg.DateBucket)
+		for i := range m.buckets {
+			key := m.buckets[i].Date.Format("2006-01-02")
+			b := m.buckets[i]
+			bucketMap[key] = &b
+		}
 
-	// Build a map of date -> bucket for rendering
-	bucketMap := make(map[string]*agendapkg.DateBucket)
-	for i := range m.buckets {
-		key := m.buckets[i].Date.Format("2006-01-02")
-		b := m.buckets[i]
-		bucketMap[key] = &b
-	}
+		today := time.Now()
+		globalIdx := 0
 
-	today := time.Now()
-	globalIdx := 0
-
-	// Overdue section
-	if len(m.overdueItems) > 0 {
-		sb.WriteString(overdueHeaderStyle.Render(fmt.Sprintf(" Overdue (%d)", len(m.overdueItems))))
-		sb.WriteString("\n")
-		for _, item := range m.overdueItems {
-			selected := globalIdx == m.cursor
-			line := RenderItemLine(item, selected, m.width-6)
-			sb.WriteString("     ")
-			sb.WriteString(line)
+		// Overdue section
+		if len(m.overdueItems) > 0 {
+			sb.WriteString(overdueHeaderStyle.Render(fmt.Sprintf(" Overdue (%d)", len(m.overdueItems))))
 			sb.WriteString("\n")
-			globalIdx++
-		}
-		sb.WriteString("\n")
-	}
-
-	for d := 0; d < 7; d++ {
-		day := start.AddDate(0, 0, d)
-		key := day.Format("2006-01-02")
-		isToday := day.Year() == today.Year() && day.Month() == today.Month() && day.Day() == today.Day()
-
-		bucket := bucketMap[key]
-		count := 0
-		if bucket != nil {
-			count = bucket.TotalCount()
-		}
-
-		// Day header
-		dayName := day.Format("Mon Jan 2")
-		countStr := weekCountStyle.Render(fmt.Sprintf("(%d)", count))
-
-		if isToday {
-			sb.WriteString(weekTodayStyle.Render(" " + dayName + " (today)"))
-		} else {
-			sb.WriteString(weekDayHeaderStyle.Render(" " + dayName))
-		}
-		if count > 0 {
-			sb.WriteString(" " + countStr)
-		}
-		sb.WriteString("\n")
-
-		// Render items for this day
-		if bucket != nil {
-			items := bucket.AllItems()
-			for _, item := range items {
+			for _, item := range m.overdueItems {
 				selected := globalIdx == m.cursor
 				line := RenderItemLine(item, selected, m.width-6)
 				sb.WriteString("     ")
@@ -234,13 +187,56 @@ func (m WeekModel) View() string {
 				sb.WriteString("\n")
 				globalIdx++
 			}
+			sb.WriteString("\n")
 		}
 
-		// Add spacing between days unless it's the last
-		if d < 6 {
+		for d := 0; d < 7; d++ {
+			day := start.AddDate(0, 0, d)
+			key := day.Format("2006-01-02")
+			isToday := day.Year() == today.Year() && day.Month() == today.Month() && day.Day() == today.Day()
+
+			bucket := bucketMap[key]
+			count := 0
+			if bucket != nil {
+				count = bucket.TotalCount()
+			}
+
+			// Day header
+			dayName := day.Format("Mon Jan 2")
+			countStr := weekCountStyle.Render(fmt.Sprintf("(%d)", count))
+
+			if isToday {
+				sb.WriteString(weekTodayStyle.Render(" " + dayName + " (today)"))
+			} else {
+				sb.WriteString(weekDayHeaderStyle.Render(" " + dayName))
+			}
+			if count > 0 {
+				sb.WriteString(" " + countStr)
+			}
 			sb.WriteString("\n")
+
+			// Render items for this day
+			if bucket != nil {
+				items := bucket.AllItems()
+				for _, item := range items {
+					selected := globalIdx == m.cursor
+					line := RenderItemLine(item, selected, m.width-6)
+					sb.WriteString("     ")
+					sb.WriteString(line)
+					sb.WriteString("\n")
+					globalIdx++
+				}
+			}
+
+			// Add spacing between days unless it's the last
+			if d < 6 {
+				sb.WriteString("\n")
+			}
 		}
 	}
 
-	return sb.String()
+	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center,
+		navHintStyle.Render("[h] prev  [t] today  [l] next  [j/k] navigate  [enter] open"),
+	)
+	return shared.CenterWithBottomHints(sb.String(), hints, m.height)
 }

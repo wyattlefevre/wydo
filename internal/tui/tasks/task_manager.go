@@ -282,18 +282,6 @@ func (m TaskManagerModel) View() string {
 	if m.searchActive {
 		searchLine := searchStyle.Render("/") + m.searchInput.View()
 		b.WriteString(searchLine)
-		// Show mode-appropriate help
-		var help string
-		if m.searchFilterMode {
-			help = "  [enter] done  [esc] clear"
-		} else {
-			if m.filterState.SearchQuery != "" {
-				help = "  [/] filter  [j/k] navigate  [enter] done  [esc] clear"
-			} else {
-				help = "  [/] filter  [j/k] navigate  [enter] done  [esc] cancel"
-			}
-		}
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(help))
 		b.WriteString("\n")
 	}
 
@@ -304,7 +292,25 @@ func (m TaskManagerModel) View() string {
 		b.WriteString(m.renderFlatTasks())
 	}
 
-	return b.String()
+	// Compute hints for bottom
+	var hintsText string
+	if m.searchActive {
+		if m.searchFilterMode {
+			hintsText = "[enter] done  [esc] clear"
+		} else {
+			if m.filterState.SearchQuery != "" {
+				hintsText = "[/] filter  [j/k] navigate  [enter] done  [esc] clear"
+			} else {
+				hintsText = "[/] filter  [j/k] navigate  [enter] done  [esc] cancel"
+			}
+		}
+		hintsText = hintStyle.Render(hintsText)
+	} else {
+		hintsText = m.infoBar.RenderHints()
+	}
+	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, hintsText)
+
+	return shared.CenterWithBottomHints(b.String(), hints, m.height)
 }
 
 func (m *TaskManagerModel) renderFlatTasks() string {
