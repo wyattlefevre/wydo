@@ -23,15 +23,16 @@ var (
 
 // DayModel is the day agenda view
 type DayModel struct {
-	date        time.Time
-	buckets     []agendapkg.DateBucket
-	taskSvc     service.TaskService
-	boards      []kanbanmodels.Board
-	notes       []notes.Note
-	items       []agendapkg.AgendaItem // flattened items for cursor navigation
-	cursor      int
-	width       int
-	height      int
+	date         time.Time
+	buckets      []agendapkg.DateBucket
+	overdueItems []agendapkg.AgendaItem
+	taskSvc      service.TaskService
+	boards       []kanbanmodels.Board
+	notes        []notes.Note
+	items        []agendapkg.AgendaItem // flattened items for cursor navigation
+	cursor       int
+	width        int
+	height       int
 }
 
 // NewDayModel creates a new day agenda view
@@ -49,9 +50,11 @@ func NewDayModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 func (m *DayModel) refreshData() {
 	dateRange := agendapkg.DayRange(m.date)
 	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
+	m.overdueItems = agendapkg.QueryOverdueItems(m.taskSvc, m.boards, dateRange.Start)
 
-	// Flatten items for cursor navigation
+	// Flatten items for cursor navigation: overdue first, then regular
 	m.items = nil
+	m.items = append(m.items, m.overdueItems...)
 	for _, bucket := range m.buckets {
 		m.items = append(m.items, bucket.AllItems()...)
 	}
@@ -161,6 +164,21 @@ func (m DayModel) View() string {
 	}
 
 	cursorIdx := 0
+
+	// Overdue section
+	if len(m.overdueItems) > 0 {
+		sb.WriteString(overdueHeaderStyle.Render(fmt.Sprintf(" Overdue (%d)", len(m.overdueItems))))
+		sb.WriteString("\n")
+		for _, item := range m.overdueItems {
+			selected := cursorIdx == m.cursor
+			line := RenderItemLine(item, selected, m.width-4)
+			sb.WriteString("   ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+			cursorIdx++
+		}
+		sb.WriteString("\n")
+	}
 
 	// Tasks section
 	if len(allTasks) > 0 {

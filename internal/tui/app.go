@@ -35,8 +35,10 @@ type AppModel struct {
 	pickerView  kanbanview.PickerModel
 	boardView   kanbanview.BoardModel
 	boardLoaded bool // true when boardView has a valid board
-	taskManagerView taskview.TaskManagerModel
-	projectsView   projectsview.ProjectsModel
+	taskManagerView    taskview.TaskManagerModel
+	projectsView      projectsview.ProjectsModel
+	projectDetailView projectsview.DetailModel
+	projectDetailLoaded bool
 	showHelp    bool
 	width       int
 	height      int
@@ -101,7 +103,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes),
 		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
 		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces),
-		projectsView:   projectsview.NewProjectsModel(),
+		projectsView:   projectsview.NewProjectsModel(workspaces),
 	}
 
 	// If a specific board was requested, find and open it directly
@@ -139,6 +141,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.taskManagerView.SetSize(msg.Width, contentHeight)
 		m.projectsView.SetSize(msg.Width, contentHeight)
+		if m.projectDetailLoaded {
+			m.projectDetailView.SetSize(msg.Width, contentHeight)
+		}
 		return m, nil
 
 	case OpenBoardMsg:
@@ -155,6 +160,27 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.boardLoaded = true
 		m.currentView = ViewKanbanBoard
+		return m, nil
+
+	case OpenProjectMsg:
+		// Find workspace by RootDir
+		for _, ws := range m.workspaces {
+			if ws.RootDir == msg.WorkspaceRootDir {
+				proj := ws.Projects.Get(msg.ProjectName)
+				projNotes := ws.Projects.NotesForProject(msg.ProjectName, ws.Notes)
+				projTasks := ws.Projects.TasksForProject(msg.ProjectName, ws.Tasks)
+				projCards := ws.Projects.CardsForProject(msg.ProjectName, ws.Boards)
+				m.projectDetailView = projectsview.NewDetailModel(
+					msg.ProjectName, msg.WorkspaceRootDir,
+					projNotes, projTasks, projCards,
+				)
+				_ = proj // proj used for future enhancements
+				m.projectDetailView.SetSize(m.width, m.height-3)
+				m.projectDetailLoaded = true
+				m.currentView = ViewProjectDetail
+				break
+			}
+		}
 		return m, nil
 
 	case SwitchViewMsg:
@@ -174,7 +200,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshData()
 			m.pickerView.SetBoards(m.boards)
 		case ViewProjects:
-			// No data to refresh yet
+			m.refreshData()
+			m.projectsView.SetData(m.workspaces)
 		}
 		return m, nil
 
@@ -205,6 +232,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DataRefreshMsg:
 		m.refreshData()
+		if m.currentView == ViewProjects {
+			m.projectsView.SetData(m.workspaces)
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -224,6 +254,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "P":
 				m.currentView = ViewProjects
+				m.refreshData()
+				m.projectsView.SetData(m.workspaces)
 				return m, nil
 			case "B":
 				m.currentView = ViewKanbanPicker
@@ -246,10 +278,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// For board/picker views and task manager in modal state,
 		// let the child view handle all keys.
-		if m.currentView == ViewKanbanBoard || m.currentView == ViewKanbanPicker {
+		if m.currentView == ViewKanbanBoard || m.currentView == ViewKanbanPicker || m.currentView == ViewProjectDetail {
 			// Don't intercept keys — let child view handle everything
 		} else if m.currentView == ViewTaskManager && m.taskManagerView.IsInModalState() {
 			// Task manager is in a modal state (editor, picker, search, etc.)
+			// Let it handle all keys
+		} else if m.currentView == ViewProjects && m.projectsView.IsTyping() {
+			// Projects view has active text input (search, create, rename)
 			// Let it handle all keys
 		} else {
 			// Global navigation keys for agenda/task views
@@ -278,6 +313,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "p":
 				m.currentView = ViewProjects
+				m.refreshData()
+				m.projectsView.SetData(m.workspaces)
 				return m, nil
 			case "?":
 				m.showHelp = true
@@ -312,6 +349,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ViewProjects:
 		m.projectsView, cmd = m.projectsView.Update(msg)
 		return m, cmd
+	case ViewProjectDetail:
+		if m.projectDetailLoaded {
+			m.projectDetailView, cmd = m.projectDetailView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -322,6 +364,7 @@ func (m *AppModel) refreshData() {
 	var allBoards []kanbanmodels.Board
 	var allNotes []notes.Note
 	var allTaskDirs []scanner.TaskDirInfo
+	var freshWorkspaces []*workspace.Workspace
 
 	for _, wsDir := range m.cfg.Workspaces {
 		scan, err := scanner.ScanWorkspace(wsDir)
@@ -332,11 +375,13 @@ func (m *AppModel) refreshData() {
 		if err != nil {
 			continue
 		}
+		freshWorkspaces = append(freshWorkspaces, ws)
 		allBoards = append(allBoards, ws.Boards...)
 		allNotes = append(allNotes, ws.Notes...)
 		allTaskDirs = append(allTaskDirs, scan.TaskDirs...)
 	}
 
+	m.workspaces = freshWorkspaces
 	m.boards = allBoards
 	m.allNotes = allNotes
 
@@ -357,6 +402,10 @@ func (m *AppModel) isChildInputActive() bool {
 		return m.pickerView.IsTyping()
 	case ViewTaskManager:
 		return m.taskManagerView.IsInModalState()
+	case ViewProjects:
+		return m.projectsView.IsTyping()
+	case ViewProjectDetail:
+		return m.projectDetailView.IsModal()
 	default:
 		return false
 	}
@@ -403,6 +452,12 @@ func (m AppModel) View() string {
 		content = m.taskManagerView.View()
 	case ViewProjects:
 		content = m.projectsView.View()
+	case ViewProjectDetail:
+		if m.projectDetailLoaded {
+			content = m.projectDetailView.View()
+		} else {
+			content = m.renderPlaceholder("Project Detail", "No project loaded")
+		}
 	}
 
 	// Status bar — show different hints based on view
@@ -416,6 +471,8 @@ func (m AppModel) View() string {
 		statusText = "Task manager | 1:day 2:week 3:month | B:boards P:projects A:agenda | ?:help | q:quit"
 	case ViewProjects:
 		statusText = "Projects | 1:day 2:week 3:month | B:boards T:tasks A:agenda | ?:help | q:quit"
+	case ViewProjectDetail:
+		statusText = "Project detail | tab/1/2/3: sections | esc/q: back to projects | P:projects A:agenda T:tasks"
 	default:
 		statusText = "1:day 2:week 3:month | B:boards T:tasks P:projects | ?:help | q:quit"
 	}

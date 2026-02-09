@@ -236,6 +236,165 @@ func TestQueryAgenda_EmptyResult(t *testing.T) {
 	}
 }
 
+// --- QueryOverdueItems tests ---
+
+func TestQueryOverdueItems_BasicTask(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Past due task", Tags: map[string]string{"due": "2026-02-01"}},
+			{ID: "t2", Name: "Today task", Tags: map[string]string{"due": "2026-02-06"}},
+			{ID: "t3", Name: "Future task", Tags: map[string]string{"due": "2026-02-10"}},
+		},
+	}
+
+	// Cutoff is Feb 6 — only Feb 1 is strictly before
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Task.Name != "Past due task" {
+		t.Errorf("expected 'Past due task', got '%s'", items[0].Task.Name)
+	}
+	if items[0].Reason != ReasonDue {
+		t.Errorf("expected ReasonDue, got %v", items[0].Reason)
+	}
+}
+
+func TestQueryOverdueItems_ScheduledDateExcluded(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Scheduled only", Tags: map[string]string{"scheduled": "2026-02-01"}},
+			{ID: "t2", Name: "Due and scheduled", Tags: map[string]string{"due": "2026-02-01", "scheduled": "2026-02-01"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	// Only the task with a due date should appear (not scheduled-only)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Task.Name != "Due and scheduled" {
+		t.Errorf("expected 'Due and scheduled', got '%s'", items[0].Task.Name)
+	}
+}
+
+func TestQueryOverdueItems_DoneTasksExcluded(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Pending overdue", Tags: map[string]string{"due": "2026-02-01"}},
+			{ID: "t2", Name: "Done overdue", Done: true, Tags: map[string]string{"due": "2026-02-01"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Task.Name != "Pending overdue" {
+		t.Errorf("expected 'Pending overdue', got '%s'", items[0].Task.Name)
+	}
+}
+
+func TestQueryOverdueItems_Cards(t *testing.T) {
+	boards := []kanbanmodels.Board{
+		{
+			Name: "Sprint",
+			Path: "/boards/sprint",
+			Columns: []kanbanmodels.Column{
+				{
+					Name: "In Progress",
+					Cards: []kanbanmodels.Card{
+						{Title: "Overdue card", DueDate: datePtr(2026, 2, 1)},
+						{Title: "Current card", DueDate: datePtr(2026, 2, 6)},
+					},
+				},
+				{
+					Name: "Done",
+					Cards: []kanbanmodels.Card{
+						{Title: "Done card", DueDate: datePtr(2026, 2, 1)},
+					},
+				},
+			},
+		},
+	}
+
+	items := QueryOverdueItems(nil, boards, date(2026, 2, 6))
+
+	// Only the "In Progress" overdue card, not the "Done" card or current card
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Card.Title != "Overdue card" {
+		t.Errorf("expected 'Overdue card', got '%s'", items[0].Card.Title)
+	}
+	if items[0].BoardName != "Sprint" {
+		t.Errorf("expected board 'Sprint', got '%s'", items[0].BoardName)
+	}
+}
+
+func TestQueryOverdueItems_SortOrder(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Recent overdue", Tags: map[string]string{"due": "2026-02-04"}},
+			{ID: "t2", Name: "Oldest overdue", Tags: map[string]string{"due": "2026-01-20"}},
+			{ID: "t3", Name: "Mid overdue", Tags: map[string]string{"due": "2026-01-28"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	if len(items) != 3 {
+		t.Fatalf("expected 3 overdue items, got %d", len(items))
+	}
+	// Should be sorted oldest first
+	if items[0].Task.Name != "Oldest overdue" {
+		t.Errorf("expected 'Oldest overdue' first, got '%s'", items[0].Task.Name)
+	}
+	if items[1].Task.Name != "Mid overdue" {
+		t.Errorf("expected 'Mid overdue' second, got '%s'", items[1].Task.Name)
+	}
+	if items[2].Task.Name != "Recent overdue" {
+		t.Errorf("expected 'Recent overdue' third, got '%s'", items[2].Task.Name)
+	}
+}
+
+func TestQueryOverdueItems_BoundaryDate(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Day before", Tags: map[string]string{"due": "2026-02-05"}},
+			{ID: "t2", Name: "Cutoff day", Tags: map[string]string{"due": "2026-02-06"}},
+			{ID: "t3", Name: "Day after", Tags: map[string]string{"due": "2026-02-07"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	// Only "Day before" is strictly before cutoff
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Task.Name != "Day before" {
+		t.Errorf("expected 'Day before', got '%s'", items[0].Task.Name)
+	}
+}
+
+func TestQueryOverdueItems_Empty(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Future task", Tags: map[string]string{"due": "2026-02-10"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	if len(items) != 0 {
+		t.Fatalf("expected 0 overdue items, got %d", len(items))
+	}
+}
+
 func TestQueryAgenda_TaskWithBothDates(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{

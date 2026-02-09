@@ -13,6 +13,7 @@ const (
 	ViewKanbanBoard
 	ViewTaskManager
 	ViewProjects
+	ViewProjectDetail
 )
 
 // SwitchViewMsg is sent by child views to switch to a different view
@@ -30,6 +31,12 @@ type OpenBoardMsg struct {
 // FocusTaskMsg requests focusing on a specific task in the task manager
 type FocusTaskMsg struct {
 	TaskID string
+}
+
+// OpenProjectMsg requests opening a specific project detail view
+type OpenProjectMsg struct {
+	ProjectName     string
+	WorkspaceRootDir string
 }
 
 // DataRefreshMsg signals that data should be reloaded

@@ -22,16 +22,17 @@ var (
 
 // WeekModel is the week agenda view
 type WeekModel struct {
-	date       time.Time // any date in the week being viewed
-	buckets    []agendapkg.DateBucket
-	allItems   []agendapkg.AgendaItem // flattened items across all days
-	dayOffsets []int                   // index into allItems where each day starts
-	taskSvc    service.TaskService
-	boards     []kanbanmodels.Board
-	notes      []notes.Note
-	cursor     int
-	width      int
-	height     int
+	date         time.Time // any date in the week being viewed
+	buckets      []agendapkg.DateBucket
+	overdueItems []agendapkg.AgendaItem
+	allItems     []agendapkg.AgendaItem // flattened items across all days
+	dayOffsets   []int                   // index into allItems where each day starts
+	taskSvc      service.TaskService
+	boards       []kanbanmodels.Board
+	notes        []notes.Note
+	cursor       int
+	width        int
+	height       int
 }
 
 // NewWeekModel creates a new week agenda view
@@ -49,6 +50,7 @@ func NewWeekModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allN
 func (m *WeekModel) refreshData() {
 	dateRange := agendapkg.WeekRange(m.date)
 	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
+	m.overdueItems = agendapkg.QueryOverdueItems(m.taskSvc, m.boards, dateRange.Start)
 
 	// Build a map of date -> bucket for fast lookup
 	bucketMap := make(map[string]*agendapkg.DateBucket)
@@ -58,8 +60,10 @@ func (m *WeekModel) refreshData() {
 		bucketMap[key] = &m.buckets[i]
 	}
 
-	// Build flattened item list and day offsets for the 7 days
+	// Build flattened item list: overdue first, then day offsets for the 7 days
 	m.allItems = nil
+	m.allItems = append(m.allItems, m.overdueItems...)
+
 	m.dayOffsets = make([]int, 7)
 	start := agendapkg.WeekRange(m.date).Start
 
@@ -177,6 +181,21 @@ func (m WeekModel) View() string {
 
 	today := time.Now()
 	globalIdx := 0
+
+	// Overdue section
+	if len(m.overdueItems) > 0 {
+		sb.WriteString(overdueHeaderStyle.Render(fmt.Sprintf(" Overdue (%d)", len(m.overdueItems))))
+		sb.WriteString("\n")
+		for _, item := range m.overdueItems {
+			selected := globalIdx == m.cursor
+			line := RenderItemLine(item, selected, m.width-6)
+			sb.WriteString("     ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+			globalIdx++
+		}
+		sb.WriteString("\n")
+	}
 
 	for d := 0; d < 7; d++ {
 		day := start.AddDate(0, 0, d)

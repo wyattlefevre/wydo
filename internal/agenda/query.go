@@ -85,6 +85,71 @@ func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 	return buckets
 }
 
+// QueryOverdueItems returns tasks and cards with due dates strictly before the cutoff date.
+// Only due dates count as overdue (not scheduled dates). Notes are excluded.
+// Results are sorted by date ascending (oldest first).
+func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board, cutoff time.Time) []AgendaItem {
+	cutoffDay := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.Local)
+	var items []AgendaItem
+
+	// Scan tasks
+	if taskSvc != nil {
+		if tasks, err := taskSvc.ListPending(); err == nil {
+			for i := range tasks {
+				task := &tasks[i]
+				if dueStr := task.GetDueDate(); dueStr != "" {
+					if dueDate, err := time.Parse("2006-01-02", dueStr); err == nil {
+						d := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), 0, 0, 0, 0, time.Local)
+						if d.Before(cutoffDay) {
+							items = append(items, AgendaItem{
+								Source: SourceTask,
+								Reason: ReasonDue,
+								Date:   dueDate,
+								Task:   task,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Scan cards from boards
+	for _, board := range boards {
+		for colIdx, col := range board.Columns {
+			if strings.EqualFold(col.Name, "done") {
+				continue
+			}
+			for cardIdx := range col.Cards {
+				card := &col.Cards[cardIdx]
+				if card.DueDate != nil {
+					dueDate := *card.DueDate
+					d := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), 0, 0, 0, 0, time.Local)
+					if d.Before(cutoffDay) {
+						items = append(items, AgendaItem{
+							Source:     SourceCard,
+							Reason:     ReasonDue,
+							Date:       dueDate,
+							Card:       card,
+							BoardName:  board.Name,
+							BoardPath:  board.Path,
+							ColumnName: col.Name,
+							ColIndex:   colIdx,
+							CardIndex:  cardIdx,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Date.Before(items[j].Date)
+	})
+
+	return items
+}
+
 func addTaskItems(task *data.Task, dateRange DateRange, bucketMap map[string]*DateBucket) {
 	// Check due date
 	if dueStr := task.GetDueDate(); dueStr != "" {

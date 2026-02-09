@@ -17,9 +17,10 @@ var (
 	colorProject = lipgloss.Color("6")
 	colorBoard   = lipgloss.Color("5")
 
-	reasonDueStyle   = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
-	reasonSchedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	reasonNoteStyle  = lipgloss.NewStyle().Foreground(colorMuted)
+	reasonDueStyle      = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
+	reasonSchedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	reasonNoteStyle     = lipgloss.NewStyle().Foreground(colorMuted)
+	overdueHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorDanger)
 	projectStyle     = lipgloss.NewStyle().Foreground(colorProject)
 	boardInfoStyle   = lipgloss.NewStyle().Foreground(colorBoard)
 	notePathStyle    = lipgloss.NewStyle().Foreground(colorMuted)
@@ -141,5 +142,11 @@ func formatReasonDate(item agendapkg.AgendaItem) string {
 		style = lipgloss.NewStyle().Foreground(colorDanger)
 	}
 
-	return style.Render(fmt.Sprintf("%s %s", reason, relStr))
+	label := fmt.Sprintf("%s %s", reason, relStr)
+	// For items 7+ days overdue, append the absolute date
+	if daysUntil <= -7 {
+		label += " " + targetDate.Format("Jan 2")
+	}
+
+	return style.Render(label)
 }

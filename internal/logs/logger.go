@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,33 +14,24 @@ var (
 	mu      sync.Mutex
 )
 
-// This runs automatically when the package is imported.
-// Creates a logger in the current directory as a fallback.
+// Logger is off (discards output) by default.
 func init() {
-	f, err := os.OpenFile("debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatalf("failed to open debug file: %v", err)
-	}
-	logFile = f
-	Logger = log.New(f, "[wydo] ", log.LstdFlags|log.Lshortfile)
+	Logger = log.New(io.Discard, "[wydo] ", log.LstdFlags|log.Lshortfile)
 }
 
-// Initialize reinitializes the logger to write to a new directory.
+// Initialize enables logging to /tmp/wydo-debug.log, or to a file inside
+// logDir if provided.
 func Initialize(logDir string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if logDir == "" || logDir == "." {
-		return nil
+	logPath := filepath.Join("/tmp", "wydo-debug.log")
+	if logDir != "" && logDir != "." {
+		logPath = filepath.Join(logDir, "debug.log")
 	}
-
-	logPath := filepath.Join(logDir, "debug.log")
-
-	Logger.Printf("Reinitializing logger to: %s", logPath)
 
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		Logger.Printf("Failed to open new log file at %s: %v", logPath, err)
 		return err
 	}
 
@@ -50,7 +42,7 @@ func Initialize(logDir string) error {
 	logFile = f
 	Logger = log.New(f, "[wydo] ", log.LstdFlags|log.Lshortfile)
 
-	Logger.Printf("Logger successfully reinitialized to: %s", logPath)
+	Logger.Printf("Logger initialized: %s", logPath)
 
 	return nil
 }

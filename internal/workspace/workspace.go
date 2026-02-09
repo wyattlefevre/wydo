@@ -1,6 +1,9 @@
 package workspace
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"wydo/internal/kanban/fs"
@@ -63,6 +66,162 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 	ws.Projects = BuildProjectRegistry(scan, ws.Tasks, ws.Boards)
 
 	return ws, nil
+}
+
+// RenameProject renames a project, updating the directory on disk (if physical),
+// all task +tag references, and all card frontmatter project references.
+func (ws *Workspace) RenameProject(oldName, newName string) error {
+	// Validate old project exists
+	project := ws.Projects.Get(oldName)
+	if project == nil {
+		return fmt.Errorf("project %q not found", oldName)
+	}
+
+	// Check if the target project already exists (merge case)
+	targetProject := ws.Projects.Get(newName)
+
+	// Handle directory logic
+	if project.DirPath != "" {
+		if targetProject == nil || targetProject.DirPath == "" {
+			// Source has dir, target has no dir: simple rename
+			parentDir := filepath.Dir(project.DirPath)
+			newPath := filepath.Join(parentDir, newName)
+			if err := os.Rename(project.DirPath, newPath); err != nil {
+				return fmt.Errorf("rename directory: %w", err)
+			}
+		} else {
+			// Both have dirs: merge source into target, then remove source
+			if err := mergeDirs(project.DirPath, targetProject.DirPath); err != nil {
+				return fmt.Errorf("merge directories: %w", err)
+			}
+		}
+	}
+
+	// Update task +tag references
+	modified := false
+	for i := range ws.Tasks {
+		if ws.Tasks[i].HasProject(oldName) {
+			ws.Tasks[i].RemoveProject(oldName)
+			ws.Tasks[i].AddProject(newName)
+			modified = true
+		}
+	}
+	if modified {
+		if err := data.WriteAllTasks(ws.Tasks); err != nil {
+			return fmt.Errorf("write tasks: %w", err)
+		}
+		if ws.TaskSvc != nil {
+			if err := ws.TaskSvc.Reload(); err != nil {
+				return fmt.Errorf("reload tasks: %w", err)
+			}
+		}
+	}
+
+	// Update card frontmatter project references (with dedup for merge case)
+	for bi := range ws.Boards {
+		for ci := range ws.Boards[bi].Columns {
+			for cdi := range ws.Boards[bi].Columns[ci].Cards {
+				card := &ws.Boards[bi].Columns[ci].Cards[cdi]
+				hasOld := false
+				hasNew := false
+				for _, p := range card.Projects {
+					if strings.EqualFold(p, oldName) {
+						hasOld = true
+					}
+					if strings.EqualFold(p, newName) {
+						hasNew = true
+					}
+				}
+				if !hasOld {
+					continue
+				}
+				if hasNew {
+					// Card already references target — just remove the old name
+					filtered := card.Projects[:0]
+					for _, p := range card.Projects {
+						if !strings.EqualFold(p, oldName) {
+							filtered = append(filtered, p)
+						}
+					}
+					card.Projects = filtered
+				} else {
+					// Replace old with new
+					for pi, p := range card.Projects {
+						if strings.EqualFold(p, oldName) {
+							card.Projects[pi] = newName
+							break
+						}
+					}
+				}
+				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", card.Filename)
+				if err := fs.WriteCard(*card, cardPath); err != nil {
+					return fmt.Errorf("write card %s: %w", card.Filename, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// mergeDirs recursively merges the contents of src into dst.
+// For directory entries: if dst/<name> exists as a dir, recurse; otherwise rename the subtree.
+// For file entries: if both are .txt files, append src contents to dst; otherwise rename (skip if dst exists).
+// After all entries are moved, removes the (now-empty) src directory.
+func mergeDirs(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if info, err := os.Stat(dstPath); err == nil && info.IsDir() {
+				// Both are directories — recurse
+				if err := mergeDirs(srcPath, dstPath); err != nil {
+					return err
+				}
+			} else {
+				// Target doesn't exist or isn't a dir — move whole subtree
+				if err := os.Rename(srcPath, dstPath); err != nil {
+					return err
+				}
+			}
+		} else {
+			// File entry
+			if _, err := os.Stat(dstPath); err == nil {
+				// Destination file exists
+				if strings.HasSuffix(entry.Name(), ".txt") {
+					// Both are .txt — append src contents to dst
+					srcData, err := os.ReadFile(srcPath)
+					if err != nil {
+						return err
+					}
+					f, err := os.OpenFile(dstPath, os.O_APPEND|os.O_WRONLY, 0644)
+					if err != nil {
+						return err
+					}
+					if _, err := f.Write(srcData); err != nil {
+						f.Close()
+						return err
+					}
+					f.Close()
+					if err := os.Remove(srcPath); err != nil {
+						return err
+					}
+				}
+				// Non-txt file already exists at dst — skip to avoid data loss
+			} else {
+				// Destination doesn't exist — move the file
+				if err := os.Rename(srcPath, dstPath); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	// Remove the now-empty source directory
+	return os.Remove(src)
 }
 
 // Project represents a discovered project
@@ -160,6 +319,49 @@ func (r *ProjectRegistry) TasksForProject(name string, allTasks []data.Task) []d
 		}
 	}
 	return result
+}
+
+// NotesForProject returns notes whose FilePath is under the project's directory.
+// Returns nil for virtual projects (no DirPath).
+func (r *ProjectRegistry) NotesForProject(name string, allNotes []notes.Note) []notes.Note {
+	proj := r.projects[name]
+	if proj == nil || proj.DirPath == "" {
+		return nil
+	}
+	prefix := proj.DirPath + "/"
+	var result []notes.Note
+	for _, n := range allNotes {
+		if strings.HasPrefix(n.FilePath, prefix) {
+			result = append(result, n)
+		}
+	}
+	return result
+}
+
+// ProjectsDirs collects unique parent directories of existing project DirPaths
+// where filepath.Base(parent) == "projects". Always includes <workspaceRoot>/projects/
+// as a fallback.
+func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
+	seen := make(map[string]bool)
+	var dirs []string
+
+	for _, p := range r.projects {
+		if p.DirPath == "" {
+			continue
+		}
+		parent := filepath.Dir(p.DirPath)
+		if filepath.Base(parent) == "projects" && !seen[parent] {
+			seen[parent] = true
+			dirs = append(dirs, parent)
+		}
+	}
+
+	fallback := filepath.Join(workspaceRoot, "projects")
+	if !seen[fallback] {
+		dirs = append(dirs, fallback)
+	}
+
+	return dirs
 }
 
 // CardsForProject returns cards linked to a specific project across all boards

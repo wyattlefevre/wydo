@@ -285,7 +285,7 @@ func FirstTagIndex(s string) int {
 }
 
 func ParseProjects(s string) []string {
-	re := regexp.MustCompile(`[ \t]\+[A-Za-z0-9]+`)
+	re := regexp.MustCompile(`[ \t]\+[A-Za-z0-9][A-Za-z0-9_-]*`)
 	matches := re.FindAllString(s, -1)
 	for i, m := range matches {
 		matches[i] = m[2:]
