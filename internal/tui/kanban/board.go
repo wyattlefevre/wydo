@@ -11,6 +11,7 @@ import (
 	"wydo/internal/kanban/models"
 	"wydo/internal/kanban/operations"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/shared"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,8 +48,8 @@ type BoardModel struct {
 	projectPicker          *ProjectPickerModel
 	columnEditor           *ColumnEditorModel
 	urlInput               *URLInputModel
-	dueDatePicker          *DatePickerModel
-	scheduledDatePicker    *DatePickerModel
+	dueDatePicker          *shared.DatePickerModel
+	scheduledDatePicker    *shared.DatePickerModel
 	priorityInput          *PriorityInputModel
 	columnScrollOffsets    []int // scroll position (card index) for each column
 	columnCursorPos        []int // cursor position (card index) for each column
@@ -690,7 +691,7 @@ func (m BoardModel) updateURLInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 func (m BoardModel) handleDueDateEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
-	datePickerModel := NewDatePickerModel(currentCard.DueDate, "Due Date")
+	datePickerModel := shared.NewDatePickerModel(currentCard.DueDate, "Due Date")
 	datePickerModel.SetSize(m.width, m.height)
 	m.dueDatePicker = &datePickerModel
 	m.mode = boardModeDueDateEdit
@@ -740,7 +741,7 @@ func (m BoardModel) updateDueDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 func (m BoardModel) handleScheduledDateEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
-	datePickerModel := NewDatePickerModel(currentCard.ScheduledDate, "Scheduled Date")
+	datePickerModel := shared.NewDatePickerModel(currentCard.ScheduledDate, "Scheduled Date")
 	datePickerModel.SetSize(m.width, m.height)
 	m.scheduledDatePicker = &datePickerModel
 	m.mode = boardModeScheduledDateEdit

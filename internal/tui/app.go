@@ -213,8 +213,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case taskview.TaskUpdateMsg:
 		// A task was updated in the task manager — persist it
-		if err := m.taskSvc.Update(msg.Task); err != nil {
-			logs.Logger.Printf("Error updating task: %v", err)
+		if msg.Task.File == "" {
+			if _, err := m.taskSvc.Add(msg.Task.String()); err != nil {
+				logs.Logger.Printf("Error adding new task: %v", err)
+			}
+		} else {
+			if err := m.taskSvc.Update(msg.Task); err != nil {
+				logs.Logger.Printf("Error updating task: %v", err)
+			}
 		}
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, nil

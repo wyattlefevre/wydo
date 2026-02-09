@@ -2,10 +2,12 @@ package tasks
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"wydo/internal/tasks/data"
+	"wydo/internal/tui/shared"
 )
 
 var (
@@ -23,10 +25,11 @@ type TaskEditorModel struct {
 	originalTask data.Task
 	inputContext InputModeContext
 	fuzzyPicker  *FuzzyPickerModel
-	textInput    *TextInputModel
+	datePicker   *shared.DatePickerModel
 	allProjects  []string
 	allContexts  []string
 	Width        int
+	Height       int
 }
 
 // TaskEditorResultMsg is sent when the editor closes
@@ -67,12 +70,13 @@ func (m *TaskEditorModel) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (m *TaskEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle sub-component updates first
+	// Handle date picker first
+	if m.datePicker != nil {
+		return m.updateDatePicker(msg)
+	}
+	// Handle sub-component updates
 	if m.fuzzyPicker != nil {
 		return m.updateFuzzyPicker(msg)
-	}
-	if m.textInput != nil {
-		return m.updateTextInput(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -89,11 +93,32 @@ func (m *TaskEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "d":
-		// Edit due date
+		// Edit due date with calendar picker
 		m.inputContext.Mode = ModeEditDueDate
-		m.textInput = NewDateInput("Due Date")
-		m.textInput.SetValue(m.task.GetDueDate())
-		return m, m.textInput.Focus()
+		var currentDate *time.Time
+		if dateStr := m.task.GetDueDate(); dateStr != "" {
+			if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+				currentDate = &parsed
+			}
+		}
+		dp := shared.NewDatePickerModel(currentDate, "Due Date")
+		dp.SetSize(m.Width, m.Height)
+		m.datePicker = &dp
+		return m, dp.Init()
+
+	case "S":
+		// Edit scheduled date with calendar picker
+		m.inputContext.Mode = ModeEditScheduledDate
+		var currentDate *time.Time
+		if dateStr := m.task.GetScheduledDate(); dateStr != "" {
+			if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+				currentDate = &parsed
+			}
+		}
+		dp := shared.NewDatePickerModel(currentDate, "Scheduled Date")
+		dp.SetSize(m.Width, m.Height)
+		m.datePicker = &dp
+		return m, dp.Init()
 
 	case "p":
 		// Edit projects
@@ -161,23 +186,40 @@ func (m *TaskEditorModel) updateFuzzyPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m *TaskEditorModel) updateTextInput(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Check for result message
-	if result, ok := msg.(TextInputResultMsg); ok {
-		if !result.Cancelled {
-			switch m.inputContext.Mode {
-			case ModeEditDueDate:
-				m.task.SetDueDate(result.Value)
-			}
+func (m *TaskEditorModel) updateDatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	*m.datePicker, cmd = m.datePicker.Update(keyMsg)
+
+	switch keyMsg.String() {
+	case "enter", "c":
+		// Save date (or clear if 'c' was pressed)
+		date := m.datePicker.GetDate()
+		dateStr := ""
+		if date != nil {
+			dateStr = date.Format("2006-01-02")
 		}
-		m.textInput = nil
+		switch m.inputContext.Mode {
+		case ModeEditDueDate:
+			m.task.SetDueDate(dateStr)
+		case ModeEditScheduledDate:
+			m.task.SetScheduledDate(dateStr)
+		}
+		m.datePicker = nil
+		m.inputContext.Mode = ModeTaskEditor
+		return m, nil
+
+	case "esc":
+		// Cancel date picker
+		m.datePicker = nil
 		m.inputContext.Mode = ModeTaskEditor
 		return m, nil
 	}
 
-	// Forward to text input
-	updated, cmd := m.textInput.Update(msg)
-	m.textInput = updated.(*TextInputModel)
 	return m, cmd
 }
 
@@ -202,12 +244,13 @@ func (m *TaskEditorModel) cyclePriority() {
 
 // View implements tea.Model
 func (m *TaskEditorModel) View() string {
+	// If date picker is active, show it
+	if m.datePicker != nil {
+		return m.datePicker.View()
+	}
 	// If sub-component is active, show it
 	if m.fuzzyPicker != nil {
 		return m.fuzzyPicker.View()
-	}
-	if m.textInput != nil {
-		return m.textInput.View()
 	}
 
 	var content strings.Builder
@@ -247,6 +290,19 @@ func (m *TaskEditorModel) View() string {
 	}
 	content.WriteString("\n")
 
+	// Scheduled date
+	content.WriteString(editorLabelStyle.Render("Scheduled:"))
+	schedStr := m.task.GetScheduledDate()
+	if schedStr == "" {
+		schedStr = "(none)"
+	}
+	if m.task.GetScheduledDate() != m.originalTask.GetScheduledDate() {
+		content.WriteString(editorModifiedStyle.Render(schedStr + " *"))
+	} else {
+		content.WriteString(editorValueStyle.Render(schedStr))
+	}
+	content.WriteString("\n")
+
 	// Projects
 	content.WriteString(editorLabelStyle.Render("Projects:"))
 	projStr := "(none)"
@@ -274,7 +330,7 @@ func (m *TaskEditorModel) View() string {
 	content.WriteString("\n\n")
 
 	// Help
-	content.WriteString(editorHelpStyle.Render("[d] due  [p] projects  [t] contexts  [P] priority"))
+	content.WriteString(editorHelpStyle.Render("[d] due  [S] scheduled  [p] projects  [t] contexts  [P] priority"))
 	content.WriteString("\n")
 	content.WriteString(editorHelpStyle.Render("[enter] save  [esc] cancel"))
 
@@ -287,6 +343,9 @@ func (m *TaskEditorModel) IsModified() bool {
 		return true
 	}
 	if m.task.GetDueDate() != m.originalTask.GetDueDate() {
+		return true
+	}
+	if m.task.GetScheduledDate() != m.originalTask.GetScheduledDate() {
 		return true
 	}
 	if !slicesEqual(m.task.Projects, m.originalTask.Projects) {

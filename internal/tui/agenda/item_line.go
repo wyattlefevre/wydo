@@ -27,6 +27,8 @@ var (
 	selectedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("4"))
 	cursorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
 	normalStyle      = lipgloss.NewStyle()
+	completedStyle   = lipgloss.NewStyle().Foreground(colorMuted).Strikethrough(true)
+	completedTagStyle = lipgloss.NewStyle().Foreground(colorMuted)
 )
 
 // RenderItemLine renders a single AgendaItem as a styled line
@@ -44,20 +46,32 @@ func RenderItemLine(item agendapkg.AgendaItem, selected bool, width int) string 
 	title := itemTitle(item)
 	if selected {
 		parts = append(parts, selectedStyle.Render(title))
+	} else if item.Completed {
+		parts = append(parts, completedStyle.Render(title))
 	} else {
 		parts = append(parts, normalStyle.Render(title))
 	}
 
 	// Context info (projects for tasks, board/column for cards)
-	context := itemContext(item)
-	if context != "" {
-		parts = append(parts, context)
+	if item.Completed {
+		context := itemContextText(item)
+		if context != "" {
+			parts = append(parts, completedTagStyle.Render(context))
+		}
+	} else {
+		context := itemContext(item)
+		if context != "" {
+			parts = append(parts, context)
+		}
 	}
 
 	// Right-aligned: reason + relative date
 	line := strings.Join(parts, " ")
 
 	reasonDate := formatReasonDate(item)
+	if item.Completed {
+		reasonDate = completedTagStyle.Render("done")
+	}
 	padding := width - lipgloss.Width(line) - lipgloss.Width(reasonDate) - 1
 	if padding < 1 {
 		padding = 1
@@ -83,6 +97,28 @@ func itemTitle(item agendapkg.AgendaItem) string {
 	case agendapkg.SourceNote:
 		if item.Note != nil {
 			return item.Note.Title
+		}
+	}
+	return ""
+}
+
+func itemContextText(item agendapkg.AgendaItem) string {
+	switch item.Source {
+	case agendapkg.SourceTask:
+		if item.Task != nil && len(item.Task.Projects) > 0 {
+			projs := make([]string, len(item.Task.Projects))
+			for i, p := range item.Task.Projects {
+				projs[i] = "+" + p
+			}
+			return strings.Join(projs, " ")
+		}
+	case agendapkg.SourceCard:
+		if item.Card != nil {
+			return "[" + item.BoardName + " > " + item.ColumnName + "]"
+		}
+	case agendapkg.SourceNote:
+		if item.Note != nil {
+			return item.Note.RelPath
 		}
 	}
 	return ""

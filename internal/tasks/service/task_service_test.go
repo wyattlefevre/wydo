@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"wydo/internal/scanner"
+	"wydo/internal/tasks/data"
 )
 
 func setupTestDirs(t *testing.T) (string, []scanner.TaskDirInfo) {
@@ -168,6 +169,128 @@ func TestDeleteRewritesCorrectFile(t *testing.T) {
 	tasks, _ = svc.List()
 	if len(tasks) != initialCount-1 {
 		t.Errorf("expected %d tasks after delete, got %d", initialCount-1, len(tasks))
+	}
+}
+
+func TestAddWithEditorStyleTask(t *testing.T) {
+	_, taskDirs := setupTestDirs(t)
+
+	svc, err := NewTaskService(taskDirs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Simulate what the task editor produces: priority, projects, contexts, due date
+	tests := []struct {
+		name    string
+		rawLine string
+		wantErr bool
+	}{
+		{"simple task", "Buy milk", false},
+		{"with priority", "(A) Important task", false},
+		{"with project and context", "Fix bug +myproject @work", false},
+		{"with due date", "Submit report due:2026-03-15", false},
+		{"full editor task", "(B) Write docs +myproject @computer due:2026-04-01", false},
+		{"empty task", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task, err := svc.Add(tt.rawLine)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if task == nil {
+				t.Fatal("expected non-nil task")
+			}
+			if filepath.Base(task.File) != "todo.txt" {
+				t.Errorf("expected task in todo.txt, got %q", task.File)
+			}
+		})
+	}
+}
+
+func TestUpdateWithEmptyFileDoesNotPersist(t *testing.T) {
+	_, taskDirs := setupTestDirs(t)
+
+	svc, err := NewTaskService(taskDirs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	beforeTasks, _ := svc.List()
+	beforeCount := len(beforeTasks)
+
+	// Create a task with empty File (simulates what createNewTaskAndOpenEditor does)
+	emptyFileTask := data.Task{
+		ID:       "test-empty-file",
+		Name:     "Ghost task",
+		Projects: []string{},
+		Contexts: []string{},
+		Tags:     map[string]string{},
+		File:     "", // This is the bug: empty file
+	}
+
+	// Update with empty file — WriteAllTasks skips tasks with File==""
+	err = svc.Update(emptyFileTask)
+	if err != nil {
+		t.Fatalf("update error: %v", err)
+	}
+
+	// After Reload (which Update calls internally), the task should be gone
+	afterTasks, _ := svc.List()
+	if len(afterTasks) != beforeCount {
+		t.Errorf("expected %d tasks after update+reload (task with empty File lost), got %d", beforeCount, len(afterTasks))
+	}
+}
+
+func TestAddPersistsAcrossReload(t *testing.T) {
+	_, taskDirs := setupTestDirs(t)
+
+	svc, err := NewTaskService(taskDirs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	beforeTasks, _ := svc.List()
+	beforeCount := len(beforeTasks)
+
+	// Add a task via Add() — the correct way to persist new tasks
+	task, err := svc.Add("(A) Persistent task +testproject due:2026-05-01")
+	if err != nil {
+		t.Fatalf("add error: %v", err)
+	}
+	if task == nil {
+		t.Fatal("expected non-nil task")
+	}
+
+	// Reload to simulate app restart
+	err = svc.Reload()
+	if err != nil {
+		t.Fatalf("reload error: %v", err)
+	}
+
+	afterTasks, _ := svc.List()
+	if len(afterTasks) != beforeCount+1 {
+		t.Errorf("expected %d tasks after add+reload, got %d", beforeCount+1, len(afterTasks))
+	}
+
+	// Verify the task content survived
+	found := false
+	for _, t := range afterTasks {
+		if t.Name == "Persistent task" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("added task not found after reload")
 	}
 }
 

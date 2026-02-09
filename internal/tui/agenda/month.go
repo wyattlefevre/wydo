@@ -74,6 +74,7 @@ func (m *MonthModel) refreshDetail() {
 	key := m.cursorDate.Format("2006-01-02")
 	if bucket, ok := m.bucketMap[key]; ok {
 		m.detailItems = bucket.AllItems()
+		m.detailItems = append(m.detailItems, bucket.AllCompletedItems()...)
 	} else {
 		m.detailItems = nil
 	}

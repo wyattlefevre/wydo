@@ -195,43 +195,6 @@ var (
 				Foreground(colorWarning).
 				Align(lipgloss.Center)
 
-	// Date picker modal styles
-	datePickerBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorSecondary).
-				Padding(1, 2).
-				Width(50)
-
-	datePickerTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorWarning).
-				Align(lipgloss.Center)
-
-	datePickerMonthStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorSecondary).
-				Align(lipgloss.Center)
-
-	datePickerDayHeaderStyle = lipgloss.NewStyle().
-					Foreground(colorMuted).
-					Bold(true)
-
-	datePickerDayStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("7"))
-
-	datePickerTodayStyle = lipgloss.NewStyle().
-				Foreground(colorAccent).
-				Bold(true)
-
-	datePickerCursorStyle = lipgloss.NewStyle().
-				Background(colorWarning).
-				Foreground(lipgloss.Color("0")).
-				Bold(true)
-
-	datePickerExamplesStyle = lipgloss.NewStyle().
-				Foreground(colorMuted).
-				Italic(true)
-
 	// Filter indicator style
 	filterIndicatorStyle = lipgloss.NewStyle().
 				Foreground(colorWarning).

@@ -110,7 +110,7 @@ func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string) T
 		sortState:      NewSortState(),
 		groupState:     GroupState{Field: GroupByFile, Ascending: true},
 		infoBar:        NewInfoBar(),
-		fileViewMode:   FileViewTodoOnly,
+		fileViewMode:   FileViewAll,
 	}
 	m.loadTasks()
 	return m
@@ -164,11 +164,6 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		}
 		return m.handlePickerResult(msg)
 	case TextInputResultMsg:
-		// If task editor has its own text input, forward to it
-		if m.taskEditor != nil && m.taskEditor.textInput != nil {
-			_, cmd := m.taskEditor.Update(msg)
-			return m, cmd
-		}
 		return m.handleTextInputResult(msg)
 	case TaskEditorResultMsg:
 		return m.handleEditorResult(msg)
@@ -576,7 +571,7 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 	m.filterState.Reset()
 	m.sortState.Reset()
 	m.groupState = GroupState{Field: GroupByFile, Ascending: true}
-	m.fileViewMode = FileViewTodoOnly
+	m.fileViewMode = FileViewAll
 	m.refreshDisplayTasks()
 	return m, nil
 }
@@ -627,6 +622,8 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 
 	// Open editor with the new task
 	m.taskEditor = NewTaskEditor(newTask, m.allProjects, m.allContexts)
+	m.taskEditor.Width = m.width
+	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
 	return m, nil
 }
@@ -734,6 +731,8 @@ func (m TaskManagerModel) openTaskEditor() (TaskManagerModel, tea.Cmd) {
 	}
 
 	m.taskEditor = NewTaskEditor(task, m.allProjects, m.allContexts)
+	m.taskEditor.Width = m.width
+	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
 	return m, nil
 }

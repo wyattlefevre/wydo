@@ -22,10 +22,11 @@ const (
 	ModeCreateTask  // 'n' pressed - entering new task name
 
 	// Task Editor modes
-	ModeTaskEditor  // viewing task details
-	ModeEditDueDate // 'd' in editor - date input
-	ModeEditContext // 't'/'c' in editor - context picker
-	ModeEditProject // 'p' in editor - project picker
+	ModeTaskEditor        // viewing task details
+	ModeEditDueDate       // 'd' in editor - date picker
+	ModeEditScheduledDate // 'S' in editor - scheduled date picker
+	ModeEditContext       // 't'/'c' in editor - context picker
+	ModeEditProject       // 'p' in editor - project picker
 
 	// Confirmation mode
 	ModeConfirmation // confirmation modal (e.g., archive)
@@ -71,7 +72,8 @@ func (c *InputModeContext) IsGroupMode() bool {
 // IsEditorMode returns true if in task editor mode
 func (c *InputModeContext) IsEditorMode() bool {
 	return c.Mode == ModeTaskEditor || c.Mode == ModeEditDueDate ||
-		c.Mode == ModeEditContext || c.Mode == ModeEditProject
+		c.Mode == ModeEditScheduledDate || c.Mode == ModeEditContext ||
+		c.Mode == ModeEditProject
 }
 
 // TransitionTo moves to a new mode, preserving the previous mode
@@ -118,6 +120,8 @@ func (c *InputModeContext) String() string {
 		return "Editor"
 	case ModeEditDueDate:
 		return "Edit Due"
+	case ModeEditScheduledDate:
+		return "Edit Scheduled"
 	case ModeEditContext:
 		return "Edit Context"
 	case ModeEditProject:

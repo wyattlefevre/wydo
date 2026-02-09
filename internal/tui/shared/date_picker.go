@@ -1,4 +1,4 @@
-package kanban
+package shared
 
 import (
 	"fmt"
@@ -217,19 +217,19 @@ func (m DatePickerModel) viewCalendar() string {
 	var s strings.Builder
 
 	// Title
-	title := datePickerTitleStyle.Render(m.title)
+	title := DatePickerTitleStyle.Render(m.title)
 	s.WriteString(title)
 	s.WriteString("\n\n")
 
 	// Month/Year header
-	monthYear := datePickerMonthStyle.Render(m.viewMonth.Format("January 2006"))
+	monthYear := DatePickerMonthStyle.Render(m.viewMonth.Format("January 2006"))
 	s.WriteString(monthYear)
 	s.WriteString("\n\n")
 
 	// Day headers
 	dayHeaders := []string{"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"}
 	for _, day := range dayHeaders {
-		s.WriteString(datePickerDayHeaderStyle.Render(day))
+		s.WriteString(DatePickerDayHeaderStyle.Render(day))
 		s.WriteString(" ")
 	}
 	s.WriteString("\n")
@@ -260,11 +260,11 @@ func (m DatePickerModel) viewCalendar() string {
 				isToday := m.isSameDay(date, today)
 
 				if isCursor {
-					s.WriteString(datePickerCursorStyle.Render(dayStr))
+					s.WriteString(DatePickerCursorStyle.Render(dayStr))
 				} else if isToday {
-					s.WriteString(datePickerTodayStyle.Render(dayStr))
+					s.WriteString(DatePickerTodayStyle.Render(dayStr))
 				} else {
-					s.WriteString(datePickerDayStyle.Render(dayStr))
+					s.WriteString(DatePickerDayStyle.Render(dayStr))
 				}
 			}
 			s.WriteString(" ")
@@ -281,11 +281,11 @@ func (m DatePickerModel) viewCalendar() string {
 	s.WriteString("\n")
 
 	// Help text
-	help := helpStyle.Render("hjkl/arrows: move • t: today • +/-: month • c: clear • i: text input • enter: save • esc: cancel")
+	help := DatePickerHelpStyle.Render("hjkl/arrows: move • t: today • +/-: month • c: clear • i: text input • enter: save • esc: cancel")
 	s.WriteString(help)
 
 	content := s.String()
-	box := datePickerBoxStyle.Render(content)
+	box := DatePickerBoxStyle.Render(content)
 
 	// Center the box
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
@@ -295,7 +295,7 @@ func (m DatePickerModel) viewTextInput() string {
 	var s strings.Builder
 
 	// Title
-	title := datePickerTitleStyle.Render(m.title + " (Text Input)")
+	title := DatePickerTitleStyle.Render(m.title + " (Text Input)")
 	s.WriteString(title)
 	s.WriteString("\n\n")
 
@@ -303,16 +303,16 @@ func (m DatePickerModel) viewTextInput() string {
 	s.WriteString("\n\n")
 
 	// Help text
-	help := helpStyle.Render("enter: save • esc: back to calendar")
+	help := DatePickerHelpStyle.Render("enter: save • esc: back to calendar")
 	s.WriteString(help)
 	s.WriteString("\n\n")
 
 	// Format examples
-	examples := datePickerExamplesStyle.Render("Examples: 2026-03-15, 03-15, +5, tomorrow, today")
+	examples := DatePickerExamplesStyle.Render("Examples: 2026-03-15, 03-15, +5, tomorrow, today")
 	s.WriteString(examples)
 
 	content := s.String()
-	box := datePickerBoxStyle.Render(content)
+	box := DatePickerBoxStyle.Render(content)
 
 	// Center the box
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)

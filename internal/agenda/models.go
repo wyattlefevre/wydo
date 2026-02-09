@@ -52,14 +52,17 @@ type AgendaItem struct {
 	ColumnName string
 	ColIndex   int
 	CardIndex  int
+	Completed  bool
 }
 
 // DateBucket groups agenda items by date
 type DateBucket struct {
-	Date  time.Time
-	Tasks []AgendaItem
-	Cards []AgendaItem
-	Notes []AgendaItem
+	Date           time.Time
+	Tasks          []AgendaItem
+	Cards          []AgendaItem
+	Notes          []AgendaItem
+	CompletedTasks []AgendaItem
+	CompletedCards []AgendaItem
 }
 
 // AllItems returns all items in the bucket (tasks first, then cards, then notes)
@@ -71,9 +74,17 @@ func (b DateBucket) AllItems() []AgendaItem {
 	return items
 }
 
-// TotalCount returns the total number of items in the bucket
+// AllCompletedItems returns all completed items in the bucket (tasks first, then cards)
+func (b DateBucket) AllCompletedItems() []AgendaItem {
+	items := make([]AgendaItem, 0, len(b.CompletedTasks)+len(b.CompletedCards))
+	items = append(items, b.CompletedTasks...)
+	items = append(items, b.CompletedCards...)
+	return items
+}
+
+// TotalCount returns the total number of items in the bucket (including completed)
 func (b DateBucket) TotalCount() int {
-	return len(b.Tasks) + len(b.Cards) + len(b.Notes)
+	return len(b.Tasks) + len(b.Cards) + len(b.Notes) + len(b.CompletedTasks) + len(b.CompletedCards)
 }
 
 // DateRange represents a range of dates for querying

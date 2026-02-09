@@ -25,7 +25,15 @@ func (m *mockTaskService) ListPending() ([]data.Task, error) {
 	}
 	return pending, nil
 }
-func (m *mockTaskService) ListDone() ([]data.Task, error)                     { return nil, nil }
+func (m *mockTaskService) ListDone() ([]data.Task, error) {
+	var done []data.Task
+	for _, t := range m.tasks {
+		if t.Done {
+			done = append(done, t)
+		}
+	}
+	return done, nil
+}
 func (m *mockTaskService) Get(string) (*data.Task, error)                     { return nil, nil }
 func (m *mockTaskService) Add(string) (*data.Task, error)                     { return nil, nil }
 func (m *mockTaskService) Update(data.Task) error                             { return nil }
@@ -164,15 +172,25 @@ func TestQueryAgenda_CardDueDate(t *testing.T) {
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
 	}
-	// Should only include the "To Do" card, not the "Done" card
+	// "To Do" card should be in Cards (pending)
 	if len(buckets[0].Cards) != 1 {
-		t.Fatalf("expected 1 card, got %d", len(buckets[0].Cards))
+		t.Fatalf("expected 1 pending card, got %d", len(buckets[0].Cards))
 	}
 	if buckets[0].Cards[0].Card.Title != "Deploy v2" {
 		t.Errorf("expected 'Deploy v2', got '%s'", buckets[0].Cards[0].Card.Title)
 	}
 	if buckets[0].Cards[0].BoardName != "Sprint" {
 		t.Errorf("expected board 'Sprint', got '%s'", buckets[0].Cards[0].BoardName)
+	}
+	// "Done" card should be in CompletedCards
+	if len(buckets[0].CompletedCards) != 1 {
+		t.Fatalf("expected 1 completed card, got %d", len(buckets[0].CompletedCards))
+	}
+	if buckets[0].CompletedCards[0].Card.Title != "Already done" {
+		t.Errorf("expected 'Already done', got '%s'", buckets[0].CompletedCards[0].Card.Title)
+	}
+	if !buckets[0].CompletedCards[0].Completed {
+		t.Error("expected Completed flag to be true")
 	}
 }
 
@@ -201,7 +219,7 @@ func TestQueryAgenda_MultiDayRange(t *testing.T) {
 	}
 }
 
-func TestQueryAgenda_DoneTasksExcluded(t *testing.T) {
+func TestQueryAgenda_DoneTasksSeparated(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
 			{ID: "t1", Name: "Pending", Tags: map[string]string{"due": "2026-02-06"}},
@@ -215,10 +233,19 @@ func TestQueryAgenda_DoneTasksExcluded(t *testing.T) {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
 	}
 	if len(buckets[0].Tasks) != 1 {
-		t.Fatalf("expected 1 task (done excluded), got %d", len(buckets[0].Tasks))
+		t.Fatalf("expected 1 pending task, got %d", len(buckets[0].Tasks))
 	}
 	if buckets[0].Tasks[0].Task.Name != "Pending" {
 		t.Errorf("expected 'Pending', got '%s'", buckets[0].Tasks[0].Task.Name)
+	}
+	if len(buckets[0].CompletedTasks) != 1 {
+		t.Fatalf("expected 1 completed task, got %d", len(buckets[0].CompletedTasks))
+	}
+	if buckets[0].CompletedTasks[0].Task.Name != "Completed" {
+		t.Errorf("expected 'Completed', got '%s'", buckets[0].CompletedTasks[0].Task.Name)
+	}
+	if !buckets[0].CompletedTasks[0].Completed {
+		t.Error("expected Completed flag to be true")
 	}
 }
 

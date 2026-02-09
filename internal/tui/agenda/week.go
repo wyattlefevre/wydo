@@ -73,6 +73,7 @@ func (m *WeekModel) refreshData() {
 		m.dayOffsets[d] = len(m.allItems)
 		if bucket, ok := bucketMap[key]; ok {
 			m.allItems = append(m.allItems, bucket.AllItems()...)
+			m.allItems = append(m.allItems, bucket.AllCompletedItems()...)
 		}
 	}
 

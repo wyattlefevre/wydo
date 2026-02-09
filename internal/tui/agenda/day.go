@@ -52,11 +52,14 @@ func (m *DayModel) refreshData() {
 	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
 	m.overdueItems = agendapkg.QueryOverdueItems(m.taskSvc, m.boards, dateRange.Start)
 
-	// Flatten items for cursor navigation: overdue first, then regular
+	// Flatten items for cursor navigation: overdue first, then regular, then completed
 	m.items = nil
 	m.items = append(m.items, m.overdueItems...)
 	for _, bucket := range m.buckets {
 		m.items = append(m.items, bucket.AllItems()...)
+	}
+	for _, bucket := range m.buckets {
+		m.items = append(m.items, bucket.AllCompletedItems()...)
 	}
 
 	// Clamp cursor
@@ -155,12 +158,13 @@ func (m DayModel) View() string {
 		return sb.String()
 	}
 
-	// Separate tasks, cards, and notes from buckets
-	var allTasks, allCards, allNotes []agendapkg.AgendaItem
+	// Separate tasks, cards, notes, and completed items from buckets
+	var allTasks, allCards, allNotes, allCompleted []agendapkg.AgendaItem
 	for _, bucket := range m.buckets {
 		allTasks = append(allTasks, bucket.Tasks...)
 		allCards = append(allCards, bucket.Cards...)
 		allNotes = append(allNotes, bucket.Notes...)
+		allCompleted = append(allCompleted, bucket.AllCompletedItems()...)
 	}
 
 	cursorIdx := 0
@@ -215,6 +219,22 @@ func (m DayModel) View() string {
 		sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Notes (%d)", len(allNotes))))
 		sb.WriteString("\n")
 		for _, item := range allNotes {
+			selected := cursorIdx == m.cursor
+			line := RenderItemLine(item, selected, m.width-4)
+			sb.WriteString("   ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+			cursorIdx++
+		}
+		sb.WriteString("\n")
+	}
+
+	// Completed section
+	if len(allCompleted) > 0 {
+		header := lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(fmt.Sprintf(" Completed (%d)", len(allCompleted)))
+		sb.WriteString(header)
+		sb.WriteString("\n")
+		for _, item := range allCompleted {
 			selected := cursorIdx == m.cursor
 			line := RenderItemLine(item, selected, m.width-4)
 			sb.WriteString("   ")
