@@ -49,85 +49,87 @@ func UpdateTask(tasks []Task, updatedTask Task) []Task {
 	return tasks
 }
 
-// LoadDataFromFiles loads tasks from specific todo and done file paths
-func LoadDataFromFiles(todoFilePath, doneFilePath, projDir string, allowMismatch bool) ([]Task, map[string]Project, error) {
-	logs.Logger.Println("LoadDataFromFiles")
-
-	projectMap := make(map[string]Project)
-	if projDir != "" {
-		err := scanProjectFiles(projectMap, projDir)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, nil, err
+// LoadTasksFromDir loads all .txt files from a tasks/ directory
+func LoadTasksFromDir(dirPath string, files []string, allowMismatch bool) ([]Task, error) {
+	var allTasks []Task
+	for _, filename := range files {
+		filePath := filepath.Join(dirPath, filename)
+		tasks, err := loadTaskFile(filePath, allowMismatch, make(map[string]Project))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			if _, ok := err.(*ParseTaskMismatchError); ok {
+				return nil, err
+			}
+			return nil, fmt.Errorf("error reading %s: %v", filePath, err)
 		}
+		allTasks = append(allTasks, tasks...)
 	}
-
-	logs.Logger.Println("load todo.txt")
-	todoTasks, err := loadTaskFile(todoFilePath, allowMismatch, projectMap)
-	if err != nil {
-		if _, ok := err.(*ParseTaskMismatchError); ok {
-			logs.Logger.Printf("ParseTaskMismatchError: %v\n", err)
-			return nil, nil, err
-		}
-		if !os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("Error reading %s: %v", todoFilePath, err)
-		}
-		todoTasks = []Task{}
-	}
-
-	logs.Logger.Println("load done.txt")
-	doneTasks, err := loadTaskFile(doneFilePath, allowMismatch, projectMap)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("Error reading %s: %v", doneFilePath, err)
-		}
-		doneTasks = []Task{}
-	}
-
-	allTasks := append(todoTasks, doneTasks...)
-	return allTasks, projectMap, nil
+	return allTasks, nil
 }
 
-// WriteDataToFiles writes tasks to specific todo and done file paths
-func WriteDataToFiles(tasks []Task, todoFilePath, doneFilePath string) error {
-	logs.Logger.Printf("WriteDataToFiles (%d tasks)", len(tasks))
+// WriteTasksToFile writes tasks that belong to a specific file
+func WriteTasksToFile(tasks []Task, filePath string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(todoFilePath), 0755); err != nil {
-		return fmt.Errorf("Error creating directory: %v", err)
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("error creating directory: %v", err)
 	}
 
-	todoFile, err := os.Create(todoFilePath)
+	file, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("Error writing %s: %v", todoFilePath, err)
+		return fmt.Errorf("error writing %s: %v", filePath, err)
 	}
-	defer todoFile.Close()
+	defer file.Close()
+
 	for _, task := range tasks {
-		if task.File != todoFilePath {
+		if task.File != filePath {
 			continue
 		}
-		_, err := fmt.Fprintln(todoFile, task.String())
-		if err != nil {
-			return fmt.Errorf("Error writing to %s: %v", todoFilePath, err)
+		if _, err := fmt.Fprintln(file, task.String()); err != nil {
+			return fmt.Errorf("error writing to %s: %v", filePath, err)
 		}
 	}
+	return nil
+}
 
-	doneFile, err := os.Create(doneFilePath)
+// WriteAllTasks groups tasks by their File field and writes each group
+func WriteAllTasks(tasks []Task) error {
+	grouped := make(map[string][]Task)
+	for _, t := range tasks {
+		if t.File != "" {
+			grouped[t.File] = append(grouped[t.File], t)
+		}
+	}
+	for filePath, fileTasks := range grouped {
+		if err := writeTaskSliceToFile(fileTasks, filePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeTaskSliceToFile(tasks []Task, filePath string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("error creating directory: %v", err)
+	}
+
+	file, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("Error writing %s: %v", doneFilePath, err)
+		return fmt.Errorf("error writing %s: %v", filePath, err)
 	}
-	defer doneFile.Close()
-	for _, task := range tasks {
-		if task.File != doneFilePath {
-			continue
-		}
-		task.Done = true
-		_, err := fmt.Fprintln(doneFile, task.String())
-		if err != nil {
-			return fmt.Errorf("Error writing to %s: %v", doneFilePath, err)
-		}
-	}
+	defer file.Close()
 
+	for _, task := range tasks {
+		if _, err := fmt.Fprintln(file, task.String()); err != nil {
+			return fmt.Errorf("error writing to %s: %v", filePath, err)
+		}
+	}
 	return nil
 }
 
@@ -144,55 +146,6 @@ func TaskCount(tasks []Task, project string) (int, int) {
 		}
 	}
 	return todoCount, doneCount
-}
-
-func ArchiveDoneToFiles(tasks []Task, doneFilePath string) error {
-	for i := range tasks {
-		if tasks[i].Done {
-			tasks[i].File = doneFilePath
-		}
-	}
-	// We need the todoFilePath - derive from doneFilePath directory
-	dir := filepath.Dir(doneFilePath)
-	todoFilePath := filepath.Join(dir, "todo.txt")
-	// Check existing task files to find the actual todoFilePath
-	for _, t := range tasks {
-		if !t.Done && t.File != "" {
-			todoFilePath = t.File
-			break
-		}
-	}
-	return WriteDataToFiles(tasks, todoFilePath, doneFilePath)
-}
-
-func scanProjectFiles(projectMap map[string]Project, projDir string) error {
-	return filepath.Walk(projDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		name := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
-		if name == "" {
-			return nil
-		}
-		relPath, relErr := filepath.Rel(projDir, path)
-		if relErr != nil {
-			return relErr
-		}
-		if _, exists := projectMap[name]; !exists {
-			projectMap[name] = Project{
-				Name:     name,
-				NotePath: &relPath,
-			}
-		} else {
-			proj := projectMap[name]
-			proj.NotePath = &relPath
-			projectMap[name] = proj
-		}
-		return nil
-	})
 }
 
 func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Project) ([]Task, error) {
@@ -246,7 +199,7 @@ func DeleteTask(tasks []Task, id string) []Task {
 	return tasks
 }
 
-// AppendTaskToFile appends a single task line to a todo.txt file.
+// AppendTaskToFile appends a single task line to a file.
 func AppendTaskToFile(rawLine, todoFilePath string) (*Task, error) {
 	mu.Lock()
 	defer mu.Unlock()

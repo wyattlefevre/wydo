@@ -72,8 +72,7 @@ Commands:
   board       Board management commands (coming soon)
 
 Flags:
-  -d, --dirs             Directories to scan (comma-separated)
-  -r, --recursive-dirs   Root directories to recursively search (comma-separated)
+  -w, --workspaces       Workspace directories (comma-separated)
 
 Running wydo without arguments launches the interactive TUI.
 Use "wydo task help" for task subcommands.`)

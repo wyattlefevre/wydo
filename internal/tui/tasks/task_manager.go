@@ -62,10 +62,6 @@ type TaskManagerModel struct {
 	displayTasks []data.Task
 	taskGroups   []TaskGroup
 
-	// File paths (for file view filtering)
-	todoFilePath string
-	doneFilePath string
-
 	// Navigation
 	cursor int
 
@@ -104,11 +100,9 @@ type TaskManagerModel struct {
 }
 
 // NewTaskManagerModel creates a new task manager model
-func NewTaskManagerModel(taskSvc service.TaskService, todoFilePath, doneFilePath string) TaskManagerModel {
+func NewTaskManagerModel(taskSvc service.TaskService) TaskManagerModel {
 	m := TaskManagerModel{
 		taskSvc:      taskSvc,
-		todoFilePath: todoFilePath,
-		doneFilePath: doneFilePath,
 		inputContext: NewInputModeContext(),
 		filterState:  NewFilterState(),
 		sortState:    NewSortState(),
@@ -616,7 +610,7 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 	randomPart := fmt.Sprintf("%d", time.Now().UnixNano()%10000)
 	newID := data.HashTaskLine(timestamp + randomPart)
 
-	// Create new task
+	// Create new task (File will be set by Add when persisted)
 	newTask := &data.Task{
 		ID:       newID,
 		Name:     taskName,
@@ -625,7 +619,6 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 		Done:     false,
 		Tags:     make(map[string]string),
 		Priority: data.PriorityNone,
-		File:     m.todoFilePath,
 	}
 
 	// Open editor with the new task
@@ -867,10 +860,10 @@ func (m *TaskManagerModel) selectedTask() *data.Task {
 
 // handleStartArchive initiates the archive flow
 func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
-	// Count completed tasks in todo.txt
+	// Count completed tasks not yet in done.txt
 	count := 0
 	for _, task := range m.tasks {
-		if task.Done && task.File == m.todoFilePath {
+		if task.Done && !strings.HasSuffix(task.File, "done.txt") {
 			count++
 		}
 	}
@@ -898,7 +891,7 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		// Count tasks to archive
 		count := 0
 		for _, task := range m.tasks {
-			if task.Done && task.File == m.todoFilePath {
+			if task.Done && !strings.HasSuffix(task.File, "done.txt") {
 				count++
 			}
 		}
@@ -934,9 +927,9 @@ func (m *TaskManagerModel) applyFileViewFilter(tasks []data.Task) []data.Task {
 
 	var filtered []data.Task
 	for _, task := range tasks {
-		if m.fileViewMode == FileViewTodoOnly && task.File == m.todoFilePath {
+		if m.fileViewMode == FileViewTodoOnly && !task.Done {
 			filtered = append(filtered, task)
-		} else if m.fileViewMode == FileViewDoneOnly && task.File == m.doneFilePath {
+		} else if m.fileViewMode == FileViewDoneOnly && task.Done {
 			filtered = append(filtered, task)
 		}
 	}

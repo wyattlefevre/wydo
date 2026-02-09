@@ -2,7 +2,6 @@ package notes
 
 import (
 	"bytes"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,96 +13,9 @@ import (
 
 var datePattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 
-// ScanNotes finds all dated markdown notes in configured directories
-func ScanNotes(dirs, recursiveDirs []string) []Note {
-	var notes []Note
-	seen := make(map[string]bool)
-
-	// Scan explicit directories (non-recursive, top-level .md files only)
-	for _, dir := range dirs {
-		absDir, err := filepath.Abs(dir)
-		if err != nil {
-			continue
-		}
-		entries, err := os.ReadDir(absDir)
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			if !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
-				continue
-			}
-			if entry.Name() == "board.md" {
-				continue
-			}
-			fullPath := filepath.Join(absDir, entry.Name())
-			absPath, _ := filepath.Abs(fullPath)
-			if seen[absPath] {
-				continue
-			}
-			if note, ok := parseNoteFile(absPath, absDir); ok {
-				seen[absPath] = true
-				notes = append(notes, note)
-			}
-		}
-	}
-
-	// Scan recursive directories
-	for _, root := range recursiveDirs {
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			continue
-		}
-		err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				if os.IsPermission(err) {
-					return filepath.SkipDir
-				}
-				return err
-			}
-
-			// Skip cards/ subdirectories
-			if d.IsDir() && d.Name() == "cards" {
-				return filepath.SkipDir
-			}
-
-			if d.IsDir() {
-				return nil
-			}
-
-			if !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-				return nil
-			}
-
-			// Skip board.md files
-			if d.Name() == "board.md" {
-				return nil
-			}
-
-			absPath, _ := filepath.Abs(path)
-			if seen[absPath] {
-				return nil
-			}
-
-			if note, ok := parseNoteFile(absPath, absRoot); ok {
-				seen[absPath] = true
-				notes = append(notes, note)
-			}
-
-			return nil
-		})
-		if err != nil {
-			log.Printf("Warning: error scanning for notes in %s: %v", absRoot, err)
-		}
-	}
-
-	return notes
-}
-
-func parseNoteFile(absPath, rootDir string) (Note, bool) {
+// ParseNoteFile parses a markdown file as a Note. Returns the note and true if
+// the file has a valid date (from frontmatter or filename), otherwise false.
+func ParseNoteFile(absPath, rootDir string) (Note, bool) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return Note{}, false

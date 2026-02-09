@@ -14,33 +14,28 @@ Config file: `~/.config/wydo/config.json` (created on first run)
 
 ```json
 {
-  "dirs": ["~/wydo"],
-  "recursive_dirs": [],
-  "todo_file": "todo.txt",
-  "done_file": "done.txt",
+  "workspaces": ["~/wydo"],
   "default_view": "day"
 }
 ```
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `dirs` | Directories to scan for `board.md` and `todo.txt` files | `~/wydo` |
-| `recursive_dirs` | Root directories to recursively search | `[]` |
-| `todo_file` | Filename for todo tasks | `todo.txt` |
-| `done_file` | Filename for completed tasks | `done.txt` |
+| `workspaces` | Workspace directories to recursively scan for entities | `~/wydo` |
 | `default_view` | Initial TUI view (`day`, `week`, `month`, `tasks`, `boards`) | `day` |
 
 Config priority: CLI flags > environment variables > config file > defaults.
 
-Environment variables: `WYDO_DIRS`, `WYDO_RECURSIVE_DIRS` (colon-separated).
+Environment variable: `WYDO_WORKSPACES` (colon-separated).
+
+Each workspace is recursively scanned for entities by directory convention: `boards/`, `tasks/`, `projects/`. See `entities.md` for details.
 
 ## TUI
 
 ```
 wydo                        # launch with default view
 wydo --view week            # launch in week view
-wydo -d ~/projects          # scan specific directories
-wydo -r ~/projects          # recursively scan directories
+wydo -w ~/projects          # scan specific workspace directories
 ```
 
 ### Keybindings

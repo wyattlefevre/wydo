@@ -1,0 +1,3 @@
+buy lumber +home-remodel due:2026-02-15
+measure kitchen dimensions +home-remodel @home
+get permit application +home-remodel @errands due:2026-02-18

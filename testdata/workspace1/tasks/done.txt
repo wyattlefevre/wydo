@@ -1,0 +1,2 @@
+x 2026-02-01 Set up dev environment +alpha @computer
+x 2026-02-03 Order kitchen fixtures +home-remodel @errands

@@ -9,26 +9,19 @@ import (
 
 // Config holds the unified application configuration
 type Config struct {
-	Dirs          []string `json:"dirs"`
-	RecursiveDirs []string `json:"recursive_dirs"`
-	TodoFile      string   `json:"todo_file"`
-	DoneFile      string   `json:"done_file"`
-	DefaultView   string   `json:"default_view"`
+	Workspaces  []string `json:"workspaces"`
+	DefaultView string   `json:"default_view"`
 }
 
 // Settings represents the config file structure
 type Settings struct {
-	Dirs          []string `json:"dirs"`
-	RecursiveDirs []string `json:"recursive_dirs"`
-	TodoFile      string   `json:"todo_file,omitempty"`
-	DoneFile      string   `json:"done_file,omitempty"`
-	DefaultView   string   `json:"default_view,omitempty"`
+	Workspaces  []string `json:"workspaces"`
+	DefaultView string   `json:"default_view,omitempty"`
 }
 
 // CLIFlags holds parsed CLI flags
 type CLIFlags struct {
-	Dirs          []string
-	RecursiveDirs []string
+	Workspaces []string
 }
 
 var globalConfig *Config
@@ -36,8 +29,6 @@ var globalConfig *Config
 // Load loads configuration with priority: CLI flags > env vars > config file > default
 func Load(flags CLIFlags) (*Config, error) {
 	cfg := &Config{
-		TodoFile:    "todo.txt",
-		DoneFile:    "done.txt",
 		DefaultView: "day",
 	}
 
@@ -45,51 +36,33 @@ func Load(flags CLIFlags) (*Config, error) {
 	configPath, err := getConfigPath()
 	if err == nil {
 		if fileConfig, err := loadConfigFile(configPath); err == nil {
-			if fileConfig.TodoFile != "" {
-				cfg.TodoFile = fileConfig.TodoFile
-			}
-			if fileConfig.DoneFile != "" {
-				cfg.DoneFile = fileConfig.DoneFile
-			}
 			if fileConfig.DefaultView != "" {
 				cfg.DefaultView = fileConfig.DefaultView
 			}
-			if len(fileConfig.Dirs) > 0 || len(fileConfig.RecursiveDirs) > 0 {
-				cfg.Dirs = expandPaths(fileConfig.Dirs)
-				cfg.RecursiveDirs = expandPaths(fileConfig.RecursiveDirs)
+			if len(fileConfig.Workspaces) > 0 {
+				cfg.Workspaces = expandPaths(fileConfig.Workspaces)
 			}
 		}
 	}
 
 	// Priority 2: Environment variables override config file
-	envDirs := os.Getenv("WYDO_DIRS")
-	envRecursiveDirs := os.Getenv("WYDO_RECURSIVE_DIRS")
-	if envDirs != "" || envRecursiveDirs != "" {
-		if envDirs != "" {
-			cfg.Dirs = expandPaths(parseColonSeparated(envDirs))
-		}
-		if envRecursiveDirs != "" {
-			cfg.RecursiveDirs = expandPaths(parseColonSeparated(envRecursiveDirs))
-		}
+	envWorkspaces := os.Getenv("WYDO_WORKSPACES")
+	if envWorkspaces != "" {
+		cfg.Workspaces = expandPaths(parseColonSeparated(envWorkspaces))
 	}
 
 	// Priority 1: CLI flags override everything
-	if len(flags.Dirs) > 0 || len(flags.RecursiveDirs) > 0 {
-		if len(flags.Dirs) > 0 {
-			cfg.Dirs = expandPaths(flags.Dirs)
-		}
-		if len(flags.RecursiveDirs) > 0 {
-			cfg.RecursiveDirs = expandPaths(flags.RecursiveDirs)
-		}
+	if len(flags.Workspaces) > 0 {
+		cfg.Workspaces = expandPaths(flags.Workspaces)
 	}
 
 	// Default directory if nothing configured
-	if len(cfg.Dirs) == 0 && len(cfg.RecursiveDirs) == 0 {
+	if len(cfg.Workspaces) == 0 {
 		defaultDir, err := GetDefaultDir()
 		if err != nil {
 			return nil, err
 		}
-		cfg.Dirs = []string{defaultDir}
+		cfg.Workspaces = []string{defaultDir}
 	}
 
 	globalConfig = cfg
@@ -134,9 +107,9 @@ func loadConfigFile(path string) (*Settings, error) {
 	return &settings, nil
 }
 
-// EnsureDirs ensures all regular directories exist (creates them if missing)
-func (c *Config) EnsureDirs() error {
-	for _, dir := range c.Dirs {
+// EnsureWorkspaces ensures all workspace directories exist (creates them if missing)
+func (c *Config) EnsureWorkspaces() error {
+	for _, dir := range c.Workspaces {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
@@ -144,22 +117,12 @@ func (c *Config) EnsureDirs() error {
 	return nil
 }
 
-// GetFirstDir returns the first regular directory
-func (c *Config) GetFirstDir() string {
-	if len(c.Dirs) > 0 {
-		return c.Dirs[0]
+// GetFirstWorkspace returns the first workspace directory
+func (c *Config) GetFirstWorkspace() string {
+	if len(c.Workspaces) > 0 {
+		return c.Workspaces[0]
 	}
 	return ""
-}
-
-// GetTodoFilePath returns the path to the todo.txt file in a given directory
-func (c *Config) GetTodoFilePath(dir string) string {
-	return filepath.Join(dir, c.TodoFile)
-}
-
-// GetDoneFilePath returns the path to the done.txt file in a given directory
-func (c *Config) GetDoneFilePath(dir string) string {
-	return filepath.Join(dir, c.DoneFile)
 }
 
 // EnsureConfigFile creates the config file with defaults if it doesn't exist
@@ -184,11 +147,8 @@ func EnsureConfigFile() error {
 	}
 
 	settings := Settings{
-		Dirs:          []string{defaultDir},
-		RecursiveDirs: []string{},
-		TodoFile:      "todo.txt",
-		DoneFile:      "done.txt",
-		DefaultView:   "day",
+		Workspaces:  []string{defaultDir},
+		DefaultView: "day",
 	}
 
 	data, err := json.MarshalIndent(settings, "", "  ")

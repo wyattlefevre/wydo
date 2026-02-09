@@ -1,0 +1,6 @@
+(A) Review pull requests +alpha @computer due:2026-02-10
+(B) Set up CI pipeline +alpha @computer
+Buy groceries @errands
+Schedule dentist appointment @phone due:2026-02-12
+(C) Research paint options +home-remodel @computer
+Call electrician +home-remodel @phone due:2026-02-14

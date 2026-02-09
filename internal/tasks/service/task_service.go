@@ -2,9 +2,13 @@ package service
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"wydo/internal/logs"
+	"wydo/internal/scanner"
 	"wydo/internal/tasks/data"
 )
 
@@ -26,19 +30,15 @@ type TaskService interface {
 }
 
 type taskServiceImpl struct {
-	tasks        []data.Task
-	projects     map[string]data.Project
-	todoFilePath string
-	doneFilePath string
-	projDir      string
+	tasks    []data.Task
+	projects map[string]data.Project
+	taskDirs []scanner.TaskDirInfo
 }
 
-// NewTaskService creates a new TaskService for specific file paths
-func NewTaskService(todoFilePath, doneFilePath, projDir string) (TaskService, error) {
+// NewTaskService creates a new TaskService from discovered task directories
+func NewTaskService(taskDirs []scanner.TaskDirInfo) (TaskService, error) {
 	svc := &taskServiceImpl{
-		todoFilePath: todoFilePath,
-		doneFilePath: doneFilePath,
-		projDir:      projDir,
+		taskDirs: taskDirs,
 	}
 	if err := svc.Reload(); err != nil {
 		return nil, err
@@ -47,13 +47,50 @@ func NewTaskService(todoFilePath, doneFilePath, projDir string) (TaskService, er
 }
 
 func (s *taskServiceImpl) Reload() error {
-	tasks, projects, err := data.LoadDataFromFiles(s.todoFilePath, s.doneFilePath, s.projDir, true)
-	if err != nil {
-		return err
+	var allTasks []data.Task
+	projects := make(map[string]data.Project)
+
+	for i, td := range s.taskDirs {
+		// Re-discover .txt files in the directory (handles newly created done.txt)
+		files := discoverTxtFiles(td.DirPath)
+		if len(files) > 0 {
+			s.taskDirs[i].Files = files
+		}
+
+		tasks, err := data.LoadTasksFromDir(td.DirPath, s.taskDirs[i].Files, true)
+		if err != nil {
+			logs.Logger.Printf("Warning: error loading tasks from %s: %v", td.DirPath, err)
+			continue
+		}
+		allTasks = append(allTasks, tasks...)
 	}
-	s.tasks = tasks
+
+	// Build project map from task tags
+	for _, t := range allTasks {
+		for _, p := range t.Projects {
+			if _, exists := projects[p]; !exists {
+				projects[p] = data.Project{Name: p}
+			}
+		}
+	}
+
+	s.tasks = allTasks
 	s.projects = projects
 	return nil
+}
+
+func discoverTxtFiles(dirPath string) []string {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
+			files = append(files, e.Name())
+		}
+	}
+	return files
 }
 
 func (s *taskServiceImpl) List() ([]data.Task, error) {
@@ -109,8 +146,14 @@ func (s *taskServiceImpl) Get(id string) (*data.Task, error) {
 	return nil, fmt.Errorf("task not found: %s", id)
 }
 
+// Add appends a task to the first todo.txt found across all task dirs
 func (s *taskServiceImpl) Add(rawLine string) (*data.Task, error) {
-	task, err := data.AppendTaskToFile(rawLine, s.todoFilePath)
+	targetFile := s.firstTodoFile()
+	if targetFile == "" {
+		return nil, fmt.Errorf("no todo.txt file found in any task directory")
+	}
+
+	task, err := data.AppendTaskToFile(rawLine, targetFile)
 	if err != nil {
 		return nil, err
 	}
@@ -122,13 +165,14 @@ func (s *taskServiceImpl) Add(rawLine string) (*data.Task, error) {
 
 func (s *taskServiceImpl) Update(task data.Task) error {
 	logs.Logger.Printf("Service: Update Task: %s\n", task.ID)
-	data.UpdateTask(s.tasks, task)
-	if err := data.WriteDataToFiles(s.tasks, s.todoFilePath, s.doneFilePath); err != nil {
+	s.tasks = data.UpdateTask(s.tasks, task)
+	if err := data.WriteAllTasks(s.tasks); err != nil {
 		return err
 	}
 	return s.Reload()
 }
 
+// Complete marks a task as done and moves it to done.txt in the same tasks/ directory
 func (s *taskServiceImpl) Complete(id string) error {
 	task, err := s.Get(id)
 	if err != nil {
@@ -137,25 +181,64 @@ func (s *taskServiceImpl) Complete(id string) error {
 
 	task.Done = true
 	task.CompletionDate = time.Now().Format("2006-01-02")
-	task.File = s.doneFilePath
 
-	data.UpdateTask(s.tasks, *task)
-	if err := data.WriteDataToFiles(s.tasks, s.todoFilePath, s.doneFilePath); err != nil {
+	// Find done.txt in the same tasks/ directory
+	taskDir := filepath.Dir(task.File)
+	doneFile := filepath.Join(taskDir, "done.txt")
+	task.File = doneFile
+
+	s.tasks = data.UpdateTask(s.tasks, *task)
+	if err := data.WriteAllTasks(s.tasks); err != nil {
 		return err
 	}
 	return s.Reload()
 }
 
 func (s *taskServiceImpl) Delete(id string) error {
+	// Remember which file the task was in so we can rewrite it even if empty
+	var affectedFile string
+	for _, t := range s.tasks {
+		if t.ID == id {
+			affectedFile = t.File
+			break
+		}
+	}
+
 	s.tasks = data.DeleteTask(s.tasks, id)
-	if err := data.WriteDataToFiles(s.tasks, s.todoFilePath, s.doneFilePath); err != nil {
+	if err := data.WriteAllTasks(s.tasks); err != nil {
 		return err
 	}
+
+	// If the affected file has no remaining tasks, rewrite it as empty
+	if affectedFile != "" {
+		hasTasksInFile := false
+		for _, t := range s.tasks {
+			if t.File == affectedFile {
+				hasTasksInFile = true
+				break
+			}
+		}
+		if !hasTasksInFile {
+			// Rewrite as empty file
+			if err := os.WriteFile(affectedFile, []byte{}, 0644); err != nil {
+				return err
+			}
+		}
+	}
+
 	return s.Reload()
 }
 
+// Archive moves done tasks to done.txt within each tasks/ directory
 func (s *taskServiceImpl) Archive() error {
-	if err := data.ArchiveDoneToFiles(s.tasks, s.doneFilePath); err != nil {
+	for i := range s.tasks {
+		if s.tasks[i].Done {
+			taskDir := filepath.Dir(s.tasks[i].File)
+			doneFile := filepath.Join(taskDir, "done.txt")
+			s.tasks[i].File = doneFile
+		}
+	}
+	if err := data.WriteAllTasks(s.tasks); err != nil {
 		return err
 	}
 	return s.Reload()
@@ -163,4 +246,20 @@ func (s *taskServiceImpl) Archive() error {
 
 func (s *taskServiceImpl) GetProjects() map[string]data.Project {
 	return s.projects
+}
+
+// firstTodoFile returns the path to the first todo.txt found
+func (s *taskServiceImpl) firstTodoFile() string {
+	for _, td := range s.taskDirs {
+		for _, f := range td.Files {
+			if f == "todo.txt" {
+				return filepath.Join(td.DirPath, f)
+			}
+		}
+	}
+	// Fallback: first file in first dir
+	if len(s.taskDirs) > 0 && len(s.taskDirs[0].Files) > 0 {
+		return filepath.Join(s.taskDirs[0].DirPath, s.taskDirs[0].Files[0])
+	}
+	return ""
 }

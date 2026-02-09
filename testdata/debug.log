@@ -1,5 +1,0 @@
-[wydo] 2026/02/08 09:34:26 logger.go:53: Logger successfully reinitialized to: testdata/debug.log
-[wydo] 2026/02/08 09:34:26 data.go:54: LoadDataFromFiles
-[wydo] 2026/02/08 09:34:26 data.go:64: load todo.txt
-[wydo] 2026/02/08 09:34:26 data.go:77: load done.txt
-[wydo] 2026/02/08 09:34:26 main.go:93: Starting app in TUI mode

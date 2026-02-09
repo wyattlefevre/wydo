@@ -3,13 +3,15 @@ package tui
 import (
 	"wydo/internal/config"
 	"wydo/internal/kanban/fs"
-	"wydo/internal/kanban/models"
+	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/logs"
 	"wydo/internal/notes"
+	"wydo/internal/scanner"
 	"wydo/internal/tasks/service"
 	agendaview "wydo/internal/tui/agenda"
 	kanbanview "wydo/internal/tui/kanban"
 	taskview "wydo/internal/tui/tasks"
+	"wydo/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,30 +19,47 @@ import (
 
 // AppModel is the root model that dispatches to child views
 type AppModel struct {
-	cfg             *config.Config
-	taskSvc         service.TaskService
-	boards          []models.Board
-	allNotes        []notes.Note
-	currentView     ViewType
-	dayView         agendaview.DayModel
-	weekView        agendaview.WeekModel
-	monthView       agendaview.MonthModel
-	pickerView      kanbanview.PickerModel
-	boardView       kanbanview.BoardModel
-	boardLoaded     bool // true when boardView has a valid board
+	cfg         *config.Config
+	workspaces  []*workspace.Workspace
+	taskSvc     service.TaskService // combined task service across all workspaces
+	boards      []kanbanmodels.Board
+	allNotes    []notes.Note
+	currentView ViewType
+	dayView     agendaview.DayModel
+	weekView    agendaview.WeekModel
+	monthView   agendaview.MonthModel
+	pickerView  kanbanview.PickerModel
+	boardView   kanbanview.BoardModel
+	boardLoaded bool // true when boardView has a valid board
 	taskManagerView taskview.TaskManagerModel
-	todoFilePath    string
-	doneFilePath    string
-	showHelp        bool
-	width           int
-	height          int
-	ready           bool
+	showHelp    bool
+	width       int
+	height      int
+	ready       bool
 }
 
 // NewAppModel creates the root application model
-func NewAppModel(cfg *config.Config, taskSvc service.TaskService, todoFilePath, doneFilePath string) AppModel {
-	boards, _ := fs.ScanAllBoards(cfg.Dirs, cfg.RecursiveDirs)
-	allNotes := notes.ScanNotes(cfg.Dirs, cfg.RecursiveDirs)
+func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel {
+	// Aggregate boards and notes from all workspaces for display
+	var allBoards []kanbanmodels.Board
+	var allNotes []notes.Note
+	var allTaskDirs []scanner.TaskDirInfo
+
+	for _, ws := range workspaces {
+		allBoards = append(allBoards, ws.Boards...)
+		allNotes = append(allNotes, ws.Notes...)
+		allTaskDirs = append(allTaskDirs, ws.TaskDirs...)
+	}
+
+	// Build combined task service
+	var taskSvc service.TaskService
+	if len(allTaskDirs) > 0 {
+		var err error
+		taskSvc, err = service.NewTaskService(allTaskDirs)
+		if err != nil {
+			logs.Logger.Printf("Warning: could not create task service: %v", err)
+		}
+	}
 
 	view := ViewAgendaDay
 	switch cfg.DefaultView {
@@ -54,9 +73,9 @@ func NewAppModel(cfg *config.Config, taskSvc service.TaskService, todoFilePath, 
 		view = ViewKanbanPicker
 	}
 
-	// Compute available dirs for picker (all dirs + recursive dirs)
-	availableDirs := append([]string{}, cfg.Dirs...)
-	availableDirs = append(availableDirs, cfg.RecursiveDirs...)
+	// Compute available dirs for picker
+	availableDirs := make([]string, 0, len(cfg.Workspaces))
+	availableDirs = append(availableDirs, cfg.Workspaces...)
 
 	defaultDir := ""
 	if len(availableDirs) > 0 {
@@ -65,17 +84,16 @@ func NewAppModel(cfg *config.Config, taskSvc service.TaskService, todoFilePath, 
 
 	return AppModel{
 		cfg:             cfg,
+		workspaces:      workspaces,
 		taskSvc:         taskSvc,
-		boards:          boards,
+		boards:          allBoards,
 		allNotes:        allNotes,
 		currentView:     view,
-		dayView:         agendaview.NewDayModel(taskSvc, boards, allNotes),
-		weekView:        agendaview.NewWeekModel(taskSvc, boards, allNotes),
-		monthView:       agendaview.NewMonthModel(taskSvc, boards, allNotes),
-		pickerView:      kanbanview.NewPickerModel(boards, defaultDir, availableDirs),
-		taskManagerView: taskview.NewTaskManagerModel(taskSvc, todoFilePath, doneFilePath),
-		todoFilePath:    todoFilePath,
-		doneFilePath:    doneFilePath,
+		dayView:         agendaview.NewDayModel(taskSvc, allBoards, allNotes),
+		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes),
+		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes),
+		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
+		taskManagerView: taskview.NewTaskManagerModel(taskSvc),
 	}
 }
 
@@ -121,19 +139,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh data when switching to certain views
 		switch msg.View {
 		case ViewAgendaDay:
-			m.allNotes = notes.ScanNotes(m.cfg.Dirs, m.cfg.RecursiveDirs)
+			m.refreshData()
 			m.dayView.SetData(m.taskSvc, m.boards, m.allNotes)
 		case ViewAgendaWeek:
-			m.allNotes = notes.ScanNotes(m.cfg.Dirs, m.cfg.RecursiveDirs)
+			m.refreshData()
 			m.weekView.SetData(m.taskSvc, m.boards, m.allNotes)
 		case ViewAgendaMonth:
-			m.allNotes = notes.ScanNotes(m.cfg.Dirs, m.cfg.RecursiveDirs)
+			m.refreshData()
 			m.monthView.SetData(m.taskSvc, m.boards, m.allNotes)
 		case ViewKanbanPicker:
-			// Rescan boards in case they changed
-			boards, _ := fs.ScanAllBoards(m.cfg.Dirs, m.cfg.RecursiveDirs)
-			m.boards = boards
-			m.pickerView.SetBoards(boards)
+			m.refreshData()
+			m.pickerView.SetBoards(m.boards)
 		}
 		return m, nil
 
@@ -163,9 +179,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case DataRefreshMsg:
-		// Refresh all data sources
-		boards, _ := fs.ScanAllBoards(m.cfg.Dirs, m.cfg.RecursiveDirs)
-		m.boards = boards
+		m.refreshData()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -194,24 +208,23 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "1":
 				m.currentView = ViewAgendaDay
-				m.allNotes = notes.ScanNotes(m.cfg.Dirs, m.cfg.RecursiveDirs)
+				m.refreshData()
 				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes)
 				return m, nil
 			case "2":
 				m.currentView = ViewAgendaWeek
-				m.allNotes = notes.ScanNotes(m.cfg.Dirs, m.cfg.RecursiveDirs)
+				m.refreshData()
 				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes)
 				return m, nil
 			case "3":
 				m.currentView = ViewAgendaMonth
-				m.allNotes = notes.ScanNotes(m.cfg.Dirs, m.cfg.RecursiveDirs)
+				m.refreshData()
 				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes)
 				return m, nil
 			case "b":
 				m.currentView = ViewKanbanPicker
-				boards, _ := fs.ScanAllBoards(m.cfg.Dirs, m.cfg.RecursiveDirs)
-				m.boards = boards
-				m.pickerView.SetBoards(boards)
+				m.refreshData()
+				m.pickerView.SetBoards(m.boards)
 				return m, nil
 			case "t":
 				if m.currentView != ViewTaskManager {
@@ -252,6 +265,36 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// refreshData rescans workspaces and refreshes aggregated data
+func (m *AppModel) refreshData() {
+	var allBoards []kanbanmodels.Board
+	var allNotes []notes.Note
+	var allTaskDirs []scanner.TaskDirInfo
+
+	for _, wsDir := range m.cfg.Workspaces {
+		scan, err := scanner.ScanWorkspace(wsDir)
+		if err != nil {
+			continue
+		}
+		ws, err := workspace.Load(scan)
+		if err != nil {
+			continue
+		}
+		allBoards = append(allBoards, ws.Boards...)
+		allNotes = append(allNotes, ws.Notes...)
+		allTaskDirs = append(allTaskDirs, scan.TaskDirs...)
+	}
+
+	m.boards = allBoards
+	m.allNotes = allNotes
+
+	if len(allTaskDirs) > 0 {
+		if svc, err := service.NewTaskService(allTaskDirs); err == nil {
+			m.taskSvc = svc
+		}
+	}
 }
 
 func (m AppModel) View() string {
