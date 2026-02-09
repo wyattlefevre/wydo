@@ -92,7 +92,7 @@ func (m DayModel) Update(msg tea.Msg) (DayModel, tea.Cmd) {
 		case "l", "right":
 			m.date = m.date.AddDate(0, 0, 1)
 			m.refreshData()
-		case "T":
+		case "t":
 			m.date = time.Now()
 			m.refreshData()
 		case "j", "down":
@@ -136,7 +136,7 @@ func (m DayModel) View() string {
 	// Title line
 	dateStr := m.date.Format("Monday, Jan 2 2006")
 	title := titleStyle.Render(fmt.Sprintf(" Agenda: %s", dateStr))
-	nav := navHintStyle.Render("[h: prev] [T: today] [l: next]")
+	nav := navHintStyle.Render("[h: prev] [t: today] [l: next]")
 
 	titleLine := title
 	padding := m.width - lipgloss.Width(title) - lipgloss.Width(nav) - 1

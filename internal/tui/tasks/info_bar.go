@@ -77,7 +77,7 @@ func (m *InfoBarModel) getHintsForMode() string {
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		return hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  F:toggle-file  A:archive  enter:edit  space:toggle")
+		return hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  F:files  A:archive  enter:edit  space:toggle")
 
 	case ModeFilterSelect:
 		return hintStyle.Render("/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back")

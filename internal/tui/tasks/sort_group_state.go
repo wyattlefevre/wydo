@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -245,7 +246,7 @@ func getFirstContext(t data.Task) string {
 
 // ApplyGroups groups tasks by the specified field
 // Tasks with multiple values (projects/contexts) appear in multiple groups
-func ApplyGroups(tasks []data.Task, state GroupState) []TaskGroup {
+func ApplyGroups(tasks []data.Task, state GroupState, roots []string) []TaskGroup {
 	if state.Field == GroupByNone {
 		return []TaskGroup{{Label: "", Tasks: tasks}}
 	}
@@ -255,7 +256,7 @@ func ApplyGroups(tasks []data.Task, state GroupState) []TaskGroup {
 	var groupOrder []string
 
 	for _, task := range tasks {
-		keys := getGroupKeys(task, state.Field)
+		keys := getGroupKeys(task, state.Field, roots)
 		for _, key := range keys {
 			if _, exists := groupMap[key]; !exists {
 				groupOrder = append(groupOrder, key)
@@ -289,7 +290,7 @@ func ApplyGroups(tasks []data.Task, state GroupState) []TaskGroup {
 	return result
 }
 
-func getGroupKeys(task data.Task, field GroupField) []string {
+func getGroupKeys(task data.Task, field GroupField, roots []string) []string {
 	switch field {
 	case GroupByDueDate:
 		due := task.GetDueDate()
@@ -317,9 +318,7 @@ func getGroupKeys(task data.Task, field GroupField) []string {
 		return task.Contexts
 
 	case GroupByFile:
-		// Extract just the filename
-		parts := strings.Split(task.File, "/")
-		return []string{parts[len(parts)-1]}
+		return []string{RelativeFilePath(task.File, roots)}
 	}
 
 	return []string{""}
@@ -379,19 +378,30 @@ func ExtractUniqueContexts(tasks []data.Task) []string {
 	return result
 }
 
-// ExtractUniqueFiles returns all unique file names from tasks
-func ExtractUniqueFiles(tasks []data.Task) []string {
+// ExtractUniqueFiles returns all unique relative file paths from tasks
+func ExtractUniqueFiles(tasks []data.Task, roots []string) []string {
 	seen := make(map[string]bool)
 	var result []string
 	for _, task := range tasks {
-		// Extract just the filename
-		parts := strings.Split(task.File, "/")
-		filename := parts[len(parts)-1]
-		if !seen[filename] {
-			seen[filename] = true
-			result = append(result, filename)
+		relPath := RelativeFilePath(task.File, roots)
+		if !seen[relPath] {
+			seen[relPath] = true
+			result = append(result, relPath)
 		}
 	}
 	sort.Strings(result)
 	return result
+}
+
+// RelativeFilePath returns a path relative to the first matching workspace root.
+// Falls back to the bare filename if no root matches.
+func RelativeFilePath(absPath string, roots []string) string {
+	for _, root := range roots {
+		rel, err := filepath.Rel(root, absPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	// Fallback: bare filename
+	return filepath.Base(absPath)
 }

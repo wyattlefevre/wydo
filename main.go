@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"wydo/internal/cli"
@@ -77,15 +78,29 @@ func main() {
 		}
 	}
 
-	// Check for CLI subcommands
+	// Check for view subcommands or CLI subcommands
 	args := flag.Args()
 	if len(args) > 0 {
-		if taskSvc == nil {
-			fmt.Fprintln(os.Stderr, "Error: could not initialize task service")
-			os.Exit(1)
+		switch args[0] {
+		case "boards":
+			cfg.DefaultView = "boards"
+			if len(args) > 1 {
+				cfg.DefaultBoard = strings.Join(args[1:], " ")
+			}
+		case "tasks":
+			cfg.DefaultView = "tasks"
+		case "agenda":
+			cfg.DefaultView = "day"
+		case "projects":
+			cfg.DefaultView = "projects"
+		default:
+			if taskSvc == nil {
+				fmt.Fprintln(os.Stderr, "Error: could not initialize task service")
+				os.Exit(1)
+			}
+			exitCode := cli.Run(args, taskSvc)
+			os.Exit(exitCode)
 		}
-		exitCode := cli.Run(args, taskSvc)
-		os.Exit(exitCode)
 	}
 
 	// Apply --view flag override

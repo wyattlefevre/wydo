@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"path/filepath"
+	"strings"
+
 	"wydo/internal/config"
 	"wydo/internal/kanban/fs"
 	kanbanmodels "wydo/internal/kanban/models"
@@ -10,6 +13,7 @@ import (
 	"wydo/internal/tasks/service"
 	agendaview "wydo/internal/tui/agenda"
 	kanbanview "wydo/internal/tui/kanban"
+	projectsview "wydo/internal/tui/projects"
 	taskview "wydo/internal/tui/tasks"
 	"wydo/internal/workspace"
 
@@ -32,6 +36,7 @@ type AppModel struct {
 	boardView   kanbanview.BoardModel
 	boardLoaded bool // true when boardView has a valid board
 	taskManagerView taskview.TaskManagerModel
+	projectsView   projectsview.ProjectsModel
 	showHelp    bool
 	width       int
 	height      int
@@ -71,6 +76,8 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		view = ViewTaskManager
 	case "boards":
 		view = ViewKanbanPicker
+	case "projects":
+		view = ViewProjects
 	}
 
 	// Compute available dirs for picker
@@ -82,7 +89,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		defaultDir = availableDirs[0]
 	}
 
-	return AppModel{
+	app := AppModel{
 		cfg:             cfg,
 		workspaces:      workspaces,
 		taskSvc:         taskSvc,
@@ -93,8 +100,23 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes),
 		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes),
 		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
-		taskManagerView: taskview.NewTaskManagerModel(taskSvc),
+		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces),
+		projectsView:   projectsview.NewProjectsModel(),
 	}
+
+	// If a specific board was requested, find and open it directly
+	if cfg.DefaultBoard != "" {
+		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
+			loaded, err := fs.ReadBoard(board.Path)
+			if err == nil {
+				app.boardView = kanbanview.NewBoardModel(loaded)
+				app.boardLoaded = true
+				app.currentView = ViewKanbanBoard
+			}
+		}
+	}
+
+	return app
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -116,6 +138,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.boardView.SetSize(msg.Width, contentHeight)
 		}
 		m.taskManagerView.SetSize(msg.Width, contentHeight)
+		m.projectsView.SetSize(msg.Width, contentHeight)
 		return m, nil
 
 	case OpenBoardMsg:
@@ -150,6 +173,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewKanbanPicker:
 			m.refreshData()
 			m.pickerView.SetBoards(m.boards)
+		case ViewProjects:
+			// No data to refresh yet
 		}
 		return m, nil
 
@@ -194,6 +219,31 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Global view-switching (uppercase) — works in all views when not in modal/typing state
+		if !m.isChildInputActive() {
+			switch msg.String() {
+			case "P":
+				m.currentView = ViewProjects
+				return m, nil
+			case "B":
+				m.currentView = ViewKanbanPicker
+				m.refreshData()
+				m.pickerView.SetBoards(m.boards)
+				return m, nil
+			case "A":
+				m.currentView = ViewAgendaDay
+				m.refreshData()
+				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes)
+				return m, nil
+			case "T":
+				if m.currentView != ViewTaskManager {
+					m.currentView = ViewTaskManager
+					m.taskManagerView.SetData(m.taskSvc)
+				}
+				return m, nil
+			}
+		}
+
 		// For board/picker views and task manager in modal state,
 		// let the child view handle all keys.
 		if m.currentView == ViewKanbanBoard || m.currentView == ViewKanbanPicker {
@@ -226,11 +276,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshData()
 				m.pickerView.SetBoards(m.boards)
 				return m, nil
-			case "t":
-				if m.currentView != ViewTaskManager {
-					m.currentView = ViewTaskManager
-					m.taskManagerView.SetData(m.taskSvc)
-				}
+			case "p":
+				m.currentView = ViewProjects
 				return m, nil
 			case "?":
 				m.showHelp = true
@@ -261,6 +308,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case ViewTaskManager:
 		m.taskManagerView, cmd = m.taskManagerView.Update(msg)
+		return m, cmd
+	case ViewProjects:
+		m.projectsView, cmd = m.projectsView.Update(msg)
 		return m, cmd
 	}
 
@@ -297,6 +347,32 @@ func (m *AppModel) refreshData() {
 	}
 }
 
+// isChildInputActive returns true when the current child view has an active text input
+// or modal that should receive uppercase keys instead of the global view-switcher.
+func (m *AppModel) isChildInputActive() bool {
+	switch m.currentView {
+	case ViewKanbanBoard:
+		return m.boardView.IsModal()
+	case ViewKanbanPicker:
+		return m.pickerView.IsTyping()
+	case ViewTaskManager:
+		return m.taskManagerView.IsInModalState()
+	default:
+		return false
+	}
+}
+
+// findBoard looks up a board by name or directory basename (case-insensitive).
+func findBoard(boards []kanbanmodels.Board, query string) (kanbanmodels.Board, bool) {
+	q := strings.ToLower(query)
+	for _, b := range boards {
+		if strings.ToLower(b.Name) == q || strings.ToLower(filepath.Base(b.Path)) == q {
+			return b, true
+		}
+	}
+	return kanbanmodels.Board{}, false
+}
+
 func (m AppModel) View() string {
 	if !m.ready {
 		return "Loading..."
@@ -325,19 +401,23 @@ func (m AppModel) View() string {
 		}
 	case ViewTaskManager:
 		content = m.taskManagerView.View()
+	case ViewProjects:
+		content = m.projectsView.View()
 	}
 
 	// Status bar — show different hints based on view
 	var statusText string
 	switch m.currentView {
 	case ViewKanbanBoard:
-		statusText = "Board view | q/b: back to picker"
+		statusText = "Board view | esc/q/b: back | P:projects A:agenda T:tasks"
 	case ViewKanbanPicker:
-		statusText = "Board picker | esc: back"
+		statusText = "Board picker | esc: back | P:projects A:agenda T:tasks | q:quit"
 	case ViewTaskManager:
-		statusText = "Task manager | 1:day 2:week 3:month | b:boards | ?:help | q:quit"
+		statusText = "Task manager | 1:day 2:week 3:month | B:boards P:projects A:agenda | ?:help | q:quit"
+	case ViewProjects:
+		statusText = "Projects | 1:day 2:week 3:month | B:boards T:tasks A:agenda | ?:help | q:quit"
 	default:
-		statusText = "1:day 2:week 3:month | b:boards t:tasks | ?:help | q:quit"
+		statusText = "1:day 2:week 3:month | B:boards T:tasks P:projects | ?:help | q:quit"
 	}
 
 	statusBar := StatusBarStyle.Width(m.width).Render(
@@ -365,11 +445,13 @@ func (m AppModel) renderHelpOverlay() string {
 	content += sectionStyle.Render("Wydo - Keyboard Shortcuts") + "\n\n"
 
 	content += sectionStyle.Render("Global Navigation") + "\n"
-	content += line("1", "Day agenda view") + "\n"
-	content += line("2", "Week agenda view") + "\n"
-	content += line("3", "Month agenda view") + "\n"
+	content += line("P", "Projects") + "\n"
+	content += line("B", "Board picker") + "\n"
+	content += line("A", "Agenda (day view)") + "\n"
+	content += line("T", "Task manager") + "\n"
+	content += line("1 / 2 / 3", "Day / week / month agenda") + "\n"
 	content += line("b", "Board picker") + "\n"
-	content += line("t", "Task manager") + "\n"
+	content += line("p", "Projects") + "\n"
 	content += line("?", "Show this help") + "\n"
 	content += line("q", "Quit") + "\n"
 	content += line("ctrl+c", "Force quit") + "\n\n"
@@ -377,14 +459,14 @@ func (m AppModel) renderHelpOverlay() string {
 	content += sectionStyle.Render("Agenda Views (Day/Week)") + "\n"
 	content += line("h / l", "Previous / next period") + "\n"
 	content += line("j / k", "Navigate items") + "\n"
-	content += line("T", "Jump to today") + "\n"
+	content += line("t", "Jump to today") + "\n"
 	content += line("enter", "Open selected item") + "\n\n"
 
 	content += sectionStyle.Render("Month View") + "\n"
 	content += line("h / l", "Previous / next day") + "\n"
 	content += line("j / k", "Previous / next week") + "\n"
 	content += line("H / L", "Previous / next month") + "\n"
-	content += line("T", "Jump to today") + "\n"
+	content += line("t", "Jump to today") + "\n"
 	content += line("enter", "Enter detail panel") + "\n"
 	content += line("esc", "Back to calendar") + "\n\n"
 

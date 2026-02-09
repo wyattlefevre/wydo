@@ -9,8 +9,9 @@ import (
 
 // Config holds the unified application configuration
 type Config struct {
-	Workspaces  []string `json:"workspaces"`
-	DefaultView string   `json:"default_view"`
+	Workspaces   []string `json:"workspaces"`
+	DefaultView  string   `json:"default_view"`
+	DefaultBoard string   `json:"-"` // runtime-only: open a specific board by name
 }
 
 // Settings represents the config file structure

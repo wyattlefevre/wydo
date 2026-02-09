@@ -136,7 +136,7 @@ func (m MonthModel) updateCalendar(msg tea.KeyMsg) (MonthModel, tea.Cmd) {
 		m.viewMonth = m.viewMonth.AddDate(0, 1, 0)
 		m.cursorDate = m.viewMonth
 		m.refreshData()
-	case "T":
+	case "t":
 		now := time.Now()
 		m.cursorDate = now
 		m.viewMonth = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
@@ -201,7 +201,7 @@ func (m MonthModel) View() string {
 	// Title line
 	monthStr := m.viewMonth.Format("January 2006")
 	title := calMonthTitleStyle.Render(fmt.Sprintf(" %s", monthStr))
-	nav := navHintStyle.Render("[h/l: day] [k/j: week] [H/L: month] [T: today] [enter: detail]")
+	nav := navHintStyle.Render("[h/l: day] [k/j: week] [H/L: month] [t: today] [enter: detail]")
 
 	titleLine := title
 	padding := m.width - lipgloss.Width(title) - lipgloss.Width(nav) - 1

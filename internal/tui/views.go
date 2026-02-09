@@ -12,6 +12,7 @@ const (
 	ViewKanbanPicker = messages.ViewKanbanPicker
 	ViewKanbanBoard  = messages.ViewKanbanBoard
 	ViewTaskManager  = messages.ViewTaskManager
+	ViewProjects     = messages.ViewProjects
 )
 
 type SwitchViewMsg = messages.SwitchViewMsg

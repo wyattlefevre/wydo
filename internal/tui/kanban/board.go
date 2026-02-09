@@ -182,6 +182,11 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			m.selectedCard = 0
 			m.columnCursorPos[m.selectedCol] = 0
 			m.adjustScrollPosition()
+		} else {
+			// Return to picker
+			return m, func() tea.Msg {
+				return messages.SwitchViewMsg{View: messages.ViewKanbanPicker}
+			}
 		}
 
 	case "/":
@@ -290,7 +295,7 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			return m.handleScheduledDateEdit()
 		}
 
-	case "P":
+	case "i":
 		if m.selectedCol < len(m.board.Columns) && m.selectedCard < len(m.getVisibleCards(m.selectedCol)) {
 			return m.handlePriorityEdit()
 		}
@@ -960,7 +965,7 @@ func (m BoardModel) View() string {
 	case boardModeFilter:
 		s.WriteString(helpStyle.Render("type to filter • enter: lock filter • esc: cancel"))
 	default:
-		helpText := "hjkl: navigate • m/space: move • enter: edit • n: new • d: due date • D: delete • t: tags • p: projects • P: priority • u: open url • U: edit url • S: scheduled date • c: columns • /: filter • q/b: back"
+		helpText := "hjkl: navigate • m/space: move • enter: edit • n: new • d: due date • D: delete • t: tags • p: projects • i: priority • u: open url • U: edit url • S: scheduled date • c: columns • /: filter • q/b: back"
 		if m.filterActive {
 			helpText = "hjkl: navigate • m/space: move • enter: edit • /: edit filter • esc: clear filter • q/b: back"
 		}

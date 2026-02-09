@@ -12,6 +12,7 @@ const (
 	ViewKanbanPicker
 	ViewKanbanBoard
 	ViewTaskManager
+	ViewProjects
 )
 
 // SwitchViewMsg is sent by child views to switch to a different view

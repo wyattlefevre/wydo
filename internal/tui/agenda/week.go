@@ -103,7 +103,7 @@ func (m WeekModel) Update(msg tea.Msg) (WeekModel, tea.Cmd) {
 		case "l", "right":
 			m.date = m.date.AddDate(0, 0, 7)
 			m.refreshData()
-		case "T":
+		case "t":
 			m.date = time.Now()
 			m.refreshData()
 		case "j", "down":
@@ -151,7 +151,7 @@ func (m WeekModel) View() string {
 	// Title line
 	titleStr := fmt.Sprintf(" Week: %s - %s", start.Format("Jan 2"), end.Format("Jan 2 2006"))
 	title := titleStyle.Render(titleStr)
-	nav := navHintStyle.Render("[h: prev] [T: today] [l: next]")
+	nav := navHintStyle.Render("[h: prev] [t: today] [l: next]")
 
 	titleLine := title
 	padding := m.width - lipgloss.Width(title) - lipgloss.Width(nav) - 1

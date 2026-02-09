@@ -58,6 +58,11 @@ func (m *PickerModel) SetSize(width, height int) {
 	m.height = height
 }
 
+// IsTyping returns true when the picker is in create mode with active text input
+func (m PickerModel) IsTyping() bool {
+	return m.mode == modeCreate
+}
+
 // SetBoards updates the boards list
 func (m *PickerModel) SetBoards(boards []models.Board) {
 	m.boards = boards
@@ -101,6 +106,14 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 
 func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+
+	case "esc":
+		return m, func() tea.Msg {
+			return messages.SwitchViewMsg{View: messages.ViewAgendaDay}
+		}
+
 	case "j", "down":
 		if len(m.boards) > 0 && m.selected < len(m.boards)-1 {
 			m.selected++
@@ -262,7 +275,7 @@ func (m PickerModel) viewList() string {
 	}
 
 	// Help
-	lines = append(lines, helpStyle.Render("j/k: navigate • enter: select • n: new board"))
+	lines = append(lines, helpStyle.Render("j/k: navigate • enter: select • n: new board • esc: back • q: quit"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)

@@ -57,10 +57,11 @@ type ArchiveCompleteMsg struct {
 // TaskManagerModel manages the task list view with filtering, sorting, and grouping
 type TaskManagerModel struct {
 	// Data
-	taskSvc      service.TaskService
-	tasks        []data.Task
-	displayTasks []data.Task
-	taskGroups   []TaskGroup
+	taskSvc        service.TaskService
+	workspaceRoots []string
+	tasks          []data.Task
+	displayTasks   []data.Task
+	taskGroups     []TaskGroup
 
 	// Navigation
 	cursor int
@@ -100,15 +101,16 @@ type TaskManagerModel struct {
 }
 
 // NewTaskManagerModel creates a new task manager model
-func NewTaskManagerModel(taskSvc service.TaskService) TaskManagerModel {
+func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string) TaskManagerModel {
 	m := TaskManagerModel{
-		taskSvc:      taskSvc,
-		inputContext: NewInputModeContext(),
-		filterState:  NewFilterState(),
-		sortState:    NewSortState(),
-		groupState:   NewGroupState(),
-		infoBar:      NewInfoBar(),
-		fileViewMode: FileViewTodoOnly,
+		taskSvc:        taskSvc,
+		workspaceRoots: workspaceRoots,
+		inputContext:   NewInputModeContext(),
+		filterState:    NewFilterState(),
+		sortState:      NewSortState(),
+		groupState:     GroupState{Field: GroupByFile, Ascending: true},
+		infoBar:        NewInfoBar(),
+		fileViewMode:   FileViewTodoOnly,
 	}
 	m.loadTasks()
 	return m
@@ -146,7 +148,7 @@ func (m *TaskManagerModel) loadTasks() {
 	m.tasks = tasks
 	m.allProjects = ExtractUniqueProjects(tasks)
 	m.allContexts = ExtractUniqueContexts(tasks)
-	m.allFiles = ExtractUniqueFiles(tasks)
+	m.allFiles = ExtractUniqueFiles(tasks, m.workspaceRoots)
 	m.refreshDisplayTasks()
 }
 
@@ -370,6 +372,8 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "g":
 		m.inputContext.TransitionTo(ModeGroupSelect)
 		m.inputContext.Category = "group"
+	case "F":
+		return m.startFileFilter()
 	case "/":
 		return m.startSearch()
 	case " ":
@@ -568,10 +572,10 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 
-	// In normal mode, clear filters and file view mode
+	// In normal mode, clear filters and file view mode, restore default grouping
 	m.filterState.Reset()
 	m.sortState.Reset()
-	m.groupState.Reset()
+	m.groupState = GroupState{Field: GroupByFile, Ascending: true}
 	m.fileViewMode = FileViewTodoOnly
 	m.refreshDisplayTasks()
 	return m, nil
@@ -821,7 +825,7 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 
 	// Apply grouping
 	if m.groupState.IsActive() {
-		m.taskGroups = ApplyGroups(sorted, m.groupState)
+		m.taskGroups = ApplyGroups(sorted, m.groupState, m.workspaceRoots)
 		// Flatten for cursor navigation
 		m.displayTasks = nil
 		for _, g := range m.taskGroups {

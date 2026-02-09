@@ -67,12 +67,19 @@ func printUsage() {
 
 Usage: wydo [flags] [command] [arguments]
 
+Views (launch TUI into a specific view):
+  agenda      Day agenda view
+  boards [name]  Board picker, or open a specific board by name
+  tasks       Task manager
+  projects    Projects (coming soon)
+
 Commands:
   task        Task management commands
   board       Board management commands (coming soon)
 
 Flags:
   -w, --workspaces       Workspace directories (comma-separated)
+      --view <name>      Initial view: day, week, month, tasks, boards, projects
 
 Running wydo without arguments launches the interactive TUI.
 Use "wydo task help" for task subcommands.`)
