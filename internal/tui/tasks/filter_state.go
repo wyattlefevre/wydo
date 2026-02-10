@@ -47,7 +47,7 @@ type FilterState struct {
 // NewFilterState creates a new empty filter state
 func NewFilterState() FilterState {
 	return FilterState{
-		StatusFilter: StatusAll,
+		StatusFilter: StatusPending,
 	}
 }
 

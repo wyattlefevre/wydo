@@ -441,8 +441,8 @@ func TestQueryAgenda_TaskWithBothDates(t *testing.T) {
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
 	}
-	// Should appear twice in tasks (once for due, once for scheduled)
-	if len(buckets[0].Tasks) != 2 {
-		t.Fatalf("expected 2 task items (due + scheduled), got %d", len(buckets[0].Tasks))
+	// When due and scheduled are the same date, should appear only once (as due)
+	if len(buckets[0].Tasks) != 1 {
+		t.Fatalf("expected 1 task item (deduplicated), got %d", len(buckets[0].Tasks))
 	}
 }

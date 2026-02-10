@@ -176,8 +176,11 @@ func addTaskItems(task *data.Task, completed bool, dateRange DateRange, bucketMa
 		}
 	}
 
-	// Check scheduled date
+	// Check scheduled date (skip if due date is the same day to avoid duplicates)
 	if schedStr := task.GetScheduledDate(); schedStr != "" {
+		if dueStr := task.GetDueDate(); dueStr == schedStr {
+			return
+		}
 		if schedDate, err := time.Parse("2006-01-02", schedStr); err == nil {
 			if inRange(schedDate, dateRange) {
 				bucket := getOrCreateBucket(bucketMap, schedDate)
@@ -224,9 +227,12 @@ func addCardItems(card *kanbanmodels.Card, boardName, boardPath, columnName stri
 		}
 	}
 
-	// Check scheduled date
+	// Check scheduled date (skip if due date is the same day to avoid duplicates)
 	if card.ScheduledDate != nil {
 		schedDate := *card.ScheduledDate
+		if card.DueDate != nil && card.DueDate.Format("2006-01-02") == schedDate.Format("2006-01-02") {
+			return
+		}
 		if inRange(schedDate, dateRange) {
 			bucket := getOrCreateBucket(bucketMap, schedDate)
 			item := AgendaItem{

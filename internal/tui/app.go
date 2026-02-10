@@ -229,6 +229,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, nil
 
+	case taskview.TaskDeleteMsg:
+		if err := m.taskSvc.Delete(msg.TaskID); err != nil {
+			logs.Logger.Printf("Error deleting task: %v", err)
+		}
+		m.taskManagerView.SetData(m.taskSvc)
+		return m, nil
+
 	case taskview.ArchiveRequestMsg:
 		// Archive completed tasks
 		if err := m.taskSvc.Archive(); err != nil {

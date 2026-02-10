@@ -49,6 +49,11 @@ type ArchiveRequestMsg struct {
 	Count int
 }
 
+// TaskDeleteMsg is sent when a task should be deleted
+type TaskDeleteMsg struct {
+	TaskID string
+}
+
 // ArchiveCompleteMsg is sent when archive operation completes
 type ArchiveCompleteMsg struct {
 	Count int
@@ -83,6 +88,9 @@ type TaskManagerModel struct {
 	// File view mode
 	fileViewMode FileViewMode
 
+	// Pending delete (for confirmation modal)
+	pendingDeleteTaskID string
+
 	// Inline search
 	searchActive     bool
 	searchFilterMode bool // true when actively typing in search filter
@@ -109,7 +117,7 @@ func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string) T
 		inputContext:   NewInputModeContext(),
 		filterState:    NewFilterState(),
 		sortState:      NewSortState(),
-		groupState:     GroupState{Field: GroupByFile, Ascending: true},
+		groupState:     GroupState{Field: GroupByFile, Ascending: false},
 		infoBar:        NewInfoBar(),
 		fileViewMode:   FileViewAll,
 	}
@@ -417,6 +425,8 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.toggleTaskDone()
 	case "n":
 		return m.startNewTask()
+	case "D":
+		return m.handleStartDelete()
 	}
 	return m, nil
 }
@@ -958,26 +968,52 @@ func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
 	return m, nil
 }
 
+// handleStartDelete initiates the delete flow for the selected task
+func (m TaskManagerModel) handleStartDelete() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+
+	m.pendingDeleteTaskID = task.ID
+	m.confirmationModal = NewConfirmationModal(
+		"Delete task?",
+		task.Name,
+		50,
+	)
+	m.inputContext.TransitionTo(ModeConfirmation)
+	return m, nil
+}
+
 // handleConfirmationResult processes the confirmation modal result
 func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (TaskManagerModel, tea.Cmd) {
 	m.confirmationModal = nil
 	m.inputContext.Reset()
 
-	if msg.Confirmed {
-		// Count tasks to archive
-		count := 0
-		for _, task := range m.tasks {
-			if task.Done && !strings.HasSuffix(task.File, "done.txt") {
-				count++
-			}
-		}
-		// Send archive request - will be handled by parent AppModel
+	if !msg.Confirmed {
+		m.pendingDeleteTaskID = ""
+		return m, nil
+	}
+
+	// Delete flow
+	if m.pendingDeleteTaskID != "" {
+		taskID := m.pendingDeleteTaskID
+		m.pendingDeleteTaskID = ""
 		return m, func() tea.Msg {
-			return ArchiveRequestMsg{Count: count}
+			return TaskDeleteMsg{TaskID: taskID}
 		}
 	}
 
-	return m, nil
+	// Archive flow
+	count := 0
+	for _, task := range m.tasks {
+		if task.Done && !strings.HasSuffix(task.File, "done.txt") {
+			count++
+		}
+	}
+	return m, func() tea.Msg {
+		return ArchiveRequestMsg{Count: count}
+	}
 }
 
 // IsInModalState returns true if the task manager is in a mode that should
