@@ -64,7 +64,8 @@ type TaskManagerModel struct {
 	taskGroups     []TaskGroup
 
 	// Navigation
-	cursor int
+	cursor       int
+	scrollOffset int
 
 	// State
 	inputContext InputModeContext
@@ -121,6 +122,7 @@ func (m *TaskManagerModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 	m.infoBar.Width = width
+	m.ensureCursorVisible()
 }
 
 // SetData refreshes data from the task service
@@ -134,6 +136,7 @@ func (m *TaskManagerModel) FocusTask(taskID string) {
 	for i, task := range m.displayTasks {
 		if task.ID == taskID {
 			m.cursor = i
+			m.ensureCursorVisible()
 			return
 		}
 	}
@@ -321,7 +324,14 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 		return b.String()
 	}
 
-	for i, task := range m.displayTasks {
+	visible := m.visibleTaskRows()
+	end := m.scrollOffset + visible
+	if end > len(m.displayTasks) {
+		end = len(m.displayTasks)
+	}
+
+	for i := m.scrollOffset; i < end; i++ {
+		task := m.displayTasks[i]
 		prefix := "  "
 		if i == m.cursor {
 			prefix = cursorStyle.Render("> ")
@@ -335,18 +345,44 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 func (m *TaskManagerModel) renderGroupedTasks() string {
 	var b strings.Builder
 
+	visible := m.visibleTaskRows()
+	linesRendered := 0
 	taskIndex := 0
+
 	for _, group := range m.taskGroups {
-		// Group header
-		b.WriteString(groupHeaderStyle.Render("-- " + group.Label + " --"))
-		b.WriteString("\n")
+		groupStart := taskIndex
+		groupEnd := taskIndex + len(group.Tasks)
+
+		// Skip groups entirely before the scroll window
+		if groupEnd <= m.scrollOffset {
+			taskIndex = groupEnd
+			continue
+		}
+
+		// Stop if we've filled the visible area
+		if linesRendered >= visible {
+			break
+		}
+
+		// Emit group header if any task in this group is visible
+		if taskIndex >= m.scrollOffset || (groupStart < m.scrollOffset && groupEnd > m.scrollOffset) {
+			b.WriteString(groupHeaderStyle.Render("-- " + group.Label + " --"))
+			b.WriteString("\n")
+			linesRendered++
+		}
 
 		for _, task := range group.Tasks {
-			prefix := "  "
-			if taskIndex == m.cursor {
-				prefix = cursorStyle.Render("> ")
+			if linesRendered >= visible {
+				break
 			}
-			b.WriteString(prefix + shared.StyledTaskLine(task) + "\n")
+			if taskIndex >= m.scrollOffset {
+				prefix := "  "
+				if taskIndex == m.cursor {
+					prefix = cursorStyle.Render("> ")
+				}
+				b.WriteString(prefix + shared.StyledTaskLine(task) + "\n")
+				linesRendered++
+			}
 			taskIndex++
 		}
 	}
@@ -594,6 +630,7 @@ func (m TaskManagerModel) startSearch() (TaskManagerModel, tea.Cmd) {
 	m.searchActive = true
 	m.searchFilterMode = true // Start in filter typing mode
 	m.inputContext.TransitionTo(ModeSearch)
+	m.ensureCursorVisible()
 	return m, m.searchInput.Focus()
 }
 
@@ -848,6 +885,7 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	m.ensureCursorVisible()
 }
 
 func (m *TaskManagerModel) moveCursor(delta int) {
@@ -858,6 +896,7 @@ func (m *TaskManagerModel) moveCursor(delta int) {
 	if m.cursor >= len(m.displayTasks) {
 		m.cursor = len(m.displayTasks) - 1
 	}
+	m.ensureCursorVisible()
 }
 
 func (m *TaskManagerModel) selectedTask() *data.Task {
@@ -865,6 +904,34 @@ func (m *TaskManagerModel) selectedTask() *data.Task {
 		return &m.displayTasks[m.cursor]
 	}
 	return nil
+}
+
+// visibleTaskRows returns the number of task lines that fit in the viewport.
+// The info bar uses 4 lines (3 content + border), gap uses 1 line, hints use 1 line.
+func (m *TaskManagerModel) visibleTaskRows() int {
+	used := 6 // info bar (4) + gap (1) + hints (1)
+	if m.searchActive {
+		used++ // search input line
+	}
+	visible := m.height - used
+	if visible < 1 {
+		visible = 1
+	}
+	return visible
+}
+
+// ensureCursorVisible adjusts scrollOffset so the cursor is within the visible window.
+func (m *TaskManagerModel) ensureCursorVisible() {
+	visible := m.visibleTaskRows()
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+	if m.cursor < m.scrollOffset {
+		m.scrollOffset = m.cursor
+	}
+	if m.cursor >= m.scrollOffset+visible {
+		m.scrollOffset = m.cursor - visible + 1
+	}
 }
 
 // handleStartArchive initiates the archive flow
@@ -925,7 +992,8 @@ func (m *TaskManagerModel) IsInModalState() bool {
 // cycleFileViewMode cycles through file view modes: All -> TodoOnly -> DoneOnly -> All
 func (m *TaskManagerModel) cycleFileViewMode() {
 	m.fileViewMode = (m.fileViewMode + 1) % 3
-	m.cursor = 0 // Reset cursor position
+	m.cursor = 0       // Reset cursor position
+	m.scrollOffset = 0 // Reset scroll position
 }
 
 // applyFileViewFilter filters tasks based on the current file view mode

@@ -135,9 +135,14 @@ func (t Task) String() string {
 		parts = append(parts, "@"+c)
 	}
 
-	// Tags
-	for k, v := range t.Tags {
-		parts = append(parts, k+":"+v)
+	// Tags — sorted for deterministic output
+	tagKeys := make([]string, 0, len(t.Tags))
+	for k := range t.Tags {
+		tagKeys = append(tagKeys, k)
+	}
+	sort.Strings(tagKeys)
+	for _, k := range tagKeys {
+		parts = append(parts, k+":"+t.Tags[k])
 	}
 
 	return strings.Join(parts, " ")

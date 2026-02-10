@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -64,8 +65,14 @@ func StyledTaskLine(t data.Task) string {
 		}
 	}
 
-	// Tags (including due date)
-	for k, v := range t.Tags {
+	// Tags (including due date) — sorted for deterministic rendering
+	tagKeys := make([]string, 0, len(t.Tags))
+	for k := range t.Tags {
+		tagKeys = append(tagKeys, k)
+	}
+	sort.Strings(tagKeys)
+	for _, k := range tagKeys {
+		v := t.Tags[k]
 		if t.Done {
 			parts = append(parts, doneStyle.Render(k+":"+v))
 		} else {
