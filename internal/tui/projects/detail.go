@@ -21,6 +21,7 @@ const (
 	sectionNotes detailSection = iota
 	sectionTasks
 	sectionCards
+	sectionBoards
 	sectionCount // sentinel for cycling
 )
 
@@ -31,19 +32,21 @@ type DetailModel struct {
 	notes    []notes.Note
 	tasks    []data.Task
 	cards    []kanbanmodels.Card
+	boards   []kanbanmodels.Board
 	section  detailSection
 	selected int // cursor within current section
 	width    int
 	height   int
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board) DetailModel {
 	return DetailModel{
-		name:  name,
-		wsDir: wsDir,
-		notes: n,
-		tasks: tasks,
-		cards: cards,
+		name:   name,
+		wsDir:  wsDir,
+		notes:  n,
+		tasks:  tasks,
+		cards:  cards,
+		boards: boards,
 	}
 }
 
@@ -66,6 +69,8 @@ func (m DetailModel) sectionLen() int {
 		return len(m.tasks)
 	case sectionCards:
 		return len(m.cards)
+	case sectionBoards:
+		return len(m.boards)
 	}
 	return 0
 }
@@ -103,6 +108,10 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 		m.section = sectionCards
 		m.selected = 0
 
+	case "4":
+		m.section = sectionBoards
+		m.selected = 0
+
 	case "j", "down":
 		if m.selected < m.sectionLen()-1 {
 			m.selected++
@@ -118,6 +127,12 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			task := m.tasks[m.selected]
 			return m, func() tea.Msg {
 				return messages.FocusTaskMsg{TaskID: task.ID}
+			}
+		}
+		if m.section == sectionBoards && m.selected < len(m.boards) {
+			board := m.boards[m.selected]
+			return m, func() tea.Msg {
+				return messages.OpenBoardMsg{BoardPath: board.Path}
 			}
 		}
 	}
@@ -149,17 +164,19 @@ func (m DetailModel) View() string {
 		lines = append(lines, m.renderTasks(maxItems)...)
 	case sectionCards:
 		lines = append(lines, m.renderCards(maxItems)...)
+	case sectionBoards:
+		lines = append(lines, m.renderBoards(maxItems)...)
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, helpStyle.Render("j/k: navigate • tab/1/2/3: switch section • enter: open task • esc/q: back"))
+	lines = append(lines, helpStyle.Render("j/k: navigate • tab/1/2/3/4: switch section • enter: open • esc/q: back"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func (m DetailModel) renderTabs() string {
-	names := []string{"Notes", "Tasks", "Cards"}
+	names := []string{"Notes", "Tasks", "Cards", "Boards"}
 	var tabs []string
 	for i, name := range names {
 		label := fmt.Sprintf(" %d:%s (%d) ", i+1, name, m.countForSection(detailSection(i)))
@@ -180,6 +197,8 @@ func (m DetailModel) countForSection(s detailSection) int {
 		return len(m.tasks)
 	case sectionCards:
 		return len(m.cards)
+	case sectionBoards:
+		return len(m.boards)
 	}
 	return 0
 }
@@ -252,6 +271,30 @@ func (m DetailModel) renderCards(maxItems int) []string {
 		lines = append(lines, style.Render(prefix+title))
 	}
 	lines = append(lines, m.scrollIndicators(len(m.cards), start, end)...)
+	return lines
+}
+
+func (m DetailModel) renderBoards(maxItems int) []string {
+	if len(m.boards) == 0 {
+		return []string{listItemStyle.Render("  No boards found")}
+	}
+	var lines []string
+	start, end := m.visibleRange(len(m.boards), maxItems)
+	for i := start; i < end; i++ {
+		b := m.boards[i]
+		style := detailItemStyle
+		prefix := "  "
+		if i == m.selected {
+			style = selectedDetailItemStyle
+			prefix = "► "
+		}
+		title := b.Name
+		if title == "" {
+			title = filepath.Base(b.Path)
+		}
+		lines = append(lines, style.Render(prefix+title))
+	}
+	lines = append(lines, m.scrollIndicators(len(m.boards), start, end)...)
 	return lines
 }
 

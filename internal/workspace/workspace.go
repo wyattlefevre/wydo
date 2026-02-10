@@ -364,6 +364,23 @@ func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
 	return dirs
 }
 
+// BoardsForProject returns boards whose Path is under the project's directory.
+// Returns nil for virtual projects (no DirPath).
+func (r *ProjectRegistry) BoardsForProject(name string, allBoards []kanbanmodels.Board) []kanbanmodels.Board {
+	proj := r.projects[name]
+	if proj == nil || proj.DirPath == "" {
+		return nil
+	}
+	prefix := proj.DirPath + "/"
+	var result []kanbanmodels.Board
+	for _, b := range allBoards {
+		if strings.HasPrefix(b.Path, prefix) {
+			result = append(result, b)
+		}
+	}
+	return result
+}
+
 // CardsForProject returns cards linked to a specific project across all boards
 func (r *ProjectRegistry) CardsForProject(name string, boards []kanbanmodels.Board) []kanbanmodels.Card {
 	var result []kanbanmodels.Card

@@ -173,9 +173,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				projNotes := ws.Projects.NotesForProject(msg.ProjectName, ws.Notes)
 				projTasks := ws.Projects.TasksForProject(msg.ProjectName, ws.Tasks)
 				projCards := ws.Projects.CardsForProject(msg.ProjectName, ws.Boards)
+				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
 				m.projectDetailView = projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
-					projNotes, projTasks, projCards,
+					projNotes, projTasks, projCards, projBoards,
 				)
 				_ = proj // proj used for future enhancements
 				m.projectDetailView.SetSize(m.width, m.height-3)
@@ -495,7 +496,7 @@ func (m AppModel) View() string {
 	case ViewProjects:
 		statusText = "Projects | 1:day 2:week 3:month | B:boards T:tasks A:agenda | ?:help | q:quit"
 	case ViewProjectDetail:
-		statusText = "Project detail | tab/1/2/3: sections | esc/q: back to projects | P:projects A:agenda T:tasks"
+		statusText = "Project detail | tab/1/2/3/4: sections | esc/q: back to projects | P:projects A:agenda T:tasks"
 	default:
 		statusText = "1:day 2:week 3:month | B:boards T:tasks P:projects | ?:help | q:quit"
 	}
