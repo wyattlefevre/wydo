@@ -30,6 +30,9 @@ const (
 
 	// Confirmation mode
 	ModeConfirmation // confirmation modal (e.g., archive)
+
+	// Board picker mode
+	ModeBoardPicker // 'm' pressed - picking a board to move task to
 )
 
 // InputModeContext holds the current mode and related context
@@ -130,6 +133,8 @@ func (c *InputModeContext) String() string {
 		return "Confirmation"
 	case ModeCreateTask:
 		return "Create"
+	case ModeBoardPicker:
+		return "Move to Board"
 	default:
 		return "Unknown"
 	}

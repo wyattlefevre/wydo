@@ -4,9 +4,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"time"
 	"wydo/internal/config"
 	"wydo/internal/kanban/fs"
 	kanbanmodels "wydo/internal/kanban/models"
+	"wydo/internal/kanban/operations"
 	"wydo/internal/logs"
 	"wydo/internal/notes"
 	"wydo/internal/scanner"
@@ -104,7 +106,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes),
 		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes),
 		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
-		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces),
+		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards),
 		projectsView:   projectsview.NewProjectsModel(workspaces),
 	}
 
@@ -236,6 +238,44 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, nil
 
+	case taskview.MoveTaskToBoardMsg:
+		// Load the board fresh from disk
+		board, err := fs.ReadBoard(msg.BoardPath)
+		if err != nil {
+			return m, tea.Printf("Error loading board: %v", err)
+		}
+
+		// Parse dates from task tags
+		var dueDate, scheduledDate *time.Time
+		if d := msg.Task.GetDueDate(); d != "" {
+			if t, err := time.Parse("2006-01-02", d); err == nil {
+				dueDate = &t
+			}
+		}
+		if d := msg.Task.GetScheduledDate(); d != "" {
+			if t, err := time.Parse("2006-01-02", d); err == nil {
+				scheduledDate = &t
+			}
+		}
+
+		priority := operations.TaskPriorityToCardPriority(rune(msg.Task.Priority))
+
+		// Create the card
+		_, err = operations.CreateCardFromTask(&board, msg.Task.Name, msg.Task.Projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
+		if err != nil {
+			return m, tea.Printf("Error creating card: %v", err)
+		}
+
+		// Delete the task (prefer duplication over data loss — card already created)
+		if err := m.taskSvc.Delete(msg.Task.ID); err != nil {
+			logs.Logger.Printf("Warning: card created but task deletion failed: %v", err)
+			m.taskManagerView.SetData(m.taskSvc)
+			return m, tea.Printf("Card created but could not delete task: %v", err)
+		}
+
+		m.taskManagerView.SetData(m.taskSvc)
+		return m, tea.Printf("Moved \"%s\" to board \"%s\"", msg.Task.Name, board.Name)
+
 	case taskview.ArchiveRequestMsg:
 		// Archive completed tasks
 		if err := m.taskSvc.Archive(); err != nil {
@@ -288,6 +328,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.currentView != ViewTaskManager {
 					m.currentView = ViewTaskManager
 					m.taskManagerView.SetData(m.taskSvc)
+					m.taskManagerView.SetBoards(m.boards)
 				}
 				return m, nil
 			}
@@ -563,6 +604,7 @@ func (m AppModel) renderHelpOverlay() string {
 	content += line("enter", "Edit task") + "\n"
 	content += line("space", "Toggle done") + "\n"
 	content += line("n", "New task") + "\n"
+	content += line("m", "Move to board") + "\n"
 	content += line("f", "Filter") + "\n"
 	content += line("s", "Sort") + "\n"
 	content += line("g", "Group") + "\n"

@@ -312,6 +312,53 @@ func UpdateCardPriority(board *models.Board, columnIndex, cardIndex, priority in
 	return fs.WriteCard(*card, cardPath)
 }
 
+// TaskPriorityToCardPriority maps a todo.txt priority rune (A-F) to a card priority int (1-6).
+// Returns 0 for no priority.
+func TaskPriorityToCardPriority(p rune) int {
+	if p >= 'A' && p <= 'F' {
+		return int(p-'A') + 1
+	}
+	return 0
+}
+
+// CreateCardFromTask creates a new card in the first column of a board from task data.
+func CreateCardFromTask(board *models.Board, title string, projects []string, tags []string, dueDate *time.Time, scheduledDate *time.Time, priority int) (models.Card, error) {
+	if len(board.Columns) == 0 {
+		return models.Card{}, fmt.Errorf("board has no columns")
+	}
+
+	cardsDir := filepath.Join(board.Path, "cards")
+	if err := os.MkdirAll(cardsDir, 0755); err != nil {
+		return models.Card{}, err
+	}
+
+	baseFilename := ToSnakeCase(title)
+	filename := UniqueFilename(baseFilename, cardsDir, "")
+
+	card := models.Card{
+		Filename:      filename,
+		Title:         title,
+		Tags:          tags,
+		Projects:      projects,
+		Content:       "# " + title + "\n",
+		DueDate:       dueDate,
+		ScheduledDate: scheduledDate,
+		Priority:      priority,
+	}
+
+	cardPath := filepath.Join(cardsDir, filename)
+	if err := fs.WriteCard(card, cardPath); err != nil {
+		return models.Card{}, err
+	}
+
+	board.Columns[0].Cards = append(board.Columns[0].Cards, card)
+	if err := fs.WriteBoard(*board); err != nil {
+		return models.Card{}, err
+	}
+
+	return card, nil
+}
+
 // OpenURL opens a URL in the default browser
 func OpenURL(url string) error {
 	var cmd *exec.Cmd

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/logs"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tasks/service"
@@ -59,11 +60,18 @@ type ArchiveCompleteMsg struct {
 	Count int
 }
 
+// MoveTaskToBoardMsg is sent when a task should be moved to a kanban board
+type MoveTaskToBoardMsg struct {
+	Task      data.Task
+	BoardPath string
+}
+
 // TaskManagerModel manages the task list view with filtering, sorting, and grouping
 type TaskManagerModel struct {
 	// Data
 	taskSvc        service.TaskService
 	workspaceRoots []string
+	boards         []kanbanmodels.Board
 	tasks          []data.Task
 	displayTasks   []data.Task
 	taskGroups     []TaskGroup
@@ -110,10 +118,11 @@ type TaskManagerModel struct {
 }
 
 // NewTaskManagerModel creates a new task manager model
-func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string) TaskManagerModel {
+func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string, boards []kanbanmodels.Board) TaskManagerModel {
 	m := TaskManagerModel{
 		taskSvc:        taskSvc,
 		workspaceRoots: workspaceRoots,
+		boards:         boards,
 		inputContext:   NewInputModeContext(),
 		filterState:    NewFilterState(),
 		sortState:      NewSortState(),
@@ -137,6 +146,11 @@ func (m *TaskManagerModel) SetSize(width, height int) {
 func (m *TaskManagerModel) SetData(taskSvc service.TaskService) {
 	m.taskSvc = taskSvc
 	m.loadTasks()
+}
+
+// SetBoards updates the available boards
+func (m *TaskManagerModel) SetBoards(boards []kanbanmodels.Board) {
+	m.boards = boards
 }
 
 // FocusTask moves the cursor to a specific task by ID
@@ -427,6 +441,8 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.startNewTask()
 	case "D":
 		return m.handleStartDelete()
+	case "m":
+		return m.startMoveToBoard()
 	}
 	return m, nil
 }
@@ -821,6 +837,25 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 		m.filterState.ContextFilter = msg.Selected
 	case "filter-file":
 		m.filterState.FileFilter = msg.Selected
+	case "move-to-board":
+		if len(msg.Selected) > 0 {
+			boardName := msg.Selected[0]
+			for _, b := range m.boards {
+				if b.Name == boardName {
+					task := m.selectedTask()
+					if task != nil {
+						t := *task
+						m.refreshDisplayTasks()
+						m.inputContext.Reset()
+						m.pickerContext = ""
+						return m, func() tea.Msg {
+							return MoveTaskToBoardMsg{Task: t, BoardPath: b.Path}
+						}
+					}
+					break
+				}
+			}
+		}
 	}
 
 	m.refreshDisplayTasks()
@@ -982,6 +1017,39 @@ func (m TaskManagerModel) handleStartDelete() (TaskManagerModel, tea.Cmd) {
 		50,
 	)
 	m.inputContext.TransitionTo(ModeConfirmation)
+	return m, nil
+}
+
+// startMoveToBoard initiates the move-to-board flow
+func (m TaskManagerModel) startMoveToBoard() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	if task.Done {
+		return m, tea.Printf("Cannot move completed tasks to a board")
+	}
+	if len(m.boards) == 0 {
+		return m, tea.Printf("No boards available")
+	}
+
+	// Single board — skip picker
+	if len(m.boards) == 1 {
+		t := *task
+		boardPath := m.boards[0].Path
+		return m, func() tea.Msg {
+			return MoveTaskToBoardMsg{Task: t, BoardPath: boardPath}
+		}
+	}
+
+	// Multiple boards — open picker
+	boardNames := make([]string, len(m.boards))
+	for i, b := range m.boards {
+		boardNames[i] = b.Name
+	}
+	m.fuzzyPicker = NewFuzzyPicker(boardNames, "Move to Board", false, false)
+	m.pickerContext = "move-to-board"
+	m.inputContext.TransitionTo(ModeBoardPicker)
 	return m, nil
 }
 
