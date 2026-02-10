@@ -663,6 +663,7 @@ func (m TaskManagerModel) startSearch() (TaskManagerModel, tea.Cmd) {
 func (m TaskManagerModel) startNewTask() (TaskManagerModel, tea.Cmd) {
 	// Prompt for task name using text input
 	m.textInput = NewTextInput("New Task Name", "Enter task description...", nil)
+	m.textInput.SetWidth(m.width)
 	m.inputContext.TransitionTo(ModeCreateTask)
 	return m, m.textInput.Focus()
 }
@@ -699,6 +700,7 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 
 func (m TaskManagerModel) startDateFilter() (TaskManagerModel, tea.Cmd) {
 	m.textInput = NewDateInput("Due date filter")
+	m.textInput.SetWidth(m.width)
 	m.inputContext.TransitionTo(ModeDateInput)
 	return m, m.textInput.Focus()
 }

@@ -81,7 +81,7 @@ func ParseFrontmatter(content []byte) ([]string, []string, string, *time.Time, *
 		return []string{}, []string{}, "", nil, nil, 0, string(content), nil
 	}
 
-	body := bytes.Join(lines[frontmatterEnd+1:], []byte("\n"))
+	body := strings.TrimLeft(string(bytes.Join(lines[frontmatterEnd+1:], []byte("\n"))), "\n")
 
 	tags := frontmatter.Tags
 	if tags == nil {
@@ -107,7 +107,7 @@ func ParseFrontmatter(content []byte) ([]string, []string, string, *time.Time, *
 		}
 	}
 
-	return tags, projects, frontmatter.URL, dueDate, scheduledDate, frontmatter.Priority, string(body), nil
+	return tags, projects, frontmatter.URL, dueDate, scheduledDate, frontmatter.Priority, body, nil
 }
 
 func extractTitle(markdown string) string {

@@ -27,26 +27,36 @@ const (
 
 // DetailModel shows project details with notes, tasks, and cards.
 type DetailModel struct {
-	name     string
-	wsDir    string
-	notes    []notes.Note
-	tasks    []data.Task
-	cards    []kanbanmodels.Card
-	boards   []kanbanmodels.Board
-	section  detailSection
-	selected int // cursor within current section
-	width    int
-	height   int
+	name      string
+	wsDir     string
+	notes     []notes.Note
+	tasks     []data.Task
+	cards     []kanbanmodels.Card
+	boards    []kanbanmodels.Board
+	cardBoard map[string]kanbanmodels.Board // card filename → parent board
+	section   detailSection
+	selected  int // cursor within current section
+	width     int
+	height    int
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board) DetailModel {
+	cardBoard := make(map[string]kanbanmodels.Board)
+	for _, b := range allBoards {
+		for _, col := range b.Columns {
+			for _, c := range col.Cards {
+				cardBoard[c.Filename] = b
+			}
+		}
+	}
 	return DetailModel{
-		name:   name,
-		wsDir:  wsDir,
-		notes:  n,
-		tasks:  tasks,
-		cards:  cards,
-		boards: boards,
+		name:      name,
+		wsDir:     wsDir,
+		notes:     n,
+		tasks:     tasks,
+		cards:     cards,
+		boards:    boards,
+		cardBoard: cardBoard,
 	}
 }
 
@@ -268,7 +278,19 @@ func (m DetailModel) renderCards(maxItems int) []string {
 		if title == "" {
 			title = c.Filename
 		}
-		lines = append(lines, style.Render(prefix+title))
+		if b, ok := m.cardBoard[c.Filename]; ok {
+			boardName := b.Name
+			if boardName == "" {
+				boardName = filepath.Base(b.Path)
+			}
+			relPath, err := filepath.Rel(m.wsDir, b.Path)
+			if err != nil {
+				relPath = b.Path
+			}
+			lines = append(lines, style.Render(prefix+title)+"  "+pathStyle.Render(boardName+" · "+relPath))
+		} else {
+			lines = append(lines, style.Render(prefix+title))
+		}
 	}
 	lines = append(lines, m.scrollIndicators(len(m.cards), start, end)...)
 	return lines

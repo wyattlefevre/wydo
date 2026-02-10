@@ -37,14 +37,11 @@ func NewTextInput(prompt string, placeholder string, validator func(string) erro
 	ti.Placeholder = placeholder
 	ti.Focus()
 	ti.CharLimit = 256
-	ti.Width = 40
-
 	return &TextInputModel{
 		Input:       ti,
 		Prompt:      prompt,
 		Placeholder: placeholder,
 		Validator:   validator,
-		Width:       50,
 	}
 }
 
@@ -120,6 +117,14 @@ func (m *TextInputModel) Value() string {
 // SetValue sets the input value
 func (m *TextInputModel) SetValue(v string) {
 	m.Input.SetValue(v)
+}
+
+// SetWidth sets both the outer box and inner input widths
+func (m *TextInputModel) SetWidth(w int) {
+	// Account for border (2) and padding (2)
+	m.Width = w - 4
+	// Inner input accounts for prompt text
+	m.Input.Width = m.Width - lipgloss.Width(m.Prompt+": ")
 }
 
 // Focus focuses the input

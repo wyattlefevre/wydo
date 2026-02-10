@@ -178,7 +178,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
 				m.projectDetailView = projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
-					projNotes, projTasks, projCards, projBoards,
+					projNotes, projTasks, projCards, projBoards, ws.Boards,
 				)
 				_ = proj // proj used for future enhancements
 				m.projectDetailView.SetSize(m.width, m.height-3)
