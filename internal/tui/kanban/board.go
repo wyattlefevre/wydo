@@ -355,6 +355,31 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			}
 			m.mode = boardModeNormal
 		}
+
+	case "j", "down":
+		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+		col := m.board.Columns[m.selectedCol]
+		if realIdx < len(col.Cards)-1 {
+			if err := operations.ReorderCard(&m.board, m.selectedCol, realIdx, realIdx+1); err != nil {
+				m.err = err
+			} else {
+				m.selectedCard++
+				m.columnCursorPos[m.selectedCol] = m.selectedCard
+				m.adjustScrollPosition()
+			}
+		}
+
+	case "k", "up":
+		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+		if realIdx > 0 {
+			if err := operations.ReorderCard(&m.board, m.selectedCol, realIdx, realIdx-1); err != nil {
+				m.err = err
+			} else {
+				m.selectedCard--
+				m.columnCursorPos[m.selectedCol] = m.selectedCard
+				m.adjustScrollPosition()
+			}
+		}
 	}
 
 	return m, nil
@@ -962,7 +987,7 @@ func (m BoardModel) View() string {
 	// Mode-specific help
 	switch m.mode {
 	case boardModeMove:
-		s.WriteString(helpStyle.Render("h/l: move card • esc: cancel"))
+		s.WriteString(helpStyle.Render("h/l: move card • j/k: reorder • esc: cancel"))
 	case boardModeConfirmDelete:
 		s.WriteString(warningStyle.Render("Delete this card? (y/n)"))
 	case boardModeFilter:

@@ -13,5 +13,6 @@ type Card struct {
 	Content       string     // Full markdown content (without frontmatter)
 	DueDate       *time.Time // From YAML frontmatter (ISO 8601 date)
 	ScheduledDate *time.Time // From YAML frontmatter (ISO 8601 date)
+	DateCompleted *time.Time // From YAML frontmatter (RFC3339 datetime)
 	Priority      int        // From YAML frontmatter (0 = unset)
 }

@@ -22,7 +22,7 @@ func ReadCard(cardPath string) (models.Card, error) {
 	}
 
 	filename := filepath.Base(cardPath)
-	tags, projects, url, dueDate, scheduledDate, priority, body, err := ParseFrontmatter(content)
+	tags, projects, url, dueDate, scheduledDate, dateCompleted, priority, body, err := ParseFrontmatter(content)
 	if err != nil {
 		return models.Card{}, err
 	}
@@ -40,17 +40,18 @@ func ReadCard(cardPath string) (models.Card, error) {
 		Content:       body,
 		DueDate:       dueDate,
 		ScheduledDate: scheduledDate,
+		DateCompleted: dateCompleted,
 		Priority:      priority,
 	}, nil
 }
 
 // ParseFrontmatter extracts YAML frontmatter from markdown content
-func ParseFrontmatter(content []byte) ([]string, []string, string, *time.Time, *time.Time, int, string, error) {
+func ParseFrontmatter(content []byte) ([]string, []string, string, *time.Time, *time.Time, *time.Time, int, string, error) {
 	lines := bytes.Split(content, []byte("\n"))
 
 	// Check if content starts with ---
 	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
-		return []string{}, []string{}, "", nil, nil, 0, string(content), nil
+		return []string{}, []string{}, "", nil, nil, nil, 0, string(content), nil
 	}
 
 	// Find the closing ---
@@ -63,22 +64,23 @@ func ParseFrontmatter(content []byte) ([]string, []string, string, *time.Time, *
 	}
 
 	if frontmatterEnd == 0 {
-		return []string{}, []string{}, "", nil, nil, 0, string(content), nil
+		return []string{}, []string{}, "", nil, nil, nil, 0, string(content), nil
 	}
 
 	// Parse frontmatter
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
 	var frontmatter struct {
-		Tags      []string `yaml:"tags"`
-		Projects  []string `yaml:"projects"`
-		URL       string   `yaml:"url"`
-		Due       string   `yaml:"due"`
-		Scheduled string   `yaml:"scheduled"`
-		Priority  int      `yaml:"priority"`
+		Tags          []string `yaml:"tags"`
+		Projects      []string `yaml:"projects"`
+		URL           string   `yaml:"url"`
+		Due           string   `yaml:"due"`
+		Scheduled     string   `yaml:"scheduled"`
+		DateCompleted string   `yaml:"date_completed"`
+		Priority      int      `yaml:"priority"`
 	}
 
 	if err := yaml.Unmarshal(frontmatterBytes, &frontmatter); err != nil {
-		return []string{}, []string{}, "", nil, nil, 0, string(content), nil
+		return []string{}, []string{}, "", nil, nil, nil, 0, string(content), nil
 	}
 
 	body := strings.TrimLeft(string(bytes.Join(lines[frontmatterEnd+1:], []byte("\n"))), "\n")
@@ -107,7 +109,14 @@ func ParseFrontmatter(content []byte) ([]string, []string, string, *time.Time, *
 		}
 	}
 
-	return tags, projects, frontmatter.URL, dueDate, scheduledDate, frontmatter.Priority, body, nil
+	var dateCompleted *time.Time
+	if frontmatter.DateCompleted != "" {
+		if parsed, err := time.Parse(time.RFC3339, frontmatter.DateCompleted); err == nil {
+			dateCompleted = &parsed
+		}
+	}
+
+	return tags, projects, frontmatter.URL, dueDate, scheduledDate, dateCompleted, frontmatter.Priority, body, nil
 }
 
 func extractTitle(markdown string) string {

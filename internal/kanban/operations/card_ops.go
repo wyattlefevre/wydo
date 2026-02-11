@@ -143,7 +143,37 @@ func MoveCard(board *models.Board, fromColIndex, cardIndex, toColIndex int) erro
 	fromCol.Cards = append(fromCol.Cards[:cardIndex], fromCol.Cards[cardIndex+1:]...)
 
 	toCol := &board.Columns[toColIndex]
+
+	// Stamp date_completed when moving to a done column
+	if board.IsDoneColumn(toCol.Name) {
+		now := time.Now()
+		card.DateCompleted = &now
+		cardPath := filepath.Join(board.Path, "cards", card.Filename)
+		if err := fs.WriteCard(card, cardPath); err != nil {
+			return err
+		}
+	}
+
 	toCol.Cards = append(toCol.Cards, card)
+
+	return fs.WriteBoard(*board)
+}
+
+// ReorderCard swaps a card's position within a column
+func ReorderCard(board *models.Board, colIndex, fromIndex, toIndex int) error {
+	if colIndex < 0 || colIndex >= len(board.Columns) {
+		return fmt.Errorf("invalid column index")
+	}
+
+	col := &board.Columns[colIndex]
+	if fromIndex < 0 || fromIndex >= len(col.Cards) {
+		return fmt.Errorf("invalid source card index")
+	}
+	if toIndex < 0 || toIndex >= len(col.Cards) {
+		return fmt.Errorf("invalid destination card index")
+	}
+
+	col.Cards[fromIndex], col.Cards[toIndex] = col.Cards[toIndex], col.Cards[fromIndex]
 
 	return fs.WriteBoard(*board)
 }
