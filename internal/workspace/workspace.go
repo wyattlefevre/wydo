@@ -381,6 +381,20 @@ func (r *ProjectRegistry) BoardsForProject(name string, allBoards []kanbanmodels
 	return result
 }
 
+// ProjectForBoard returns the project name that owns the given board path,
+// or "" if the board is not inside any project directory.
+func (r *ProjectRegistry) ProjectForBoard(boardPath string) string {
+	for _, p := range r.projects {
+		if p.DirPath == "" {
+			continue
+		}
+		if strings.HasPrefix(boardPath, p.DirPath+"/") {
+			return p.Name
+		}
+	}
+	return ""
+}
+
 // CardsForProject returns cards linked to a specific project across all boards
 func (r *ProjectRegistry) CardsForProject(name string, boards []kanbanmodels.Board) []kanbanmodels.Card {
 	var result []kanbanmodels.Card

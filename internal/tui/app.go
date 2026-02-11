@@ -116,7 +116,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
 			loaded, err := fs.ReadBoard(board.Path)
 			if err == nil {
-				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjectNames(workspaces), allBoards)
+				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjectNames(workspaces), allBoards, projectForBoard(workspaces, board.Path))
 				app.boardLoaded = true
 				app.currentView = ViewKanbanBoard
 			}
@@ -159,7 +159,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Stay on current view if board can't be loaded
 			return m, nil
 		}
-		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces), m.boards)
+		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces), m.boards, projectForBoard(m.workspaces, msg.BoardPath))
 		m.boardView.SetSize(m.width, m.height-3)
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
 			m.boardView.NavigateTo(msg.ColIndex, msg.CardIndex)
@@ -488,6 +488,20 @@ func collectAllProjectNames(workspaces []*workspace.Workspace) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// projectForBoard returns the project name that owns the board at boardPath,
+// or "" if the board is not inside any project directory.
+func projectForBoard(workspaces []*workspace.Workspace, boardPath string) string {
+	for _, ws := range workspaces {
+		if ws.Projects == nil {
+			continue
+		}
+		if name := ws.Projects.ProjectForBoard(boardPath); name != "" {
+			return name
+		}
+	}
+	return ""
 }
 
 // findBoard looks up a board by name or directory basename (case-insensitive).

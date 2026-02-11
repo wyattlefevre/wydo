@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 	"wydo/internal/kanban/fs"
 	"wydo/internal/kanban/models"
@@ -392,7 +393,8 @@ func CreateCardFromTask(board *models.Board, title string, projects []string, ta
 // MoveCardToBoard moves a card from one board to another.
 // Done-column cards land in the target's done column (or first column if none);
 // all other cards land in the target's first column.
-func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board) error {
+// If sourceProject is non-empty, it is added to the card's projects frontmatter.
+func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board, sourceProject string) error {
 	if colIndex < 0 || colIndex >= len(srcBoard.Columns) {
 		return fmt.Errorf("invalid source column index")
 	}
@@ -406,11 +408,9 @@ func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *
 
 	card := srcCol.Cards[cardIndex]
 
-	// Read raw card file so we preserve frontmatter exactly
-	srcCardsDir := filepath.Join(srcBoard.Path, "cards")
-	rawBytes, err := os.ReadFile(filepath.Join(srcCardsDir, card.Filename))
-	if err != nil {
-		return fmt.Errorf("read source card: %w", err)
+	// Link source project if not already present
+	if sourceProject != "" && !hasProject(card.Projects, sourceProject) {
+		card.Projects = append(card.Projects, sourceProject)
 	}
 
 	// Determine target column index
@@ -432,18 +432,21 @@ func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *
 
 	baseFilename := ToSnakeCase(card.Title)
 	newFilename := UniqueFilename(baseFilename, dstCardsDir, "")
-	if err := os.WriteFile(filepath.Join(dstCardsDir, newFilename), rawBytes, 0644); err != nil {
+	origFilename := card.Filename
+	card.Filename = newFilename
+
+	cardPath := filepath.Join(dstCardsDir, newFilename)
+	if err := fs.WriteCard(card, cardPath); err != nil {
 		return fmt.Errorf("write target card: %w", err)
 	}
 
-	origFilename := card.Filename
-	card.Filename = newFilename
 	dstBoard.Columns[dstColIdx].Cards = append(dstBoard.Columns[dstColIdx].Cards, card)
 	if err := fs.WriteBoard(*dstBoard); err != nil {
 		return fmt.Errorf("write target board: %w", err)
 	}
 
 	// Remove from source
+	srcCardsDir := filepath.Join(srcBoard.Path, "cards")
 	srcCol.Cards = append(srcCol.Cards[:cardIndex], srcCol.Cards[cardIndex+1:]...)
 	if err := os.Remove(filepath.Join(srcCardsDir, origFilename)); err != nil && !os.IsNotExist(err) {
 		// Non-fatal: card is already in target
@@ -453,6 +456,15 @@ func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *
 	}
 
 	return nil
+}
+
+func hasProject(projects []string, name string) bool {
+	for _, p := range projects {
+		if strings.EqualFold(p, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // OpenURL opens a URL in the default browser

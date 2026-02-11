@@ -62,13 +62,15 @@ type BoardModel struct {
 	filteredIndices        [][]int // per-column: original card indices that match
 	allBoards              []models.Board
 	boardSelector          *BoardSelectorModel
+	sourceProject          string
 }
 
-func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board) BoardModel {
+func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board, sourceProject string) BoardModel {
 	return BoardModel{
 		board:                  board,
 		allProjects:            allProjects,
 		allBoards:              allBoards,
+		sourceProject:          sourceProject,
 		selectedCol:            0,
 		selectedCard:           0,
 		mode:                   boardModeNormal,
@@ -917,7 +919,7 @@ func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.err = fmt.Errorf("load target board: %w", err)
 			} else {
 				realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-				err := operations.MoveCardToBoard(&m.board, m.selectedCol, realIdx, &dstBoard)
+				err := operations.MoveCardToBoard(&m.board, m.selectedCol, realIdx, &dstBoard, m.sourceProject)
 				if err != nil {
 					m.err = err
 				} else {
