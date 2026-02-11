@@ -390,11 +390,47 @@ func CreateCardFromTask(board *models.Board, title string, projects []string, ta
 	return card, nil
 }
 
+// EnsureBoardProjects ensures that a card has all the given board projects
+// in its frontmatter. Returns nil without writing if all are already present.
+func EnsureBoardProjects(board *models.Board, colIndex, cardIndex int, boardProjects []string) error {
+	if len(boardProjects) == 0 {
+		return nil
+	}
+	if colIndex < 0 || colIndex >= len(board.Columns) {
+		return fmt.Errorf("invalid column index")
+	}
+	col := &board.Columns[colIndex]
+	if cardIndex < 0 || cardIndex >= len(col.Cards) {
+		return fmt.Errorf("invalid card index")
+	}
+
+	card := &col.Cards[cardIndex]
+	missing := false
+	for _, bp := range boardProjects {
+		if !hasProject(card.Projects, bp) {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return nil
+	}
+
+	for _, bp := range boardProjects {
+		if !hasProject(card.Projects, bp) {
+			card.Projects = append(card.Projects, bp)
+		}
+	}
+
+	cardPath := filepath.Join(board.Path, "cards", card.Filename)
+	return fs.WriteCard(*card, cardPath)
+}
+
 // MoveCardToBoard moves a card from one board to another.
 // Done-column cards land in the target's done column (or first column if none);
 // all other cards land in the target's first column.
-// If sourceProject is non-empty, it is added to the card's projects frontmatter.
-func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board, sourceProject string) error {
+// Any boardProjects not already on the card are added to its projects frontmatter.
+func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board, boardProjects []string) error {
 	if colIndex < 0 || colIndex >= len(srcBoard.Columns) {
 		return fmt.Errorf("invalid source column index")
 	}
@@ -408,9 +444,11 @@ func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *
 
 	card := srcCol.Cards[cardIndex]
 
-	// Link source project if not already present
-	if sourceProject != "" && !hasProject(card.Projects, sourceProject) {
-		card.Projects = append(card.Projects, sourceProject)
+	// Link source board projects if not already present
+	for _, bp := range boardProjects {
+		if !hasProject(card.Projects, bp) {
+			card.Projects = append(card.Projects, bp)
+		}
 	}
 
 	// Determine target column index

@@ -62,15 +62,15 @@ type BoardModel struct {
 	filteredIndices        [][]int // per-column: original card indices that match
 	allBoards              []models.Board
 	boardSelector          *BoardSelectorModel
-	sourceProject          string
+	boardProjects          []string
 }
 
-func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board, sourceProject string) BoardModel {
+func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board, boardProjects []string) BoardModel {
 	return BoardModel{
 		board:                  board,
 		allProjects:            allProjects,
 		allBoards:              allBoards,
-		sourceProject:          sourceProject,
+		boardProjects:          boardProjects,
 		selectedCol:            0,
 		selectedCard:           0,
 		mode:                   boardModeNormal,
@@ -138,6 +138,7 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 				m.board = board
 				m.message = "Card updated"
 				m.reloadBoardState()
+				m.ensureCardBoardProjects(m.selectedCol, realIdx)
 			}
 		}
 		return m, nil
@@ -345,6 +346,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
 				m.message = "Card moved"
+				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
 			}
 			m.mode = boardModeNormal
 		}
@@ -365,6 +367,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
 				m.message = "Card moved"
+				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
 			}
 			m.mode = boardModeNormal
 		}
@@ -567,6 +570,7 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 					m.board = board
 					m.message = "Tags updated"
 					m.reloadBoardState()
+					m.ensureCardBoardProjects(m.selectedCol, realIdx)
 				}
 			}
 		}
@@ -614,6 +618,7 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 					m.board = board
 					m.message = "Projects updated"
 					m.reloadBoardState()
+					m.ensureCardBoardProjects(m.selectedCol, realIdx)
 				}
 			}
 		}
@@ -714,6 +719,7 @@ func (m BoardModel) updateURLInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.board = board
 				m.message = "URL updated"
 				m.reloadBoardState()
+				m.ensureCardBoardProjects(m.selectedCol, realIdx)
 			}
 		}
 		m.mode = boardModeNormal
@@ -764,6 +770,7 @@ func (m BoardModel) updateDueDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 					m.message = "Due date cleared"
 				}
 				m.reloadBoardState()
+				m.ensureCardBoardProjects(m.selectedCol, realIdx)
 			}
 		}
 		m.mode = boardModeNormal
@@ -814,6 +821,7 @@ func (m BoardModel) updateScheduledDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd
 					m.message = "Scheduled date cleared"
 				}
 				m.reloadBoardState()
+				m.ensureCardBoardProjects(m.selectedCol, realIdx)
 			}
 		}
 		m.mode = boardModeNormal
@@ -863,6 +871,7 @@ func (m BoardModel) updatePriorityInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 						m.message = "Priority cleared"
 					}
 					m.reloadBoardState()
+					m.ensureCardBoardProjects(m.selectedCol, realIdx)
 				}
 			}
 		}
@@ -919,7 +928,7 @@ func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.err = fmt.Errorf("load target board: %w", err)
 			} else {
 				realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-				err := operations.MoveCardToBoard(&m.board, m.selectedCol, realIdx, &dstBoard, m.sourceProject)
+				err := operations.MoveCardToBoard(&m.board, m.selectedCol, realIdx, &dstBoard, m.boardProjects)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1313,6 +1322,15 @@ func (m *BoardModel) reloadBoardState() {
 		m.columnHorizontalOffset = max(0, len(m.board.Columns)-1)
 	}
 	m.adjustHorizontalScrollPosition()
+}
+
+// ensureCardBoardProjects adds any missing board projects to the card's frontmatter.
+// It's a no-op when boardProjects is empty or the card already has them all.
+func (m *BoardModel) ensureCardBoardProjects(colIndex, cardIndex int) {
+	if len(m.boardProjects) == 0 {
+		return
+	}
+	_ = operations.EnsureBoardProjects(&m.board, colIndex, cardIndex, m.boardProjects)
 }
 
 // cardSearchString builds a single string from all card fields for fuzzy matching
