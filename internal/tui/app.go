@@ -2,6 +2,7 @@ package tui
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"time"
@@ -115,7 +116,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
 			loaded, err := fs.ReadBoard(board.Path)
 			if err == nil {
-				app.boardView = kanbanview.NewBoardModel(loaded)
+				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjectNames(workspaces))
 				app.boardLoaded = true
 				app.currentView = ViewKanbanBoard
 			}
@@ -158,7 +159,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Stay on current view if board can't be loaded
 			return m, nil
 		}
-		m.boardView = kanbanview.NewBoardModel(board)
+		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces))
 		m.boardView.SetSize(m.width, m.height-3)
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
 			m.boardView.NavigateTo(msg.ColIndex, msg.CardIndex)
@@ -467,6 +468,26 @@ func (m *AppModel) isChildInputActive() bool {
 	default:
 		return false
 	}
+}
+
+// collectAllProjectNames returns a sorted, deduplicated list of project names
+// from all workspaces (directories, task +tags, and card frontmatter).
+func collectAllProjectNames(workspaces []*workspace.Workspace) []string {
+	seen := make(map[string]bool)
+	for _, ws := range workspaces {
+		if ws.Projects == nil {
+			continue
+		}
+		for _, p := range ws.Projects.List() {
+			seen[p.Name] = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // findBoard looks up a board by name or directory basename (case-insensitive).

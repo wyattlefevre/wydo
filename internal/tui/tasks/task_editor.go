@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/kanban/operations"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tui/shared"
 )
@@ -26,6 +27,7 @@ type TaskEditorModel struct {
 	inputContext InputModeContext
 	fuzzyPicker  *FuzzyPickerModel
 	datePicker   *shared.DatePickerModel
+	urlInput     *TextInputModel
 	allProjects  []string
 	allContexts  []string
 	Width        int
@@ -70,7 +72,11 @@ func (m *TaskEditorModel) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (m *TaskEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle date picker first
+	// Handle URL input first
+	if m.urlInput != nil {
+		return m.updateURLInput(msg)
+	}
+	// Handle date picker
 	if m.datePicker != nil {
 		return m.updateDatePicker(msg)
 	}
@@ -132,6 +138,23 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 		m.inputContext.Mode = ModeEditContext
 		m.fuzzyPicker = NewFuzzyPicker(m.allContexts, "Select Contexts", true, false)
 		m.fuzzyPicker.PreSelect(m.task.Contexts)
+		return m, nil
+
+	case "U":
+		// Edit URL
+		m.inputContext.Mode = ModeEditURL
+		m.urlInput = NewTextInput("URL", "https://example.com", nil)
+		m.urlInput.SetWidth(m.Width)
+		if currentURL := m.task.GetURL(); currentURL != "" {
+			m.urlInput.SetValue(currentURL)
+		}
+		return m, m.urlInput.Focus()
+
+	case "u":
+		// Open URL in browser
+		if url := m.task.GetURL(); url != "" {
+			operations.OpenURL(url)
+		}
 		return m, nil
 
 	case "P":
@@ -223,6 +246,22 @@ func (m *TaskEditorModel) updateDatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *TaskEditorModel) updateURLInput(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Check for result message
+	if result, ok := msg.(TextInputResultMsg); ok {
+		if !result.Cancelled {
+			m.task.SetURL(result.Value)
+		}
+		m.urlInput = nil
+		m.inputContext.Mode = ModeTaskEditor
+		return m, nil
+	}
+
+	// Forward to text input
+	_, cmd := m.urlInput.Update(msg)
+	return m, cmd
+}
+
 func (m *TaskEditorModel) cyclePriority() {
 	switch m.task.Priority {
 	case data.PriorityNone:
@@ -244,6 +283,10 @@ func (m *TaskEditorModel) cyclePriority() {
 
 // View implements tea.Model
 func (m *TaskEditorModel) View() string {
+	// If URL input is active, show it
+	if m.urlInput != nil {
+		return m.urlInput.View()
+	}
 	// If date picker is active, show it
 	if m.datePicker != nil {
 		return m.datePicker.View()
@@ -327,10 +370,23 @@ func (m *TaskEditorModel) View() string {
 	} else {
 		content.WriteString(editorValueStyle.Render(ctxStr))
 	}
+	content.WriteString("\n")
+
+	// URL
+	content.WriteString(editorLabelStyle.Render("URL:"))
+	urlStr := m.task.GetURL()
+	if urlStr == "" {
+		urlStr = "(none)"
+	}
+	if m.task.GetURL() != m.originalTask.GetURL() {
+		content.WriteString(editorModifiedStyle.Render(urlStr + " *"))
+	} else {
+		content.WriteString(editorValueStyle.Render(urlStr))
+	}
 	content.WriteString("\n\n")
 
 	// Help
-	content.WriteString(editorHelpStyle.Render("[d] due  [S] scheduled  [p] projects  [t] contexts  [P] priority"))
+	content.WriteString(editorHelpStyle.Render("[d] due  [S] scheduled  [p] projects  [t] contexts  [P] priority  [U] url  [u] open url"))
 	content.WriteString("\n")
 	content.WriteString(editorHelpStyle.Render("[enter] save  [esc] cancel"))
 
@@ -352,6 +408,9 @@ func (m *TaskEditorModel) IsModified() bool {
 		return true
 	}
 	if !slicesEqual(m.task.Contexts, m.originalTask.Contexts) {
+		return true
+	}
+	if m.task.GetURL() != m.originalTask.GetURL() {
 		return true
 	}
 	return false

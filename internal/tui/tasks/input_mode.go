@@ -27,6 +27,7 @@ const (
 	ModeEditScheduledDate // 'S' in editor - scheduled date picker
 	ModeEditContext       // 't'/'c' in editor - context picker
 	ModeEditProject       // 'p' in editor - project picker
+	ModeEditURL           // 'U' in editor - URL text input
 
 	// Confirmation mode
 	ModeConfirmation // confirmation modal (e.g., archive)
@@ -76,7 +77,7 @@ func (c *InputModeContext) IsGroupMode() bool {
 func (c *InputModeContext) IsEditorMode() bool {
 	return c.Mode == ModeTaskEditor || c.Mode == ModeEditDueDate ||
 		c.Mode == ModeEditScheduledDate || c.Mode == ModeEditContext ||
-		c.Mode == ModeEditProject
+		c.Mode == ModeEditProject || c.Mode == ModeEditURL
 }
 
 // TransitionTo moves to a new mode, preserving the previous mode
@@ -129,6 +130,8 @@ func (c *InputModeContext) String() string {
 		return "Edit Context"
 	case ModeEditProject:
 		return "Edit Project"
+	case ModeEditURL:
+		return "Edit URL"
 	case ModeConfirmation:
 		return "Confirmation"
 	case ModeCreateTask:

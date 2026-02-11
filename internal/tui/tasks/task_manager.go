@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	kanbanmodels "wydo/internal/kanban/models"
+	"wydo/internal/kanban/operations"
 	"wydo/internal/logs"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tasks/service"
@@ -441,6 +442,8 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.startNewTask()
 	case "D":
 		return m.handleStartDelete()
+	case "u":
+		return m.handleOpenURL()
 	case "m":
 		return m.startMoveToBoard()
 	}
@@ -695,6 +698,17 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 	m.taskEditor.Width = m.width
 	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
+	return m, nil
+}
+
+func (m TaskManagerModel) handleOpenURL() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	if url := task.GetURL(); url != "" {
+		operations.OpenURL(url)
+	}
 	return m, nil
 }
 

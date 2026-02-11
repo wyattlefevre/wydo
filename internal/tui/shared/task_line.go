@@ -73,10 +73,11 @@ func StyledTaskLine(t data.Task) string {
 	sort.Strings(tagKeys)
 	for _, k := range tagKeys {
 		v := t.Tags[k]
+		formatted := k + ":" + data.FormatTagValue(v)
 		if t.Done {
-			parts = append(parts, doneStyle.Render(k+":"+v))
+			parts = append(parts, doneStyle.Render(formatted))
 		} else {
-			parts = append(parts, tagStyle.Render(k+":"+v))
+			parts = append(parts, tagStyle.Render(formatted))
 		}
 	}
 

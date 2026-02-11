@@ -37,6 +37,7 @@ const (
 
 type BoardModel struct {
 	board                  models.Board
+	allProjects            []string
 	selectedCol            int
 	selectedCard           int
 	mode                   boardMode
@@ -60,9 +61,10 @@ type BoardModel struct {
 	filteredIndices        [][]int // per-column: original card indices that match
 }
 
-func NewBoardModel(board models.Board) BoardModel {
+func NewBoardModel(board models.Board, allProjects []string) BoardModel {
 	return BoardModel{
 		board:                  board,
+		allProjects:            allProjects,
 		selectedCol:            0,
 		selectedCard:           0,
 		mode:                   boardModeNormal,
@@ -540,7 +542,7 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 }
 
 func (m BoardModel) handleProjectEdit() (BoardModel, tea.Cmd) {
-	allProjects := operations.CollectAllProjects(&m.board)
+	allProjects := m.allProjects
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
 

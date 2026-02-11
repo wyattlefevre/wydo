@@ -138,3 +138,85 @@ func TestTask_SetDueDate(t *testing.T) {
 		t.Errorf("expected due 2026-03-01, got %q", task.GetDueDate())
 	}
 }
+
+func TestParseTask_QuotedTagURL(t *testing.T) {
+	task := ParseTask(`Buy domain url:"https://example.com/path?q=1"`, "id1", "todo.txt")
+	if task.Name != "Buy domain" {
+		t.Errorf("expected name 'Buy domain', got %q", task.Name)
+	}
+	got := task.Tags["url"]
+	if got != "https://example.com/path?q=1" {
+		t.Errorf("expected URL tag value, got %q", got)
+	}
+}
+
+func TestParseTask_MixedQuotedAndUnquotedTags(t *testing.T) {
+	task := ParseTask(`Review site due:2026-02-15 url:"https://example.com"`, "id1", "todo.txt")
+	if task.Tags["due"] != "2026-02-15" {
+		t.Errorf("expected due 2026-02-15, got %q", task.Tags["due"])
+	}
+	if task.Tags["url"] != "https://example.com" {
+		t.Errorf("expected url https://example.com, got %q", task.Tags["url"])
+	}
+}
+
+func TestParseTask_QuotedTagRoundTrip(t *testing.T) {
+	original := `Review site due:2026-02-15 url:"https://example.com/path?q=1"`
+	task := ParseTask(original, "id1", "todo.txt")
+	result := task.String()
+	if result != original {
+		t.Errorf("round-trip mismatch:\n  original: %q\n  result:   %q", original, result)
+	}
+}
+
+func TestFormatTagValue(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"2026-02-15", "2026-02-15"},
+		{"simple", "simple"},
+		{"https://example.com", `"https://example.com"`},
+		{"has spaces", `"has spaces"`},
+		{"with:colon", `"with:colon"`},
+	}
+	for _, tt := range tests {
+		got := FormatTagValue(tt.input)
+		if got != tt.want {
+			t.Errorf("FormatTagValue(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFormatTagValue_AutoQuotesInSerialization(t *testing.T) {
+	task := Task{
+		Name: "Check site",
+		Tags: map[string]string{"url": "https://example.com/page"},
+	}
+	result := task.String()
+	expected := `Check site url:"https://example.com/page"`
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestFirstTagIndex_QuotedTag(t *testing.T) {
+	s := `Buy domain url:"https://example.com"`
+	idx := FirstTagIndex(" " + s) // prepend space since FirstTagIndex needs leading whitespace
+	if idx != 12 {
+		t.Errorf("expected FirstTagIndex 12, got %d", idx)
+	}
+}
+
+func TestParseTask_QuotedTagNormalization(t *testing.T) {
+	// key:"simple" should round-trip to key:simple (quotes stripped for simple values)
+	task := ParseTask(`Do thing tag:"simple"`, "id1", "todo.txt")
+	if task.Tags["tag"] != "simple" {
+		t.Errorf("expected tag value 'simple', got %q", task.Tags["tag"])
+	}
+	result := task.String()
+	expected := "Do thing tag:simple"
+	if result != expected {
+		t.Errorf("normalization mismatch: got %q, want %q", result, expected)
+	}
+}

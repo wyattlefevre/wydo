@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+var simpleTagValueRe = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
+func FormatTagValue(v string) string {
+	if simpleTagValueRe.MatchString(v) {
+		return v
+	}
+	return `"` + v + `"`
+}
+
 type Priority rune
 
 const (
@@ -82,6 +91,21 @@ func (t *Task) SetDueDate(date string) {
 	t.Tags["due"] = date
 }
 
+func (t *Task) GetURL() string {
+	return t.Tags["url"]
+}
+
+func (t *Task) SetURL(url string) {
+	if t.Tags == nil {
+		t.Tags = make(map[string]string)
+	}
+	if url == "" {
+		delete(t.Tags, "url")
+	} else {
+		t.Tags["url"] = url
+	}
+}
+
 func (t *Task) GetScheduledDate() string {
 	return t.Tags["scheduled"]
 }
@@ -142,7 +166,7 @@ func (t Task) String() string {
 	}
 	sort.Strings(tagKeys)
 	for _, k := range tagKeys {
-		parts = append(parts, k+":"+t.Tags[k])
+		parts = append(parts, k+":"+FormatTagValue(t.Tags[k]))
 	}
 
 	return strings.Join(parts, " ")
@@ -281,7 +305,7 @@ func FirstContextIndex(s string) int {
 }
 
 func FirstTagIndex(s string) int {
-	re := regexp.MustCompile(`[ \t][A-Za-z0-9]+\:[A-Za-z0-9]+`)
+	re := regexp.MustCompile(`[ \t][A-Za-z0-9]+:(?:"[^"]*"|[A-Za-z0-9]+)`)
 	loc := re.FindStringIndex(s)
 	if loc != nil {
 		return loc[0] + 1
@@ -308,15 +332,16 @@ func ParseContexts(s string) []string {
 }
 
 func ParseTags(s string) map[string]string {
-	re := regexp.MustCompile(`[ \t]([A-Za-z0-9]+)\:([A-Za-z0-9-]+)`)
+	re := regexp.MustCompile(`[ \t]([A-Za-z0-9]+):(?:"([^"]*)"|([A-Za-z0-9-]+))`)
 	matches := re.FindAllStringSubmatch(s, -1)
 	tags := make(map[string]string)
 	for _, m := range matches {
-		if len(m) == 3 {
-			key := m[1]
-			value := m[2]
-			tags[key] = value
+		key := m[1]
+		value := m[2]
+		if value == "" {
+			value = m[3]
 		}
+		tags[key] = value
 	}
 	return tags
 }
