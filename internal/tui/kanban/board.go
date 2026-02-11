@@ -33,6 +33,7 @@ const (
 	boardModeScheduledDateEdit
 	boardModePriorityInput
 	boardModeFilter
+	boardModeBoardMove
 )
 
 type BoardModel struct {
@@ -59,12 +60,15 @@ type BoardModel struct {
 	filterQuery            string
 	filterActive           bool
 	filteredIndices        [][]int // per-column: original card indices that match
+	allBoards              []models.Board
+	boardSelector          *BoardSelectorModel
 }
 
-func NewBoardModel(board models.Board, allProjects []string) BoardModel {
+func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board) BoardModel {
 	return BoardModel{
 		board:                  board,
 		allProjects:            allProjects,
+		allBoards:              allBoards,
 		selectedCol:            0,
 		selectedCard:           0,
 		mode:                   boardModeNormal,
@@ -160,6 +164,8 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			return m.updatePriorityInput(msg)
 		case boardModeFilter:
 			return m.updateFilter(msg)
+		case boardModeBoardMove:
+			return m.updateBoardMove(msg)
 		}
 	}
 
@@ -305,6 +311,11 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 	case "c":
 		return m.handleColumnEdit()
+
+	case "M":
+		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
+			return m.handleBoardMove()
+		}
 	}
 
 	return m, nil
@@ -879,6 +890,62 @@ func (m BoardModel) handleOpenURL() (BoardModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m BoardModel) handleBoardMove() (BoardModel, tea.Cmd) {
+	selector := NewBoardSelectorModel(m.allBoards, m.board.Path)
+	if selector.Empty() {
+		m.message = "No other boards available"
+		return m, nil
+	}
+	selector.width = m.width
+	selector.height = m.height
+	m.boardSelector = &selector
+	m.mode = boardModeBoardMove
+	return m, nil
+}
+
+func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	var selectedPath string
+	var done bool
+
+	*m.boardSelector, selectedPath, done = m.boardSelector.Update(msg)
+
+	if done {
+		if selectedPath != "" {
+			// Load target board
+			dstBoard, err := fs.ReadBoard(selectedPath)
+			if err != nil {
+				m.err = fmt.Errorf("load target board: %w", err)
+			} else {
+				realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+				err := operations.MoveCardToBoard(&m.board, m.selectedCol, realIdx, &dstBoard)
+				if err != nil {
+					m.err = err
+				} else {
+					m.message = fmt.Sprintf("Card moved to %s", dstBoard.Name)
+					if m.filterActive {
+						m.recomputeFilter()
+					}
+					// Adjust selection (same pattern as delete)
+					visibleCount := len(m.getVisibleCards(m.selectedCol))
+					if m.selectedCard >= visibleCount && m.selectedCard > 0 {
+						m.selectedCard--
+					}
+					m.columnCursorPos[m.selectedCol] = m.selectedCard
+					if m.columnScrollOffsets[m.selectedCol] >= visibleCount {
+						if m.columnScrollOffsets[m.selectedCol] > 0 {
+							m.columnScrollOffsets[m.selectedCol]--
+						}
+					}
+				}
+			}
+		}
+		m.mode = boardModeNormal
+		m.boardSelector = nil
+	}
+
+	return m, nil
+}
+
 func (m BoardModel) View() string {
 	// Show tag picker if in tag edit mode
 	if m.mode == boardModeTagEdit && m.tagPicker != nil {
@@ -913,6 +980,11 @@ func (m BoardModel) View() string {
 	// Show priority input if in priority input mode
 	if m.mode == boardModePriorityInput && m.priorityInput != nil {
 		return m.priorityInput.View()
+	}
+
+	// Show board selector if in board move mode
+	if m.mode == boardModeBoardMove && m.boardSelector != nil {
+		return m.boardSelector.View()
 	}
 
 	var s strings.Builder
@@ -993,7 +1065,7 @@ func (m BoardModel) View() string {
 	case boardModeFilter:
 		s.WriteString(helpStyle.Render("type to filter • enter: lock filter • esc: cancel"))
 	default:
-		helpText := "hjkl: navigate • m/space: move • enter: edit • n: new • d: due date • D: delete • t: tags • p: projects • i: priority • u: open url • U: edit url • S: scheduled date • c: columns • /: filter • q/b: back"
+		helpText := "hjkl: navigate • m/space: move • M: move to board • enter: edit • n: new • d: due date • D: delete • t: tags • p: projects • i: priority • u: open url • U: edit url • S: scheduled date • c: columns • /: filter • q/b: back"
 		if m.filterActive {
 			helpText = "hjkl: navigate • m/space: move • enter: edit • /: edit filter • esc: clear filter • q/b: back"
 		}

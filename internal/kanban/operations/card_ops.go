@@ -389,6 +389,72 @@ func CreateCardFromTask(board *models.Board, title string, projects []string, ta
 	return card, nil
 }
 
+// MoveCardToBoard moves a card from one board to another.
+// Done-column cards land in the target's done column (or first column if none);
+// all other cards land in the target's first column.
+func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board) error {
+	if colIndex < 0 || colIndex >= len(srcBoard.Columns) {
+		return fmt.Errorf("invalid source column index")
+	}
+	srcCol := &srcBoard.Columns[colIndex]
+	if cardIndex < 0 || cardIndex >= len(srcCol.Cards) {
+		return fmt.Errorf("invalid source card index")
+	}
+	if len(dstBoard.Columns) == 0 {
+		return fmt.Errorf("target board has no columns")
+	}
+
+	card := srcCol.Cards[cardIndex]
+
+	// Read raw card file so we preserve frontmatter exactly
+	srcCardsDir := filepath.Join(srcBoard.Path, "cards")
+	rawBytes, err := os.ReadFile(filepath.Join(srcCardsDir, card.Filename))
+	if err != nil {
+		return fmt.Errorf("read source card: %w", err)
+	}
+
+	// Determine target column index
+	dstColIdx := 0
+	if srcBoard.IsDoneColumn(srcCol.Name) {
+		for i, c := range dstBoard.Columns {
+			if dstBoard.IsDoneColumn(c.Name) {
+				dstColIdx = i
+				break
+			}
+		}
+	}
+
+	// Write to destination (destination-first for crash safety)
+	dstCardsDir := filepath.Join(dstBoard.Path, "cards")
+	if err := os.MkdirAll(dstCardsDir, 0755); err != nil {
+		return fmt.Errorf("create target cards dir: %w", err)
+	}
+
+	baseFilename := ToSnakeCase(card.Title)
+	newFilename := UniqueFilename(baseFilename, dstCardsDir, "")
+	if err := os.WriteFile(filepath.Join(dstCardsDir, newFilename), rawBytes, 0644); err != nil {
+		return fmt.Errorf("write target card: %w", err)
+	}
+
+	origFilename := card.Filename
+	card.Filename = newFilename
+	dstBoard.Columns[dstColIdx].Cards = append(dstBoard.Columns[dstColIdx].Cards, card)
+	if err := fs.WriteBoard(*dstBoard); err != nil {
+		return fmt.Errorf("write target board: %w", err)
+	}
+
+	// Remove from source
+	srcCol.Cards = append(srcCol.Cards[:cardIndex], srcCol.Cards[cardIndex+1:]...)
+	if err := os.Remove(filepath.Join(srcCardsDir, origFilename)); err != nil && !os.IsNotExist(err) {
+		// Non-fatal: card is already in target
+	}
+	if err := fs.WriteBoard(*srcBoard); err != nil {
+		return fmt.Errorf("write source board: %w", err)
+	}
+
+	return nil
+}
+
 // OpenURL opens a URL in the default browser
 func OpenURL(url string) error {
 	var cmd *exec.Cmd

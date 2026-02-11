@@ -116,7 +116,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
 			loaded, err := fs.ReadBoard(board.Path)
 			if err == nil {
-				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjectNames(workspaces))
+				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjectNames(workspaces), allBoards)
 				app.boardLoaded = true
 				app.currentView = ViewKanbanBoard
 			}
@@ -159,7 +159,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Stay on current view if board can't be loaded
 			return m, nil
 		}
-		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces))
+		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces), m.boards)
 		m.boardView.SetSize(m.width, m.height-3)
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
 			m.boardView.NavigateTo(msg.ColIndex, msg.CardIndex)
