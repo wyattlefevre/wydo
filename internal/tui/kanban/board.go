@@ -1239,15 +1239,12 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		}
 	} else {
 		// Not in done column: show due/scheduled dates
+		isSelected := colIndex == m.selectedCol && cardIndex == m.selectedCard
 		if card.DueDate != nil {
-			dateStr, color := formatDateWithDaysUntil(card.DueDate, "d")
-			dateStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
-			lines = append(lines, dateStyle.Render(dateStr))
+			lines = append(lines, formatDateWithDaysUntil(card.DueDate, "D", isSelected))
 		}
 		if card.ScheduledDate != nil {
-			dateStr, color := formatDateWithDaysUntil(card.ScheduledDate, "s")
-			dateStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
-			lines = append(lines, dateStyle.Render(dateStr))
+			lines = append(lines, formatDateWithDaysUntil(card.ScheduledDate, "S", isSelected))
 		}
 	}
 
@@ -1279,10 +1276,10 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	return style.Render(content)
 }
 
-// formatDateWithDaysUntil formats a date with days until/overdue and appropriate color
-func formatDateWithDaysUntil(date *time.Time, prefix string) (string, lipgloss.Color) {
+// formatDateWithDaysUntil formats a date with days until/overdue, coloring only the offset
+func formatDateWithDaysUntil(date *time.Time, prefix string, selected bool) string {
 	if date == nil {
-		return "", lipgloss.Color("")
+		return ""
 	}
 
 	now := time.Now()
@@ -1292,15 +1289,28 @@ func formatDateWithDaysUntil(date *time.Time, prefix string) (string, lipgloss.C
 	daysUntil := int(targetDate.Sub(today).Hours() / 24)
 
 	dayOfWeek := strings.ToLower(date.Weekday().String()[:3])
-	dateStr := fmt.Sprintf("%s:%02d-%02d %s %+d",
-		prefix, date.Month(), date.Day(), dayOfWeek, -daysUntil)
+	datePart := fmt.Sprintf("%s:%02d-%02d %s", prefix, date.Month(), date.Day(), dayOfWeek)
+	offsetPart := fmt.Sprintf(" %+d", -daysUntil)
 
+	var offsetColor lipgloss.Color
 	if daysUntil > 7 {
-		return dateStr, colorSuccess
+		offsetColor = colorSuccess
 	} else if daysUntil > 0 {
-		return dateStr, colorWarning
+		offsetColor = colorWarning
+	} else {
+		offsetColor = colorDanger
 	}
-	return dateStr, colorDanger
+
+	dateStyle := lipgloss.NewStyle().Bold(true)
+	offsetStyle := lipgloss.NewStyle().Foreground(offsetColor).Bold(true)
+
+	if selected {
+		bg := lipgloss.Color("236")
+		dateStyle = dateStyle.Background(bg)
+		offsetStyle = offsetStyle.Background(bg)
+	}
+
+	return dateStyle.Render(datePart) + offsetStyle.Render(offsetPart)
 }
 
 // reloadBoardState syncs arrays and validates cursors after a board reload
