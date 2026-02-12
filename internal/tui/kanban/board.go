@@ -1226,18 +1226,29 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		lines = append(lines, cardPreviewStyle.Render(preview))
 	}
 
-	// Line 3: Due date (if set)
-	if card.DueDate != nil {
-		dateStr, color := formatDateWithDaysUntil(card.DueDate, "d")
-		dateStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
-		lines = append(lines, dateStyle.Render(dateStr))
-	}
-
-	// Line 4: Scheduled date (if set)
-	if card.ScheduledDate != nil {
-		dateStr, color := formatDateWithDaysUntil(card.ScheduledDate, "s")
-		dateStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
-		lines = append(lines, dateStyle.Render(dateStr))
+	// Line 3-4: Dates
+	isDone := m.board.IsDoneColumn(m.board.Columns[colIndex].Name)
+	if isDone {
+		// In done column: show completed date in green, hide due/scheduled
+		if card.DateCompleted != nil {
+			dateStr := fmt.Sprintf("done:%02d-%02d %s",
+				card.DateCompleted.Month(), card.DateCompleted.Day(),
+				strings.ToLower(card.DateCompleted.Weekday().String()[:3]))
+			dateStyle := lipgloss.NewStyle().Foreground(colorSuccess).Bold(true)
+			lines = append(lines, dateStyle.Render(dateStr))
+		}
+	} else {
+		// Not in done column: show due/scheduled dates
+		if card.DueDate != nil {
+			dateStr, color := formatDateWithDaysUntil(card.DueDate, "d")
+			dateStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
+			lines = append(lines, dateStyle.Render(dateStr))
+		}
+		if card.ScheduledDate != nil {
+			dateStr, color := formatDateWithDaysUntil(card.ScheduledDate, "s")
+			dateStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
+			lines = append(lines, dateStyle.Render(dateStr))
+		}
 	}
 
 	// Line 5: Projects (only if not empty)
