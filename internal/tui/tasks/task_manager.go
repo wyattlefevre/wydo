@@ -93,6 +93,10 @@ type TaskManagerModel struct {
 	textInput         *TextInputModel
 	taskEditor        *TaskEditorModel
 	confirmationModal *ConfirmationModal
+	datePicker        *shared.DatePickerModel // for direct date editing
+
+	// Direct edit state
+	directEditTaskID string
 
 	// File view mode
 	fileViewMode FileViewMode
@@ -220,6 +224,14 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		}
 	}
 
+	// Handle date picker for direct editing
+	if m.datePicker != nil {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			return m.handleDatePickerUpdate(keyMsg)
+		}
+		return m, nil
+	}
+
 	// Handle sub-component updates
 	if m.confirmationModal != nil {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -281,6 +293,9 @@ func (m TaskManagerModel) View() string {
 	b.WriteString("\n\n")
 
 	// Sub-component overlays (except search - which is inline)
+	if m.datePicker != nil {
+		return m.datePicker.View()
+	}
 	if m.confirmationModal != nil {
 		modal := m.confirmationModal.View()
 		// Center the modal on screen
@@ -423,10 +438,22 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		m.moveCursor(-1)
 	case "enter":
 		return m.openTaskEditor()
+	case "d":
+		return m.startDirectDueDateEdit()
+	case "s":
+		return m.startDirectScheduledDateEdit()
+	case "t":
+		return m.startDirectContextEdit()
+	case "p":
+		return m.startDirectProjectEdit()
+	case "i":
+		return m.directCyclePriority()
+	case "U":
+		return m.startDirectURLEdit()
 	case "f":
 		m.inputContext.TransitionTo(ModeFilterSelect)
 		m.inputContext.Category = "filter"
-	case "s":
+	case "S":
 		m.inputContext.TransitionTo(ModeSortSelect)
 		m.inputContext.Category = "sort"
 	case "g":
@@ -853,6 +880,26 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 		m.filterState.ContextFilter = msg.Selected
 	case "filter-file":
 		m.filterState.FileFilter = msg.Selected
+	case "edit-project":
+		task := m.findTaskByID(m.directEditTaskID)
+		if task != nil {
+			task.Projects = msg.Selected
+			m.refreshDisplayTasks()
+			m.inputContext.Reset()
+			m.pickerContext = ""
+			m.directEditTaskID = ""
+			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+		}
+	case "edit-context":
+		task := m.findTaskByID(m.directEditTaskID)
+		if task != nil {
+			task.Contexts = msg.Selected
+			m.refreshDisplayTasks()
+			m.inputContext.Reset()
+			m.pickerContext = ""
+			m.directEditTaskID = ""
+			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+		}
 	case "move-to-board":
 		if len(msg.Selected) > 0 {
 			boardName := msg.Selected[0]
@@ -894,6 +941,15 @@ func (m TaskManagerModel) handleTextInputResult(msg TextInputResultMsg) (TaskMan
 	} else if m.inputContext.Mode == ModeCreateTask {
 		// Create new task and open editor
 		return m.createNewTaskAndOpenEditor(msg.Value)
+	} else if m.inputContext.Mode == ModeEditURL {
+		// Direct URL editing
+		task := m.findTaskByID(m.directEditTaskID)
+		if task != nil {
+			task.SetURL(msg.Value)
+			m.directEditTaskID = ""
+			m.inputContext.Reset()
+			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+		}
 	}
 
 	m.inputContext.Reset()
@@ -1103,7 +1159,7 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 // IsInModalState returns true if the task manager is in a mode that should
 // block global key handling (editor, picker, input, search, or any non-normal mode)
 func (m *TaskManagerModel) IsInModalState() bool {
-	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.searchActive || m.confirmationModal != nil {
+	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.datePicker != nil || m.searchActive || m.confirmationModal != nil {
 		return true
 	}
 	return m.inputContext.Mode != ModeNormal
@@ -1131,4 +1187,158 @@ func (m *TaskManagerModel) applyFileViewFilter(tasks []data.Task) []data.Task {
 		}
 	}
 	return filtered
+}
+
+// Direct edit handlers
+
+func (m TaskManagerModel) startDirectDueDateEdit() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	m.directEditTaskID = task.ID
+	m.inputContext.TransitionTo(ModeEditDueDate)
+	var currentDate *time.Time
+	if dateStr := task.GetDueDate(); dateStr != "" {
+		if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+			currentDate = &parsed
+		}
+	}
+	dp := shared.NewDatePickerModel(currentDate, "Due Date")
+	dp.SetSize(m.width, m.height)
+	m.datePicker = &dp
+	return m, dp.Init()
+}
+
+func (m TaskManagerModel) startDirectScheduledDateEdit() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	m.directEditTaskID = task.ID
+	m.inputContext.TransitionTo(ModeEditScheduledDate)
+	var currentDate *time.Time
+	if dateStr := task.GetScheduledDate(); dateStr != "" {
+		if parsed, err := time.Parse("2006-01-02", dateStr); err == nil {
+			currentDate = &parsed
+		}
+	}
+	dp := shared.NewDatePickerModel(currentDate, "Scheduled Date")
+	dp.SetSize(m.width, m.height)
+	m.datePicker = &dp
+	return m, dp.Init()
+}
+
+func (m TaskManagerModel) startDirectContextEdit() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	m.directEditTaskID = task.ID
+	m.fuzzyPicker = NewFuzzyPicker(m.allContexts, "Select Contexts", true, false)
+	m.fuzzyPicker.PreSelect(task.Contexts)
+	m.pickerContext = "edit-context"
+	m.inputContext.TransitionTo(ModeFuzzyPicker)
+	return m, nil
+}
+
+func (m TaskManagerModel) startDirectProjectEdit() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	m.directEditTaskID = task.ID
+	m.fuzzyPicker = NewFuzzyPicker(m.allProjects, "Select Projects", true, true)
+	m.fuzzyPicker.PreSelect(task.Projects)
+	m.pickerContext = "edit-project"
+	m.inputContext.TransitionTo(ModeFuzzyPicker)
+	return m, nil
+}
+
+func (m TaskManagerModel) directCyclePriority() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	switch task.Priority {
+	case data.PriorityNone:
+		task.Priority = data.PriorityA
+	case data.PriorityA:
+		task.Priority = data.PriorityB
+	case data.PriorityB:
+		task.Priority = data.PriorityC
+	case data.PriorityC:
+		task.Priority = data.PriorityD
+	case data.PriorityD:
+		task.Priority = data.PriorityE
+	case data.PriorityE:
+		task.Priority = data.PriorityF
+	case data.PriorityF:
+		task.Priority = data.PriorityNone
+	}
+	return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+}
+
+func (m TaskManagerModel) startDirectURLEdit() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	m.directEditTaskID = task.ID
+	m.inputContext.TransitionTo(ModeEditURL)
+	m.textInput = NewTextInput("URL", "https://example.com", nil)
+	m.textInput.SetWidth(m.width)
+	if currentURL := task.GetURL(); currentURL != "" {
+		m.textInput.SetValue(currentURL)
+	}
+	return m, m.textInput.Focus()
+}
+
+func (m TaskManagerModel) handleDatePickerUpdate(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
+	var cmd tea.Cmd
+	*m.datePicker, cmd = m.datePicker.Update(msg)
+
+	switch msg.String() {
+	case "enter", "c":
+		// Save date (or clear if 'c' was pressed)
+		task := m.findTaskByID(m.directEditTaskID)
+		if task != nil {
+			date := m.datePicker.GetDate()
+			dateStr := ""
+			if date != nil {
+				dateStr = date.Format("2006-01-02")
+			}
+			switch m.inputContext.Mode {
+			case ModeEditDueDate:
+				task.SetDueDate(dateStr)
+			case ModeEditScheduledDate:
+				task.SetScheduledDate(dateStr)
+			}
+			m.datePicker = nil
+			m.directEditTaskID = ""
+			m.inputContext.Reset()
+			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+		}
+		m.datePicker = nil
+		m.directEditTaskID = ""
+		m.inputContext.Reset()
+		return m, nil
+
+	case "esc":
+		m.datePicker = nil
+		m.directEditTaskID = ""
+		m.inputContext.Reset()
+		return m, nil
+	}
+
+	return m, cmd
+}
+
+func (m *TaskManagerModel) findTaskByID(id string) *data.Task {
+	for i := range m.displayTasks {
+		if m.displayTasks[i].ID == id {
+			return &m.displayTasks[i]
+		}
+	}
+	return nil
 }

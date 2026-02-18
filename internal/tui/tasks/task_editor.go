@@ -112,7 +112,7 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 		m.datePicker = &dp
 		return m, dp.Init()
 
-	case "S":
+	case "s":
 		// Edit scheduled date with calendar picker
 		m.inputContext.Mode = ModeEditScheduledDate
 		var currentDate *time.Time
@@ -157,7 +157,7 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 		}
 		return m, nil
 
-	case "P":
+	case "i":
 		// Cycle priority: A -> B -> C -> D -> E -> F -> none -> A
 		m.cyclePriority()
 		return m, nil
@@ -386,7 +386,7 @@ func (m *TaskEditorModel) View() string {
 	content.WriteString("\n\n")
 
 	// Help
-	content.WriteString(editorHelpStyle.Render("[d] due  [S] scheduled  [p] projects  [t] contexts  [P] priority  [U] url  [u] open url"))
+	content.WriteString(editorHelpStyle.Render("[d] due  [s] sched  [p] project  [t] context  [i] priority  [U] url  [u] open url"))
 	content.WriteString("\n")
 	content.WriteString(editorHelpStyle.Render("[enter] save  [esc] cancel"))
 

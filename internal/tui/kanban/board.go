@@ -302,7 +302,7 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			m.mode = boardModeConfirmDelete
 		}
 
-	case "S":
+	case "s":
 		if m.selectedCol < len(m.board.Columns) && m.selectedCard < len(m.getVisibleCards(m.selectedCol)) {
 			return m.handleScheduledDateEdit()
 		}
@@ -1076,9 +1076,9 @@ func (m BoardModel) View() string {
 	case boardModeFilter:
 		s.WriteString(helpStyle.Render("type to filter • enter: lock filter • esc: cancel"))
 	default:
-		helpText := "hjkl: navigate • m/space: move • M: move to board • enter: edit • n: new • d: due date • D: delete • t: tags • p: projects • i: priority • u: open url • U: edit url • S: scheduled date • c: columns • /: filter • q/b: back"
+		helpText := "?:help  /:filter  m:move  esc:back"
 		if m.filterActive {
-			helpText = "hjkl: navigate • m/space: move • enter: edit • /: edit filter • esc: clear filter • q/b: back"
+			helpText = "?:help  /:edit filter  esc:clear filter"
 		}
 		s.WriteString(helpStyle.Render(helpText))
 	}

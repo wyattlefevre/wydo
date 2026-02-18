@@ -18,6 +18,7 @@ import (
 	kanbanview "wydo/internal/tui/kanban"
 	projectsview "wydo/internal/tui/projects"
 	taskview "wydo/internal/tui/tasks"
+	"wydo/internal/tui/shared"
 	"wydo/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -350,6 +351,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Global ? help — works in all views when not in modal/typing state
+		if msg.String() == "?" && !m.isChildInputActive() {
+			m.showHelp = true
+			return m, nil
+		}
+
 		// For board/picker views and task manager in modal state,
 		// let the child view handle all keys.
 		if m.currentView == ViewKanbanBoard || m.currentView == ViewKanbanPicker || m.currentView == ViewProjectDetail {
@@ -379,19 +386,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = ViewAgendaMonth
 				m.refreshData()
 				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes)
-				return m, nil
-			case "b":
-				m.currentView = ViewKanbanPicker
-				m.refreshData()
-				m.pickerView.SetBoards(m.boards)
-				return m, nil
-			case "p":
-				m.currentView = ViewProjects
-				m.refreshData()
-				m.projectsView.SetData(m.workspaces)
-				return m, nil
-			case "?":
-				m.showHelp = true
 				return m, nil
 			}
 		}
@@ -586,15 +580,15 @@ func (m AppModel) View() string {
 	var statusText string
 	switch m.currentView {
 	case ViewKanbanBoard:
-		statusText = "Board view | esc/q/b: back | P:projects A:agenda T:tasks"
+		statusText = "Board | P:projects A:agenda T:tasks | ?:help"
 	case ViewKanbanPicker:
-		statusText = "Board picker | esc: back | P:projects A:agenda T:tasks | q:quit"
+		statusText = "Boards | P:projects A:agenda T:tasks | ?:help | q:quit"
 	case ViewTaskManager:
-		statusText = "Task manager | 1:day 2:week 3:month | B:boards P:projects A:agenda | ?:help | q:quit"
+		statusText = "Tasks | 1:day 2:week 3:month | B:boards P:projects A:agenda | ?:help | q:quit"
 	case ViewProjects:
 		statusText = "Projects | 1:day 2:week 3:month | B:boards T:tasks A:agenda | ?:help | q:quit"
 	case ViewProjectDetail:
-		statusText = "Project detail | tab/1/2/3/4: sections | esc/q: back to projects | P:projects A:agenda T:tasks"
+		statusText = "Project | tab/1/2/3/4: sections | esc/q: back | ?:help"
 	default:
 		statusText = "1:day 2:week 3:month | B:boards T:tasks P:projects | ?:help | q:quit"
 	}
@@ -607,63 +601,104 @@ func (m AppModel) View() string {
 }
 
 func (m AppModel) renderHelpOverlay() string {
-	helpBoxStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("4")).
-		Padding(1, 2)
-
-	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-
-	line := func(key, desc string) string {
-		return "  " + keyStyle.Width(14).Render(key) + descStyle.Render(desc)
+	globalNav := shared.HelpSection{
+		Title: "Global Navigation",
+		Binds: []shared.HelpBind{
+			{"P", "Projects"},
+			{"B", "Board picker"},
+			{"A", "Agenda (day view)"},
+			{"T", "Task manager"},
+			{"1 / 2 / 3", "Day / week / month"},
+			{"?", "Show this help"},
+			{"q", "Quit"},
+		},
 	}
 
-	var content string
-	content += sectionStyle.Render("Wydo - Keyboard Shortcuts") + "\n\n"
+	var sections []shared.HelpSection
+	sections = append(sections, globalNav)
 
-	content += sectionStyle.Render("Global Navigation") + "\n"
-	content += line("P", "Projects") + "\n"
-	content += line("B", "Board picker") + "\n"
-	content += line("A", "Agenda (day view)") + "\n"
-	content += line("T", "Task manager") + "\n"
-	content += line("1 / 2 / 3", "Day / week / month agenda") + "\n"
-	content += line("b", "Board picker") + "\n"
-	content += line("p", "Projects") + "\n"
-	content += line("?", "Show this help") + "\n"
-	content += line("q", "Quit") + "\n"
-	content += line("ctrl+c", "Force quit") + "\n\n"
+	switch m.currentView {
+	case ViewTaskManager:
+		sections = append(sections, shared.HelpSection{
+			Title: "Task Manager",
+			Binds: []shared.HelpBind{
+				{"j / k", "Navigate tasks"},
+				{"enter", "Open task editor"},
+				{"space", "Toggle done"},
+				{"d", "Due date"},
+				{"s", "Scheduled date"},
+				{"t", "Contexts"},
+				{"p", "Projects"},
+				{"i", "Cycle priority"},
+				{"U", "Edit URL"},
+				{"u", "Open URL"},
+				{"n", "New task"},
+				{"D", "Delete task"},
+				{"m", "Move to board"},
+				{"/", "Search"},
+				{"f", "Filter options"},
+				{"S", "Sort options"},
+				{"g", "Group options"},
+				{"F", "File view"},
+			},
+		})
+	case ViewKanbanBoard:
+		sections = append(sections, shared.HelpSection{
+			Title: "Board",
+			Binds: []shared.HelpBind{
+				{"h / l", "Navigate columns"},
+				{"j / k", "Navigate cards"},
+				{"enter", "Edit card"},
+				{"n", "New card"},
+				{"d", "Due date"},
+				{"s", "Scheduled date"},
+				{"t", "Tags"},
+				{"p", "Projects"},
+				{"i", "Priority"},
+				{"U", "Edit URL"},
+				{"u", "Open URL"},
+				{"m / space", "Move card"},
+				{"M", "Move to board"},
+				{"D", "Delete card"},
+				{"c", "Edit columns"},
+				{"/", "Filter"},
+				{"esc / q", "Back"},
+			},
+		})
+	case ViewAgendaDay, ViewAgendaWeek:
+		sections = append(sections, shared.HelpSection{
+			Title: "Agenda",
+			Binds: []shared.HelpBind{
+				{"h / l", "Previous / next period"},
+				{"j / k", "Navigate items"},
+				{"t", "Jump to today"},
+				{"enter", "Open selected item"},
+			},
+		})
+	case ViewAgendaMonth:
+		sections = append(sections, shared.HelpSection{
+			Title: "Month View",
+			Binds: []shared.HelpBind{
+				{"h / l", "Previous / next day"},
+				{"j / k", "Previous / next week"},
+				{"H / L", "Previous / next month"},
+				{"t", "Jump to today"},
+				{"enter", "Enter detail panel"},
+				{"esc", "Back to calendar"},
+			},
+		})
+	case ViewProjects:
+		sections = append(sections, shared.HelpSection{
+			Title: "Projects",
+			Binds: []shared.HelpBind{
+				{"j / k", "Navigate"},
+				{"enter", "Open project"},
+				{"/", "Search"},
+			},
+		})
+	}
 
-	content += sectionStyle.Render("Agenda Views (Day/Week)") + "\n"
-	content += line("h / l", "Previous / next period") + "\n"
-	content += line("j / k", "Navigate items") + "\n"
-	content += line("t", "Jump to today") + "\n"
-	content += line("enter", "Open selected item") + "\n\n"
-
-	content += sectionStyle.Render("Month View") + "\n"
-	content += line("h / l", "Previous / next day") + "\n"
-	content += line("j / k", "Previous / next week") + "\n"
-	content += line("H / L", "Previous / next month") + "\n"
-	content += line("t", "Jump to today") + "\n"
-	content += line("enter", "Enter detail panel") + "\n"
-	content += line("esc", "Back to calendar") + "\n\n"
-
-	content += sectionStyle.Render("Task Manager") + "\n"
-	content += line("j / k", "Navigate tasks") + "\n"
-	content += line("enter", "Edit task") + "\n"
-	content += line("space", "Toggle done") + "\n"
-	content += line("n", "New task") + "\n"
-	content += line("m", "Move to board") + "\n"
-	content += line("f", "Filter") + "\n"
-	content += line("s", "Sort") + "\n"
-	content += line("g", "Group") + "\n"
-	content += line("/", "Search") + "\n\n"
-
-	content += HelpStyle.Render("Press any key to close")
-
-	box := helpBoxStyle.Render(content)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	return shared.RenderHelpPopup(sections, m.width, m.height)
 }
 
 func (m AppModel) renderPlaceholder(title, subtitle string) string {

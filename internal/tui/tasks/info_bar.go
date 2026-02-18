@@ -69,12 +69,12 @@ func (m *InfoBarModel) RenderHints() string {
 
 func (m *InfoBarModel) getHintsForMode() string {
 	if m.InputContext == nil {
-		return hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  enter:edit  space:toggle")
+		return hintStyle.Render("?:help  /:search  enter:details  space:done")
 	}
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		return hintStyle.Render("n:new  f:filter  s:sort  g:group  /:search  F:files  m:board  A:archive  D:delete  enter:edit  space:toggle")
+		return hintStyle.Render("?:help  /:search  enter:details  space:done")
 
 	case ModeFilterSelect:
 		return hintStyle.Render("/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back")
@@ -98,7 +98,7 @@ func (m *InfoBarModel) getHintsForMode() string {
 		return hintStyle.Render("j/k:navigate  enter:select  esc:cancel")
 
 	case ModeTaskEditor:
-		return hintStyle.Render("d:due  p:project  t:context  P:priority  enter:save  esc:cancel")
+		return hintStyle.Render("d:due  s:sched  p:project  t:context  i:priority  enter:save  esc:cancel")
 
 	case ModeEditDueDate:
 		return hintStyle.Render("format: yyyy-MM-dd  enter:save  esc:cancel")

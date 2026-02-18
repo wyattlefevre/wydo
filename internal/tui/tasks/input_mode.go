@@ -24,7 +24,7 @@ const (
 	// Task Editor modes
 	ModeTaskEditor        // viewing task details
 	ModeEditDueDate       // 'd' in editor - date picker
-	ModeEditScheduledDate // 'S' in editor - scheduled date picker
+	ModeEditScheduledDate // 's' in editor - scheduled date picker
 	ModeEditContext       // 't'/'c' in editor - context picker
 	ModeEditProject       // 'p' in editor - project picker
 	ModeEditURL           // 'U' in editor - URL text input
