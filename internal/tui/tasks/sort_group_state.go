@@ -394,14 +394,62 @@ func ExtractUniqueFiles(tasks []data.Task, roots []string) []string {
 }
 
 // RelativeFilePath returns a path relative to the first matching workspace root.
+// When multiple roots are configured, the path is prefixed with the workspace name
+// (e.g. "work: tasks/todo.txt") so that identical relative paths from different
+// workspaces are disambiguated in group labels and file filter items.
 // Falls back to the bare filename if no root matches.
 func RelativeFilePath(absPath string, roots []string) string {
 	for _, root := range roots {
 		rel, err := filepath.Rel(root, absPath)
 		if err == nil && !strings.HasPrefix(rel, "..") {
+			if len(roots) > 1 {
+				return WorkspaceName(root, roots) + ": " + rel
+			}
 			return rel
 		}
 	}
 	// Fallback: bare filename
 	return filepath.Base(absPath)
+}
+
+// WorkspaceName returns a short display name for a workspace root.
+// It uses filepath.Base(root) unless two roots share the same basename,
+// in which case it returns "parent/base" for disambiguation.
+func WorkspaceName(root string, allRoots []string) string {
+	base := filepath.Base(root)
+	for _, other := range allRoots {
+		if other != root && filepath.Base(other) == base {
+			// Collision — use parent/base
+			return filepath.Base(filepath.Dir(root)) + "/" + base
+		}
+	}
+	return base
+}
+
+// WorkspaceForTask returns the workspace display name that owns the given
+// absolute file path. Returns "" if no root matches.
+func WorkspaceForTask(absPath string, roots []string) string {
+	for _, root := range roots {
+		rel, err := filepath.Rel(root, absPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return WorkspaceName(root, roots)
+		}
+	}
+	return ""
+}
+
+// ExtractUniqueWorkspaces returns sorted workspace display names that have
+// at least one task.
+func ExtractUniqueWorkspaces(tasks []data.Task, roots []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, task := range tasks {
+		name := WorkspaceForTask(task.File, roots)
+		if name != "" && !seen[name] {
+			seen[name] = true
+			result = append(result, name)
+		}
+	}
+	sort.Strings(result)
+	return result
 }

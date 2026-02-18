@@ -110,9 +110,10 @@ type TaskManagerModel struct {
 	searchInput      textinput.Model
 
 	// Cached data for pickers
-	allProjects []string
-	allContexts []string
-	allFiles    []string
+	allProjects   []string
+	allContexts   []string
+	allFiles      []string
+	allWorkspaces []string
 
 	// Picker context (what are we picking for)
 	pickerContext string // "filter-project", "filter-context", "filter-file", etc.
@@ -179,6 +180,9 @@ func (m *TaskManagerModel) loadTasks() {
 	m.allProjects = ExtractUniqueProjects(tasks)
 	m.allContexts = ExtractUniqueContexts(tasks)
 	m.allFiles = ExtractUniqueFiles(tasks, m.workspaceRoots)
+	if len(m.workspaceRoots) > 1 {
+		m.allWorkspaces = ExtractUniqueWorkspaces(tasks, m.workspaceRoots)
+	}
 	m.refreshDisplayTasks()
 }
 
@@ -286,7 +290,7 @@ func (m TaskManagerModel) View() string {
 	var b strings.Builder
 
 	// Update info bar with current state
-	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, m.fileViewMode)
+	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, m.fileViewMode, len(m.workspaceRoots) > 1)
 
 	// Info bar (always visible)
 	b.WriteString(m.infoBar.View())
@@ -461,6 +465,10 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		m.inputContext.Category = "group"
 	case "F":
 		return m.startFileFilter()
+	case "W":
+		if len(m.workspaceRoots) > 1 {
+			return m.startWorkspaceFilter()
+		}
 	case "/":
 		return m.startSearch()
 	case " ":
@@ -496,6 +504,10 @@ func (m TaskManagerModel) handleFilterSelect(msg tea.KeyMsg) (TaskManagerModel, 
 		m.inputContext.Reset()
 	case "f":
 		return m.startFileFilter()
+	case "w":
+		if len(m.workspaceRoots) > 1 {
+			return m.startWorkspaceFilter()
+		}
 	}
 	return m, nil
 }
@@ -770,6 +782,14 @@ func (m TaskManagerModel) startFileFilter() (TaskManagerModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m TaskManagerModel) startWorkspaceFilter() (TaskManagerModel, tea.Cmd) {
+	m.fuzzyPicker = NewFuzzyPicker(m.allWorkspaces, "Filter by Workspace", true, false)
+	m.fuzzyPicker.PreSelect(m.filterState.WorkspaceFilter)
+	m.pickerContext = "filter-workspace"
+	m.inputContext.TransitionTo(ModeFuzzyPicker)
+	return m, nil
+}
+
 func (m *TaskManagerModel) cyclePriorityFilter() {
 	priorities := []data.Priority{
 		data.PriorityA, data.PriorityB, data.PriorityC,
@@ -880,6 +900,8 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 		m.filterState.ContextFilter = msg.Selected
 	case "filter-file":
 		m.filterState.FileFilter = msg.Selected
+	case "filter-workspace":
+		m.filterState.WorkspaceFilter = msg.Selected
 	case "edit-project":
 		task := m.findTaskByID(m.directEditTaskID)
 		if task != nil {
@@ -975,6 +997,9 @@ func (m TaskManagerModel) handleEditorResult(msg TaskEditorResultMsg) (TaskManag
 func (m *TaskManagerModel) refreshDisplayTasks() {
 	// Apply filters
 	filtered := ApplyFilters(m.tasks, m.filterState)
+
+	// Apply workspace filter (needs roots context, separate from ApplyFilters)
+	filtered = ApplyWorkspaceFilter(filtered, m.filterState.WorkspaceFilter, m.workspaceRoots)
 
 	// Apply file view filter
 	filtered = m.applyFileViewFilter(filtered)

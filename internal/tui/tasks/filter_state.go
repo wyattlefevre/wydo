@@ -35,13 +35,14 @@ type DateFilter struct {
 
 // FilterState holds all active filters
 type FilterState struct {
-	SearchQuery    string
-	StatusFilter   StatusFilter
-	DateFilter     *DateFilter
-	ProjectFilter  []string
-	ContextFilter  []string
-	PriorityFilter []data.Priority
-	FileFilter     []string
+	SearchQuery     string
+	StatusFilter    StatusFilter
+	DateFilter      *DateFilter
+	ProjectFilter   []string
+	ContextFilter   []string
+	PriorityFilter  []data.Priority
+	FileFilter      []string
+	WorkspaceFilter []string // workspace basenames
 }
 
 // NewFilterState creates a new empty filter state
@@ -59,7 +60,8 @@ func (f *FilterState) IsEmpty() bool {
 		len(f.ProjectFilter) == 0 &&
 		len(f.ContextFilter) == 0 &&
 		len(f.PriorityFilter) == 0 &&
-		len(f.FileFilter) == 0
+		len(f.FileFilter) == 0 &&
+		len(f.WorkspaceFilter) == 0
 }
 
 // Reset clears all filters
@@ -71,6 +73,7 @@ func (f *FilterState) Reset() {
 	f.ContextFilter = nil
 	f.PriorityFilter = nil
 	f.FileFilter = nil
+	f.WorkspaceFilter = nil
 }
 
 // CycleStatusFilter cycles through status filter options
@@ -235,7 +238,13 @@ func matchesPriority(task data.Task, priorities []data.Priority) bool {
 
 func matchesFile(task data.Task, files []string) bool {
 	for _, f := range files {
-		if strings.HasSuffix(task.File, f) {
+		// Strip workspace prefix ("name: ") if present so suffix matching
+		// works with both prefixed display names and raw paths.
+		clean := f
+		if idx := strings.Index(f, ": "); idx >= 0 {
+			clean = f[idx+2:]
+		}
+		if strings.HasSuffix(task.File, clean) {
 			return true
 		}
 	}
@@ -301,5 +310,32 @@ func (f *FilterState) Summary() string {
 		parts = append(parts, "file="+strings.Join(f.FileFilter, ","))
 	}
 
+	if len(f.WorkspaceFilter) > 0 {
+		parts = append(parts, "workspace="+strings.Join(f.WorkspaceFilter, ","))
+	}
+
 	return strings.Join(parts, " | ")
+}
+
+// ApplyWorkspaceFilter filters tasks to only those belonging to the selected
+// workspaces. Tasks with an empty File field are always passed through.
+func ApplyWorkspaceFilter(tasks []data.Task, workspaces []string, roots []string) []data.Task {
+	if len(workspaces) == 0 {
+		return tasks
+	}
+	allowed := make(map[string]bool, len(workspaces))
+	for _, w := range workspaces {
+		allowed[w] = true
+	}
+	var result []data.Task
+	for _, task := range tasks {
+		if task.File == "" {
+			result = append(result, task)
+			continue
+		}
+		if allowed[WorkspaceForTask(task.File, roots)] {
+			result = append(result, task)
+		}
+	}
+	return result
 }

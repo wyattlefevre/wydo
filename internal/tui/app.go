@@ -640,6 +640,7 @@ func (m AppModel) renderHelpOverlay() string {
 				{"S", "Sort options"},
 				{"g", "Group options"},
 				{"F", "File view"},
+				{"W", "Workspace filter"},
 			},
 		})
 	case ViewKanbanBoard:

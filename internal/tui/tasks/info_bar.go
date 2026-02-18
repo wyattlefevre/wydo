@@ -16,14 +16,15 @@ var (
 
 // InfoBarModel displays mode, keybinds, and active filters
 type InfoBarModel struct {
-	InputContext *InputModeContext
-	FilterState  *FilterState
-	SortState    *SortState
-	GroupState   *GroupState
-	SearchQuery  string
-	Message      string
-	Width        int
-	FileViewMode FileViewMode
+	InputContext   *InputModeContext
+	FilterState    *FilterState
+	SortState      *SortState
+	GroupState     *GroupState
+	SearchQuery    string
+	Message        string
+	Width          int
+	FileViewMode   FileViewMode
+	MultiWorkspace bool
 }
 
 // NewInfoBar creates a new info bar
@@ -34,13 +35,14 @@ func NewInfoBar() InfoBarModel {
 }
 
 // SetContext updates the info bar with current state
-func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, fileViewMode FileViewMode) {
+func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, fileViewMode FileViewMode, multiWorkspace bool) {
 	m.InputContext = ctx
 	m.FilterState = filter
 	m.SortState = sortState
 	m.GroupState = groupState
 	m.SearchQuery = searchQuery
 	m.FileViewMode = fileViewMode
+	m.MultiWorkspace = multiWorkspace
 }
 
 // View renders the info bar (3 fixed lines)
@@ -74,10 +76,18 @@ func (m *InfoBarModel) getHintsForMode() string {
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		return hintStyle.Render("?:help  /:search  enter:details  space:done")
+		hint := "?:help  /:search  enter:details  space:done"
+		if m.MultiWorkspace {
+			hint = "?:help  /:search  enter:details  space:done  W:workspace"
+		}
+		return hintStyle.Render(hint)
 
 	case ModeFilterSelect:
-		return hintStyle.Render("/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back")
+		hint := "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back"
+		if m.MultiWorkspace {
+			hint = "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  w:workspace  esc:back"
+		}
+		return hintStyle.Render(hint)
 
 	case ModeSortSelect:
 		return hintStyle.Render("d:date  p:project  P:priority  t:context  esc:back")
