@@ -17,8 +17,9 @@ import (
 	agendaview "wydo/internal/tui/agenda"
 	kanbanview "wydo/internal/tui/kanban"
 	projectsview "wydo/internal/tui/projects"
-	taskview "wydo/internal/tui/tasks"
 	"wydo/internal/tui/shared"
+	taskview "wydo/internal/tui/tasks"
+	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -137,7 +138,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		contentHeight := msg.Height - 3 // Reserve space for status bar
+		contentHeight := msg.Height - 4 // 2 for tab bar + 2 for hint bar
 		contentWidth := min(msg.Width, maxContentWidth)
 		m.dayView.SetSize(contentWidth, contentHeight)
 		m.weekView.SetSize(contentWidth, contentHeight)
@@ -161,7 +162,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
-		m.boardView.SetSize(m.width, m.height-3)
+		m.boardView.SetSize(m.width, m.height-4)
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
 			m.boardView.NavigateTo(msg.ColIndex, msg.CardIndex)
 		}
@@ -183,7 +184,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					projNotes, projTasks, projCards, projBoards, ws.Boards,
 				)
 				_ = proj // proj used for future enhancements
-				m.projectDetailView.SetSize(m.width, m.height-3)
+				m.projectDetailView.SetSize(m.width, m.height-4)
 				m.projectDetailLoaded = true
 				m.currentView = ViewProjectDetail
 				break
@@ -576,28 +577,83 @@ func (m AppModel) View() string {
 		content = strings.Join(lines, "\n")
 	}
 
-	// Status bar — show different hints based on view
-	var statusText string
-	switch m.currentView {
-	case ViewKanbanBoard:
-		statusText = "Board | P:projects A:agenda T:tasks | ?:help"
-	case ViewKanbanPicker:
-		statusText = "Boards | P:projects A:agenda T:tasks | ?:help | q:quit"
-	case ViewTaskManager:
-		statusText = "Tasks | 1:day 2:week 3:month | B:boards P:projects A:agenda | ?:help | q:quit"
-	case ViewProjects:
-		statusText = "Projects | 1:day 2:week 3:month | B:boards T:tasks A:agenda | ?:help | q:quit"
-	case ViewProjectDetail:
-		statusText = "Project | tab/1/2/3/4: sections | esc/q: back | ?:help"
-	default:
-		statusText = "1:day 2:week 3:month | B:boards T:tasks P:projects | ?:help | q:quit"
+	tabBar := m.renderTabBar()
+	hintBar := m.renderHintBar()
+
+	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, hintBar)
+}
+
+// renderTabBar renders the top tab bar with the active view highlighted.
+func (m AppModel) renderTabBar() string {
+	type tab struct {
+		key   string
+		label string
+	}
+	tabs := []tab{
+		{"B", "oard"},
+		{"A", "genda"},
+		{"T", "asks"},
+		{"P", "rojects"},
 	}
 
-	statusBar := StatusBarStyle.Width(m.width).Render(
-		HelpStyle.Render(statusText),
-	)
+	// Map current view to active tab index
+	activeIdx := -1
+	switch m.currentView {
+	case ViewKanbanPicker, ViewKanbanBoard:
+		activeIdx = 0
+	case ViewAgendaDay, ViewAgendaWeek, ViewAgendaMonth:
+		activeIdx = 1
+	case ViewTaskManager:
+		activeIdx = 2
+	case ViewProjects, ViewProjectDetail:
+		activeIdx = 3
+	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	var parts []string
+	for i, t := range tabs {
+		if i == activeIdx {
+			parts = append(parts, theme.TabActive.Render("["+t.key+"]"+t.label))
+		} else {
+			parts = append(parts, theme.TabInactive.Render("["+t.key+"]"+t.label))
+		}
+	}
+
+	tabContent := strings.Join(parts, "   ")
+	centered := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, tabContent)
+	return theme.TabBar.Width(m.width).Render(centered)
+}
+
+// renderHintBar renders the bottom hint bar with keybind hints for the current view.
+func (m AppModel) renderHintBar() string {
+	var hintText string
+
+	switch m.currentView {
+	case ViewAgendaDay:
+		hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  enter:open  ?:help  q:quit"
+	case ViewAgendaWeek:
+		hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  enter:open  ?:help  q:quit"
+	case ViewAgendaMonth:
+		hintText = m.monthView.HintText()
+		hintText = "1:day 2:week 3:month  " + hintText + "  ?:help  q:quit"
+	case ViewTaskManager:
+		hintText = m.taskManagerView.HintText()
+	case ViewKanbanPicker:
+		hintText = m.pickerView.HintText()
+	case ViewKanbanBoard:
+		if m.boardLoaded {
+			hintText = m.boardView.HintText()
+		}
+	case ViewProjects:
+		hintText = m.projectsView.HintText()
+	case ViewProjectDetail:
+		if m.projectDetailLoaded {
+			hintText = m.projectDetailView.HintText()
+		}
+	}
+
+	styled := theme.HelpHint.Render(hintText)
+	centered := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, styled)
+	return theme.StatusBar.Width(m.width).Render(centered)
 }
 
 func (m AppModel) renderHelpOverlay() string {

@@ -6,19 +6,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	agendapkg "wydo/internal/agenda"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
-)
-
-var (
-	weekDayHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	weekTodayStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
-	weekCountStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 // WeekModel is the week agenda view
@@ -235,8 +228,5 @@ func (m WeekModel) View() string {
 		}
 	}
 
-	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center,
-		navHintStyle.Render("[h] prev  [t] today  [l] next  [j/k] navigate  [enter] open"),
-	)
-	return shared.CenterWithBottomHints(sb.String(), hints, m.height)
+	return shared.CenterContent(sb.String(), m.height)
 }

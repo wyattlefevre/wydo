@@ -4,17 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"wydo/internal/tasks/data"
-)
-
-var (
-	doneStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	priorityStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
-	projectStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	contextStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	tagStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	nameStyle     = lipgloss.NewStyle()
+	"wydo/internal/tui/theme"
 )
 
 // StyledTaskLine renders a task in a simple, readable format.
@@ -24,7 +15,7 @@ func StyledTaskLine(t data.Task) string {
 
 	// Status checkbox
 	if t.Done {
-		parts = append(parts, doneStyle.Render("[x]"))
+		parts = append(parts, theme.Done.Render("[x]"))
 	} else {
 		parts = append(parts, "[ ]")
 	}
@@ -32,36 +23,36 @@ func StyledTaskLine(t data.Task) string {
 	// Priority
 	if t.Priority != 0 {
 		if t.Done {
-			parts = append(parts, doneStyle.Render("("+string(t.Priority)+")"))
+			parts = append(parts, theme.Done.Render("("+string(t.Priority)+")"))
 		} else {
-			parts = append(parts, priorityStyle.Render("("+string(t.Priority)+")"))
+			parts = append(parts, theme.Priority.Render("("+string(t.Priority)+")"))
 		}
 	}
 
 	// Name
 	if t.Name != "" {
 		if t.Done {
-			parts = append(parts, doneStyle.Render(t.Name))
+			parts = append(parts, theme.Done.Render(t.Name))
 		} else {
-			parts = append(parts, nameStyle.Render(t.Name))
+			parts = append(parts, t.Name)
 		}
 	}
 
 	// Projects
 	for _, p := range t.Projects {
 		if t.Done {
-			parts = append(parts, doneStyle.Render("+"+p))
+			parts = append(parts, theme.Done.Render("+"+p))
 		} else {
-			parts = append(parts, projectStyle.Render("+"+p))
+			parts = append(parts, theme.Project.Render("+"+p))
 		}
 	}
 
 	// Contexts
 	for _, c := range t.Contexts {
 		if t.Done {
-			parts = append(parts, doneStyle.Render("@"+c))
+			parts = append(parts, theme.Done.Render("@"+c))
 		} else {
-			parts = append(parts, contextStyle.Render("@"+c))
+			parts = append(parts, theme.Context.Render("@"+c))
 		}
 	}
 
@@ -75,9 +66,9 @@ func StyledTaskLine(t data.Task) string {
 		v := t.Tags[k]
 		formatted := k + ":" + data.FormatTagValue(v)
 		if t.Done {
-			parts = append(parts, doneStyle.Render(formatted))
+			parts = append(parts, theme.Done.Render(formatted))
 		} else {
-			parts = append(parts, tagStyle.Render(formatted))
+			parts = append(parts, theme.Tag.Render(formatted))
 		}
 	}
 

@@ -6,15 +6,16 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
 )
 
 var (
-	pickerTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+	pickerTitleStyle    = theme.Title
 	pickerItemStyle     = lipgloss.NewStyle().PaddingLeft(2)
-	pickerSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2")).PaddingLeft(0)
-	pickerCheckedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	pickerCreateStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Italic(true).PaddingLeft(2)
-	pickerBoxStyle      = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("4")).Padding(0, 1)
+	pickerSelectedStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Success).PaddingLeft(0)
+	pickerCheckedStyle  = lipgloss.NewStyle().Foreground(theme.Secondary)
+	pickerCreateStyle   = lipgloss.NewStyle().Foreground(theme.Warning).Italic(true).PaddingLeft(2)
+	pickerBoxStyle      = theme.ModalBox.Padding(0, 1)
 )
 
 // FuzzyPickerModel is a fuzzy-searchable list picker
@@ -205,7 +206,7 @@ func (m *FuzzyPickerModel) View() string {
 			}
 		}
 	}
-	content += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(help)
+	content += "\n" + theme.Muted.Render(help)
 
 	return pickerBoxStyle.Width(m.Width).Render(content)
 }

@@ -7,12 +7,13 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
 )
 
 var (
-	inputPromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	inputErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	inputBoxStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("4")).Padding(0, 1)
+	inputPromptStyle = lipgloss.NewStyle().Foreground(theme.Secondary)
+	inputErrorStyle  = theme.Error
+	inputBoxStyle    = theme.ModalBox.Padding(0, 1)
 )
 
 // TextInputModel wraps bubbles/textinput with validation
@@ -104,7 +105,7 @@ func (m *TextInputModel) View() string {
 		content += inputErrorStyle.Render("Error: " + m.Error) + "\n"
 	}
 
-	content += lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("[enter] confirm  [esc] cancel")
+	content += theme.Muted.Render("[enter] confirm  [esc] cancel")
 
 	return inputBoxStyle.Width(m.Width).Render(content)
 }

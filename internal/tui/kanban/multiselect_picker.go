@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sahilm/fuzzy"
+	"wydo/internal/tui/theme"
 )
 
 // MultiSelectPickerConfig configures a generic multi-select picker
@@ -298,7 +299,7 @@ func (m MultiSelectPickerModel) renderCreateNew(index int) string {
 
 	style := tagCreateNewStyle
 	if index == m.cursorPos {
-		style = tagItemHighlightStyle.Copy().Foreground(colorSuccess)
+		style = tagItemHighlightStyle.Copy().Foreground(theme.Success)
 	}
 
 	return style.Render(text) + "\n"

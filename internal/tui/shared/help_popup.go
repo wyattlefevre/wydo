@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
 )
 
 // HelpBind represents a single keybind entry
@@ -19,14 +20,8 @@ type HelpSection struct {
 }
 
 var (
-	helpSectionStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	helpKeyStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	helpDescStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	helpBoxStyle     = lipgloss.NewStyle().
-				BorderStyle(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("4")).
-				Padding(1, 2)
-	helpDismissStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	helpKeyStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Secondary)
+	helpDescStyle = lipgloss.NewStyle().Foreground(theme.Text)
 )
 
 // RenderHelpPopup renders a centered help popup with the given sections
@@ -40,17 +35,17 @@ func RenderHelpPopup(sections []HelpSection, width, height int) string {
 		if i > 0 {
 			content += "\n"
 		}
-		content += helpSectionStyle.Render(section.Title) + "\n"
+		content += theme.Title.Render(section.Title) + "\n"
 		for _, bind := range section.Binds {
 			content += line(bind.Key, bind.Desc) + "\n"
 		}
 	}
 
-	content += "\n" + helpDismissStyle.Render("Press any key to close")
+	content += "\n" + theme.Muted.Render("Press any key to close")
 
 	// Trim trailing newline before boxing
 	content = strings.TrimRight(content, "\n")
 
-	box := helpBoxStyle.Render(content)
+	box := theme.ModalBox.Render(content)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }

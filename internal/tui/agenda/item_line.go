@@ -7,28 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	agendapkg "wydo/internal/agenda"
-)
-
-var (
-	colorSuccess = lipgloss.Color("2")
-	colorWarning = lipgloss.Color("3")
-	colorDanger  = lipgloss.Color("1")
-	colorMuted   = lipgloss.Color("8")
-	colorProject = lipgloss.Color("6")
-	colorBoard   = lipgloss.Color("5")
-
-	reasonDueStyle      = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
-	reasonSchedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	reasonNoteStyle     = lipgloss.NewStyle().Foreground(colorMuted)
-	overdueHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorDanger)
-	projectStyle     = lipgloss.NewStyle().Foreground(colorProject)
-	boardInfoStyle   = lipgloss.NewStyle().Foreground(colorBoard)
-	notePathStyle    = lipgloss.NewStyle().Foreground(colorMuted)
-	selectedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("4"))
-	cursorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
-	normalStyle      = lipgloss.NewStyle()
-	completedStyle   = lipgloss.NewStyle().Foreground(colorMuted).Strikethrough(true)
-	completedTagStyle = lipgloss.NewStyle().Foreground(colorMuted)
+	"wydo/internal/tui/theme"
 )
 
 // RenderItemLine renders a single AgendaItem as a styled line
@@ -171,11 +150,11 @@ func formatReasonDate(item agendapkg.AgendaItem) string {
 
 	var style lipgloss.Style
 	if daysUntil > 7 {
-		style = lipgloss.NewStyle().Foreground(colorSuccess)
+		style = lipgloss.NewStyle().Foreground(theme.Success)
 	} else if daysUntil > 0 {
-		style = lipgloss.NewStyle().Foreground(colorWarning)
+		style = lipgloss.NewStyle().Foreground(theme.Warning)
 	} else {
-		style = lipgloss.NewStyle().Foreground(colorDanger)
+		style = lipgloss.NewStyle().Foreground(theme.Danger)
 	}
 
 	label := fmt.Sprintf("%s %s", reason, relStr)

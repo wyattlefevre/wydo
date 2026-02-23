@@ -91,6 +91,24 @@ func (m ProjectsModel) IsTyping() bool {
 	return m.mode == modeSearch || m.mode == modeCreate || m.mode == modeRename
 }
 
+// HintText returns the raw hint string for the current projects mode.
+func (m ProjectsModel) HintText() string {
+	switch m.mode {
+	case modeSearch:
+		return "type to filter  enter:confirm  esc:cancel"
+	case modeSelectWorkspace:
+		return "j/k:navigate  enter:select  esc:cancel"
+	case modeSelectDir:
+		return "j/k:navigate  enter:select  esc:cancel"
+	case modeCreate:
+		return "enter:create  esc:cancel"
+	case modeRename:
+		return "enter:rename  esc:cancel"
+	default:
+		return "j/k:navigate  /:search  enter:open  n:new  r:rename  ?:help  q:quit"
+	}
+}
+
 func (m *ProjectsModel) buildEntries() {
 	m.entries = nil
 	for _, ws := range m.workspaces {
@@ -480,8 +498,6 @@ func (m ProjectsModel) viewRename() string {
 		lines = append(lines, "")
 	}
 
-	lines = append(lines, helpStyle.Render("enter: rename • esc: cancel"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -571,8 +587,6 @@ func (m ProjectsModel) viewList() string {
 		lines = append(lines, "")
 	}
 
-	lines = append(lines, helpStyle.Render("j/k: navigate • /: search • enter: open • n: new • r: rename • esc: back • q: quit"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -606,9 +620,6 @@ func (m ProjectsModel) viewSearch() string {
 		lines = append(lines, listItemStyle.Render("  No matches"))
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, helpStyle.Render("type to filter • enter: confirm • esc: cancel"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -627,9 +638,6 @@ func (m ProjectsModel) viewSelectWorkspace() string {
 		}
 		lines = append(lines, style.Render(prefix+abbreviatePath(ws.RootDir)))
 	}
-	lines = append(lines, "")
-	lines = append(lines, helpStyle.Render("j/k: navigate • enter: select • esc: cancel"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -648,9 +656,6 @@ func (m ProjectsModel) viewSelectDir() string {
 		}
 		lines = append(lines, style.Render(prefix+abbreviatePath(dir)))
 	}
-	lines = append(lines, "")
-	lines = append(lines, helpStyle.Render("j/k: navigate • enter: select • esc: cancel"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -666,8 +671,6 @@ func (m ProjectsModel) viewCreate() string {
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 		lines = append(lines, "")
 	}
-
-	lines = append(lines, helpStyle.Render("enter: create • esc: cancel"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)

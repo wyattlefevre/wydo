@@ -13,13 +13,7 @@ import (
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
-)
-
-var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	sectionStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	emptyStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
-	navHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	"wydo/internal/tui/theme"
 )
 
 // DayModel is the day agenda view
@@ -223,7 +217,7 @@ func (m DayModel) View() string {
 
 		// Completed section
 		if len(allCompleted) > 0 {
-			header := lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(fmt.Sprintf(" Completed (%d)", len(allCompleted)))
+			header := lipgloss.NewStyle().Foreground(theme.TextMuted).Bold(true).Render(fmt.Sprintf(" Completed (%d)", len(allCompleted)))
 			sb.WriteString(header)
 			sb.WriteString("\n")
 			for _, item := range allCompleted {
@@ -237,8 +231,5 @@ func (m DayModel) View() string {
 		}
 	}
 
-	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center,
-		navHintStyle.Render("[h] prev  [t] today  [l] next  [j/k] navigate  [enter] open"),
-	)
-	return shared.CenterWithBottomHints(sb.String(), hints, m.height)
+	return shared.CenterContent(sb.String(), m.height)
 }

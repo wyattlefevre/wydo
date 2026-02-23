@@ -9,15 +9,16 @@ import (
 	"wydo/internal/kanban/operations"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 )
 
 var (
-	editorTitleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	editorLabelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Width(12)
-	editorValueStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	editorHelpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	editorBoxStyle      = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("4")).Padding(1, 2)
-	editorModifiedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	editorTitleStyle    = theme.Title
+	editorLabelStyle    = lipgloss.NewStyle().Foreground(theme.Secondary).Width(12)
+	editorValueStyle    = lipgloss.NewStyle().Foreground(theme.Text)
+	editorHelpStyle     = theme.ModalHelp
+	editorBoxStyle      = theme.ModalBox
+	editorModifiedStyle = lipgloss.NewStyle().Foreground(theme.Warning)
 )
 
 // TaskEditorModel allows viewing and editing a task

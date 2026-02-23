@@ -6,24 +6,12 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	agendapkg "wydo/internal/agenda"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
-)
-
-var (
-	calDayHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("8")).Width(5).Align(lipgloss.Center)
-	calDayStyle        = lipgloss.NewStyle().Width(5).Align(lipgloss.Center)
-	calTodayStyle      = lipgloss.NewStyle().Width(5).Align(lipgloss.Center).Bold(true).Foreground(lipgloss.Color("2"))
-	calCursorStyle     = lipgloss.NewStyle().Width(5).Align(lipgloss.Center).Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("4"))
-	calHasItemsStyle   = lipgloss.NewStyle().Width(5).Align(lipgloss.Center).Foreground(lipgloss.Color("3"))
-	calEmptyStyle      = lipgloss.NewStyle().Width(5).Align(lipgloss.Center).Foreground(lipgloss.Color("8"))
-	calMonthTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	detailHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 )
 
 // MonthModel is the month agenda view with calendar grid
@@ -213,16 +201,7 @@ func (m MonthModel) View() string {
 	// Detail panel for selected day
 	sb.WriteString(m.renderDetailPanel())
 
-	var hintsText string
-	if m.inDetail {
-		hintsText = "[j/k] navigate  [enter] open  [esc] back"
-	} else {
-		hintsText = "[h/l] day  [j/k] week  [H/L] month  [t] today  [enter] detail"
-	}
-	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center,
-		navHintStyle.Render(hintsText),
-	)
-	return shared.CenterWithBottomHints(sb.String(), hints, m.height)
+	return shared.CenterContent(sb.String(), m.height)
 }
 
 func (m MonthModel) renderCalendar() string {
@@ -313,6 +292,14 @@ func (m MonthModel) renderDetailPanel() string {
 	}
 
 	return sb.String()
+}
+
+// HintText returns the raw hint string for the current month view mode.
+func (m MonthModel) HintText() string {
+	if m.inDetail {
+		return "j/k:navigate  enter:open  esc:back"
+	}
+	return "h/l:day  j/k:week  H/L:month  t:today  enter:detail"
 }
 
 func isSameDay(d1, d2 time.Time) bool {

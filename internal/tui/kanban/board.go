@@ -12,6 +12,7 @@ import (
 	"wydo/internal/kanban/operations"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -110,6 +111,23 @@ func (m *BoardModel) NavigateTo(colIndex, cardIndex int) {
 // IsModal returns true if the board is in a modal mode (picking tags, editing, etc.)
 func (m BoardModel) IsModal() bool {
 	return m.mode != boardModeNormal
+}
+
+// HintText returns the raw hint string for the current board mode.
+func (m BoardModel) HintText() string {
+	switch m.mode {
+	case boardModeMove:
+		return "h/l:move card  j/k:reorder  esc:cancel"
+	case boardModeConfirmDelete:
+		return "Delete this card? (y/n)"
+	case boardModeFilter:
+		return "type to filter  enter:lock filter  esc:cancel"
+	default:
+		if m.filterActive {
+			return "?:help  /:edit filter  esc:clear filter"
+		}
+		return "?:help  /:filter  m:move  esc:back"
+	}
 }
 
 func (m BoardModel) Init() tea.Cmd {
@@ -1067,22 +1085,6 @@ func (m BoardModel) View() string {
 		s.WriteString("\n")
 	}
 
-	// Mode-specific help
-	switch m.mode {
-	case boardModeMove:
-		s.WriteString(helpStyle.Render("h/l: move card • j/k: reorder • esc: cancel"))
-	case boardModeConfirmDelete:
-		s.WriteString(warningStyle.Render("Delete this card? (y/n)"))
-	case boardModeFilter:
-		s.WriteString(helpStyle.Render("type to filter • enter: lock filter • esc: cancel"))
-	default:
-		helpText := "?:help  /:filter  m:move  esc:back"
-		if m.filterActive {
-			helpText = "?:help  /:edit filter  esc:clear filter"
-		}
-		s.WriteString(helpStyle.Render(helpText))
-	}
-
 	return s.String()
 }
 
@@ -1206,9 +1208,8 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		pStyle := lipgloss.NewStyle().Bold(true).Foreground(priorityColor(card.Priority))
 		tStyle := cardTitleStyle
 		if isSelected {
-			bg := lipgloss.Color("236")
-			pStyle = pStyle.Background(bg)
-			tStyle = tStyle.Background(bg)
+			pStyle = pStyle.Background(theme.Surface)
+			tStyle = tStyle.Background(theme.Surface)
 		}
 		lines = append(lines, pStyle.Render(priorityPrefix)+tStyle.Render(title))
 	} else {
@@ -1234,8 +1235,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 			dateStr := fmt.Sprintf("done:%02d-%02d %s",
 				card.DateCompleted.Month(), card.DateCompleted.Day(),
 				strings.ToLower(card.DateCompleted.Weekday().String()[:3]))
-			dateStyle := lipgloss.NewStyle().Foreground(colorSuccess).Bold(true)
-			lines = append(lines, dateStyle.Render(dateStr))
+			lines = append(lines, theme.Ok.Render(dateStr))
 		}
 	} else {
 		// Not in done column: show due/scheduled dates
@@ -1294,20 +1294,19 @@ func formatDateWithDaysUntil(date *time.Time, prefix string, selected bool) stri
 
 	var offsetColor lipgloss.Color
 	if daysUntil > 7 {
-		offsetColor = colorSuccess
+		offsetColor = theme.Success
 	} else if daysUntil > 0 {
-		offsetColor = colorWarning
+		offsetColor = theme.Warning
 	} else {
-		offsetColor = colorDanger
+		offsetColor = theme.Danger
 	}
 
 	dateStyle := lipgloss.NewStyle().Bold(true)
 	offsetStyle := lipgloss.NewStyle().Foreground(offsetColor).Bold(true)
 
 	if selected {
-		bg := lipgloss.Color("236")
-		dateStyle = dateStyle.Background(bg)
-		offsetStyle = offsetStyle.Background(bg)
+		dateStyle = dateStyle.Background(theme.Surface)
+		offsetStyle = offsetStyle.Background(theme.Surface)
 	}
 
 	return dateStyle.Render(datePart) + offsetStyle.Render(offsetPart)
@@ -1535,7 +1534,7 @@ func (m *BoardModel) calculateVisibleColumns() (startCol, endCol int) {
 // renderScrollIndicator renders ◀ and ▶ indicators for horizontal scrolling
 func (m *BoardModel) renderScrollIndicator(symbol string, height int) string {
 	indicatorStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("11")).
+		Foreground(theme.Primary).
 		Bold(true)
 
 	indicator := indicatorStyle.Render(symbol)

@@ -63,6 +63,18 @@ func (m PickerModel) IsTyping() bool {
 	return m.mode == modeCreate
 }
 
+// HintText returns the raw hint string for the current picker mode.
+func (m PickerModel) HintText() string {
+	switch m.mode {
+	case modeSelectDir:
+		return "j/k:navigate  enter:select  esc:cancel"
+	case modeCreate:
+		return "enter:create  esc:cancel"
+	default:
+		return "j/k:navigate  enter:select  n:new board  ?:help  q:quit"
+	}
+}
+
 // SetBoards updates the boards list
 func (m *PickerModel) SetBoards(boards []models.Board) {
 	m.boards = boards
@@ -274,9 +286,6 @@ func (m PickerModel) viewList() string {
 		lines = append(lines, "")
 	}
 
-	// Help
-	lines = append(lines, helpStyle.Render("j/k: navigate • enter: select • n: new board • esc: back • q: quit"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -299,8 +308,6 @@ func (m PickerModel) viewSelectDir() string {
 	}
 	lines = append(lines, "")
 
-	lines = append(lines, helpStyle.Render("j/k: navigate • enter: select • esc: cancel"))
-
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
@@ -317,8 +324,6 @@ func (m PickerModel) viewCreate() string {
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 		lines = append(lines, "")
 	}
-
-	lines = append(lines, helpStyle.Render("enter: create • esc: cancel"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)

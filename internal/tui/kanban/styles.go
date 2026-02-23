@@ -1,6 +1,9 @@
 package kanban
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
+)
 
 const (
 	// Layout constants
@@ -11,192 +14,142 @@ const (
 )
 
 var (
-	// Colors - Using terminal's native ANSI palette (0-15)
-	colorPrimary   = lipgloss.Color("6") // Cyan
-	colorSecondary = lipgloss.Color("5") // Magenta
-	colorMuted     = lipgloss.Color("8") // Bright black (dark gray)
-	colorSuccess   = lipgloss.Color("2") // Green
-	colorDanger    = lipgloss.Color("1") // Red
-	colorWarning   = lipgloss.Color("3") // Yellow
-	colorAccent    = lipgloss.Color("4") // Blue
-
 	// Title styles
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorSecondary).
-			Padding(0, 1)
+	titleStyle = theme.Title.Padding(0, 1)
 
 	// Column styles
 	columnStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(colorMuted).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(theme.Border).
 			Padding(1, columnPaddingHorizontal).
 			Width(columnWidth)
 
 	columnTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPrimary).
+				Foreground(theme.Primary).
 				Align(lipgloss.Center)
 
 	selectedColumnTitleStyle = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(colorWarning).
+					Foreground(theme.Primary).
 					Align(lipgloss.Center)
 
 	selectedColumnStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorWarning).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(theme.BorderFocused).
 				Padding(1, columnPaddingHorizontal).
 				Width(columnWidth)
 
 	// Card styles
 	cardStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder(), false, false, false, true).
-			BorderForeground(colorMuted).
+			Border(lipgloss.RoundedBorder(), false, false, false, true).
+			BorderForeground(theme.Border).
 			Padding(0, cardPaddingHorizontal).
 			MarginBottom(1)
 
 	selectedCardStyle = lipgloss.NewStyle().
-				Border(lipgloss.ThickBorder(), false, false, false, true).
-				BorderForeground(colorWarning).
-				Background(lipgloss.Color("236")).
+				Border(lipgloss.RoundedBorder(), false, false, false, true).
+				BorderForeground(theme.BorderFocused).
+				Background(theme.Surface).
 				Padding(0, cardPaddingHorizontal).
 				MarginBottom(1).
 				Bold(true)
 
 	cardTitleStyle = lipgloss.NewStyle().
-			Foreground(colorPrimary).
+			Foreground(theme.Primary).
 			Bold(true)
 
 	cardTagStyle = lipgloss.NewStyle().
-			Foreground(colorSecondary).
+			Foreground(theme.Accent).
 			Italic(true)
 
 	cardProjectStyle = lipgloss.NewStyle().
-				Foreground(colorAccent).
+				Foreground(theme.Secondary).
 				Italic(true)
 
 	cardPreviewStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("8")) // Bright black (dim text)
+				Foreground(theme.TextMuted)
 
 	// Help styles
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("8")).
-			Padding(1, 2)
+	helpStyle = theme.Muted.Padding(1, 2)
 
 	// List styles
 	listItemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("7")).
+			Foreground(theme.Text).
 			Padding(0, 2)
 
 	selectedListItemStyle = lipgloss.NewStyle().
-				Foreground(colorWarning).
+				Foreground(theme.Warning).
 				Bold(true).
 				Padding(0, 2)
 
 	// Message styles
-	errorStyle = lipgloss.NewStyle().
-			Foreground(colorDanger).
-			Bold(true)
-
-	warningStyle = lipgloss.NewStyle().
-			Foreground(colorWarning).
-			Bold(true)
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(colorSuccess).
-			Bold(true)
+	errorStyle   = theme.Error
+	warningStyle = theme.Warn
+	successStyle = theme.Ok
 
 	// Tag picker styles
-	tagPickerBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorSecondary).
-				Padding(1, 2).
-				Width(50)
+	tagPickerBoxStyle = theme.ModalBox.Width(50)
 
-	tagPickerTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorWarning)
+	tagPickerTitleStyle = theme.ModalTitle
 
 	tagItemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("7"))
+			Foreground(theme.Text)
 
 	tagItemSelectedStyle = lipgloss.NewStyle().
-				Foreground(colorSecondary).
+				Foreground(theme.Secondary).
 				Bold(true)
 
 	tagItemHighlightStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("0")).
-				Foreground(colorWarning)
+				Foreground(theme.Warning)
 
 	tagCreateNewStyle = lipgloss.NewStyle().
-				Foreground(colorSuccess).
+				Foreground(theme.Success).
 				Italic(true)
 
 	// Scroll indicator style
 	scrollIndicatorStyle = lipgloss.NewStyle().
-				Foreground(colorAccent).
+				Foreground(theme.Primary).
 				Italic(true).
 				Align(lipgloss.Center)
 
 	// Path style for dimmed directory display
-	pathStyle = lipgloss.NewStyle().
-			Foreground(colorMuted)
+	pathStyle = theme.Muted
 
 	// Column editor styles
-	columnEditorBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorPrimary).
-				Padding(1, 2).
-				Width(60)
+	columnEditorBoxStyle = theme.ModalBox.Width(60)
 
-	columnEditorTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorWarning).
-				Align(lipgloss.Center)
+	columnEditorTitleStyle = theme.ModalTitle.Align(lipgloss.Center)
 
 	columnEditorPromptStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(colorPrimary)
+				Foreground(theme.Primary)
 
 	columnEditorItemStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("7"))
+				Foreground(theme.Text)
 
 	columnEditorItemHighlightStyle = lipgloss.NewStyle().
-					Background(lipgloss.Color("236")).
-					Foreground(colorWarning).
+					Background(theme.Surface).
+					Foreground(theme.Warning).
 					Bold(true)
 
 	columnEditorItemImmutableStyle = lipgloss.NewStyle().
-					Foreground(colorMuted).
+					Foreground(theme.TextMuted).
 					Italic(true)
 
 	// URL input modal styles
-	urlInputBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorPrimary).
-				Padding(1, 2).
-				Width(60)
+	urlInputBoxStyle = theme.ModalBox.Width(60)
 
-	urlInputTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorWarning).
-				Align(lipgloss.Center)
+	urlInputTitleStyle = theme.ModalTitle.Align(lipgloss.Center)
 
 	// Priority input modal styles
-	priorityInputBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(colorPrimary).
-				Padding(1, 2).
-				Width(60)
+	priorityInputBoxStyle = theme.ModalBox.Width(60)
 
-	priorityInputTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorWarning).
-				Align(lipgloss.Center)
+	priorityInputTitleStyle = theme.ModalTitle.Align(lipgloss.Center)
 
 	// Filter indicator style
 	filterIndicatorStyle = lipgloss.NewStyle().
-				Foreground(colorWarning).
+				Foreground(theme.Warning).
 				Bold(true)
 )

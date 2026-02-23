@@ -71,6 +71,11 @@ func (m DetailModel) IsModal() bool {
 	return false
 }
 
+// HintText returns the raw hint string for the detail view.
+func (m DetailModel) HintText() string {
+	return "j/k:navigate  tab/1-4:sections  enter:open  esc:back  ?:help"
+}
+
 func (m DetailModel) sectionLen() int {
 	switch m.section {
 	case sectionNotes:
@@ -177,9 +182,6 @@ func (m DetailModel) View() string {
 	case sectionBoards:
 		lines = append(lines, m.renderBoards(maxItems)...)
 	}
-
-	lines = append(lines, "")
-	lines = append(lines, helpStyle.Render("j/k: navigate • tab/1/2/3/4: switch section • enter: open • esc/q: back"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)

@@ -1,45 +1,39 @@
 package shared
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
+)
 
 var (
-	DatePickerBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(lipgloss.Color("5")).
-				Padding(1, 2).
-				Width(50)
+	DatePickerBoxStyle = theme.ModalBox.Width(50)
 
-	DatePickerTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("3")).
-				Align(lipgloss.Center)
+	DatePickerTitleStyle = theme.ModalTitle.Align(lipgloss.Center)
 
 	DatePickerMonthStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("5")).
+				Foreground(theme.Accent).
 				Align(lipgloss.Center)
 
 	DatePickerDayHeaderStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("8")).
+					Foreground(theme.TextMuted).
 					Bold(true)
 
 	DatePickerDayStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("7"))
+				Foreground(theme.Text)
 
 	DatePickerTodayStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("4")).
+				Foreground(theme.Primary).
 				Bold(true)
 
 	DatePickerCursorStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("3")).
+				Background(theme.Warning).
 				Foreground(lipgloss.Color("0")).
 				Bold(true)
 
 	DatePickerExamplesStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("8")).
+				Foreground(theme.TextMuted).
 				Italic(true)
 
-	DatePickerHelpStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("8")).
-				Padding(0, 0)
+	DatePickerHelpStyle = theme.ModalHelp
 )

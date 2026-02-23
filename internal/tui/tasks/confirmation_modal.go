@@ -2,17 +2,14 @@ package tasks
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
 )
 
 var (
-	confirmModalBoxStyle = lipgloss.NewStyle().
-				BorderStyle(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("4")).
-				Padding(1, 2)
-	confirmTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	confirmYesStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true)
-	confirmNoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	confirmModalBoxStyle = theme.ModalBox
+	confirmTitleStyle     = theme.Title
+	confirmYesStyle       = theme.Ok
+	confirmNoStyle        = theme.Error
 )
 
 // ConfirmationModal displays a simple yes/no confirmation dialog

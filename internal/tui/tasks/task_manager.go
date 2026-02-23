@@ -14,11 +14,12 @@ import (
 	"wydo/internal/tasks/data"
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 )
 
 var (
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")).MarginTop(1)
-	cursorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent).MarginTop(1)
+	cursorStyle      = theme.Cursor
 )
 
 // FileViewMode determines which file(s) to display tasks from
@@ -337,32 +338,14 @@ func (m TaskManagerModel) View() string {
 		b.WriteString(m.renderFlatTasks())
 	}
 
-	// Compute hints for bottom
-	var hintsText string
-	if m.searchActive {
-		if m.searchFilterMode {
-			hintsText = "[enter] done  [esc] clear"
-		} else {
-			if m.filterState.SearchQuery != "" {
-				hintsText = "[/] filter  [j/k] navigate  [enter] done  [esc] clear"
-			} else {
-				hintsText = "[/] filter  [j/k] navigate  [enter] done  [esc] cancel"
-			}
-		}
-		hintsText = hintStyle.Render(hintsText)
-	} else {
-		hintsText = m.infoBar.RenderHints()
-	}
-	hints := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, hintsText)
-
-	return shared.CenterWithBottomHints(b.String(), hints, m.height)
+	return shared.CenterContent(b.String(), m.height)
 }
 
 func (m *TaskManagerModel) renderFlatTasks() string {
 	var b strings.Builder
 
 	if len(m.displayTasks) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("No tasks found."))
+		b.WriteString(theme.Muted.Render("No tasks found."))
 		return b.String()
 	}
 
@@ -1179,6 +1162,20 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 	return m, func() tea.Msg {
 		return ArchiveRequestMsg{Count: count}
 	}
+}
+
+// HintText returns the raw hint string for the current task manager mode.
+func (m *TaskManagerModel) HintText() string {
+	if m.searchActive {
+		if m.searchFilterMode {
+			return "enter:done  esc:clear"
+		}
+		if m.filterState.SearchQuery != "" {
+			return "/:filter  j/k:navigate  enter:done  esc:clear"
+		}
+		return "/:filter  j/k:navigate  enter:done  esc:cancel"
+	}
+	return m.infoBar.RenderHintsRaw()
 }
 
 // IsInModalState returns true if the task manager is in a mode that should

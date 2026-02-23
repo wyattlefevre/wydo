@@ -1,71 +1,51 @@
 package projects
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
+)
 
 var (
-	// Colors - Using terminal's native ANSI palette (0-15)
-	colorPrimary = lipgloss.Color("4") // Blue
-	colorMuted   = lipgloss.Color("8") // Bright black (dark gray)
-	colorWarning = lipgloss.Color("3") // Yellow / selected
-	colorAccent  = lipgloss.Color("6") // Cyan
-	colorSuccess = lipgloss.Color("2") // Green
-	colorDanger  = lipgloss.Color("1") // Red
-
 	// Title
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorPrimary).
-			Padding(0, 1)
+	titleStyle = theme.Title.Padding(0, 1)
 
 	// List items
 	listItemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("7")).
+			Foreground(theme.Text).
 			Padding(0, 2)
 
 	selectedListItemStyle = lipgloss.NewStyle().
-				Foreground(colorWarning).
+				Foreground(theme.Warning).
 				Bold(true).
 				Padding(0, 2)
 
 	// Muted / path
-	pathStyle = lipgloss.NewStyle().
-			Foreground(colorMuted)
+	pathStyle = theme.Muted
 
 	virtualBadgeStyle = lipgloss.NewStyle().
-				Foreground(colorMuted).
+				Foreground(theme.TextMuted).
 				Italic(true)
 
-	// Help
-	helpStyle = lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Padding(1, 2)
-
 	// Error
-	errorStyle = lipgloss.NewStyle().
-			Foreground(colorDanger).
-			Bold(true)
+	errorStyle = theme.Error
 
 	// Section header for detail view
-	sectionHeaderStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorAccent)
+	sectionHeaderStyle = theme.Subtitle
 
-	sectionActiveStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(colorWarning)
+	sectionActiveStyle = theme.Selected
 
 	// Detail item
 	detailItemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("7")).
+			Foreground(theme.Text).
 			Padding(0, 2)
 
 	selectedDetailItemStyle = lipgloss.NewStyle().
-				Foreground(colorWarning).
+				Foreground(theme.Warning).
 				Bold(true).
 				Padding(0, 2)
 
 	// Search
 	searchLabelStyle = lipgloss.NewStyle().
-				Foreground(colorAccent).
+				Foreground(theme.Secondary).
 				Bold(true)
 )

@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
 )
 
 type PriorityInputModel struct {
@@ -86,12 +87,12 @@ func (m PriorityInputModel) GetPriority() int {
 func priorityColor(priority int) lipgloss.Color {
 	switch priority {
 	case 1:
-		return lipgloss.Color("5") // magenta/purple
+		return theme.Accent  // magenta
 	case 2:
-		return lipgloss.Color("1") // red
+		return theme.Danger  // red
 	case 3:
 		return lipgloss.Color("208") // orange (256-color)
 	default:
-		return lipgloss.Color("3") // yellow
+		return theme.Warning // yellow
 	}
 }

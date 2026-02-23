@@ -4,14 +4,15 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"wydo/internal/tui/theme"
 )
 
 var (
-	modeStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	hintStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	filterStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	searchStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	infoBarStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(lipgloss.Color("8"))
+	modeStyle    = theme.NavActive
+	hintStyle    = theme.HelpHint
+	filterStyle  = lipgloss.NewStyle().Foreground(theme.Warning)
+	searchStyle  = lipgloss.NewStyle().Foreground(theme.Success)
+	infoBarStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderBottom(true).BorderForeground(theme.Border)
 )
 
 // InfoBarModel displays mode, keybinds, and active filters
@@ -66,12 +67,13 @@ func (m *InfoBarModel) renderModeLine() string {
 
 // RenderHints returns the styled keybind hints for the current mode.
 func (m *InfoBarModel) RenderHints() string {
-	return m.getHintsForMode()
+	return hintStyle.Render(m.RenderHintsRaw())
 }
 
-func (m *InfoBarModel) getHintsForMode() string {
+// RenderHintsRaw returns the raw (unstyled) keybind hints for the current mode.
+func (m *InfoBarModel) RenderHintsRaw() string {
 	if m.InputContext == nil {
-		return hintStyle.Render("?:help  /:search  enter:details  space:done")
+		return "?:help  /:search  enter:details  space:done"
 	}
 
 	switch m.InputContext.Mode {
@@ -80,47 +82,47 @@ func (m *InfoBarModel) getHintsForMode() string {
 		if m.MultiWorkspace {
 			hint = "?:help  /:search  enter:details  space:done  W:workspace"
 		}
-		return hintStyle.Render(hint)
+		return hint
 
 	case ModeFilterSelect:
 		hint := "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back"
 		if m.MultiWorkspace {
 			hint = "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  w:workspace  esc:back"
 		}
-		return hintStyle.Render(hint)
+		return hint
 
 	case ModeSortSelect:
-		return hintStyle.Render("d:date  p:project  P:priority  t:context  esc:back")
+		return "d:date  p:project  P:priority  t:context  esc:back"
 
 	case ModeGroupSelect:
-		return hintStyle.Render("d:date  p:project  P:priority  t:context  f:file  esc:back")
+		return "d:date  p:project  P:priority  t:context  f:file  esc:back"
 
 	case ModeSortDirection, ModeGroupDirection:
-		return hintStyle.Render("a:ascending  d:descending  esc:back")
+		return "a:ascending  d:descending  esc:back"
 
 	case ModeSearch:
-		return hintStyle.Render("type to filter  j/k:navigate  enter:confirm  esc:clear")
+		return "type to filter  j/k:navigate  enter:confirm  esc:clear"
 
 	case ModeDateInput:
-		return hintStyle.Render("format: yyyy-MM-dd  enter:apply  esc:cancel")
+		return "format: yyyy-MM-dd  enter:apply  esc:cancel"
 
 	case ModeFuzzyPicker:
-		return hintStyle.Render("j/k:navigate  enter:select  esc:cancel")
+		return "j/k:navigate  enter:select  esc:cancel"
 
 	case ModeTaskEditor:
-		return hintStyle.Render("d:due  s:sched  p:project  t:context  i:priority  enter:save  esc:cancel")
+		return "d:due  s:sched  p:project  t:context  i:priority  enter:save  esc:cancel"
 
 	case ModeEditDueDate:
-		return hintStyle.Render("format: yyyy-MM-dd  enter:save  esc:cancel")
+		return "format: yyyy-MM-dd  enter:save  esc:cancel"
 
 	case ModeEditProject, ModeEditContext:
-		return hintStyle.Render("j/k:navigate  enter:select  space:toggle  esc:cancel")
+		return "j/k:navigate  enter:select  space:toggle  esc:cancel"
 
 	case ModeConfirmation:
-		return hintStyle.Render("y/enter:yes  n/esc:no")
+		return "y/enter:yes  n/esc:no"
 
 	case ModeBoardPicker:
-		return hintStyle.Render("j/k:navigate  enter:select  esc:cancel")
+		return "j/k:navigate  enter:select  esc:cancel"
 	}
 
 	return ""
@@ -149,7 +151,7 @@ func (m *InfoBarModel) renderFiltersLine() string {
 			viewMode = "View: done.txt"
 		}
 		parts = append(parts, lipgloss.NewStyle().
-			Foreground(lipgloss.Color("6")).
+			Foreground(theme.Secondary).
 			Render(viewMode))
 	}
 
