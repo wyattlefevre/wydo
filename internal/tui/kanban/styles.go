@@ -31,7 +31,9 @@ var (
 
 	selectedColumnTitleStyle = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(theme.Primary).
+					Foreground(theme.Warning).
+					Background(theme.Surface).
+					Underline(true).
 					Align(lipgloss.Center)
 
 	selectedColumnStyle = lipgloss.NewStyle().

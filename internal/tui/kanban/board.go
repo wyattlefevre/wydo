@@ -126,7 +126,7 @@ func (m BoardModel) HintText() string {
 		if m.filterActive {
 			return "?:help  /:edit filter  esc:clear filter"
 		}
-		return "?:help  /:filter  m:move  esc:back"
+		return "?:help  /:filter  space/m:move  esc:back"
 	}
 }
 
@@ -344,7 +344,7 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "q":
+	case "esc", "q", " ":
 		m.mode = boardModeNormal
 		return m, nil
 
@@ -363,10 +363,8 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				}
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
-				m.message = "Card moved"
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
 			}
-			m.mode = boardModeNormal
 		}
 
 	case "l", "right":
@@ -384,10 +382,8 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				}
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
-				m.message = "Card moved"
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
 			}
-			m.mode = boardModeNormal
 		}
 
 	case "j", "down":
