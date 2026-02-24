@@ -89,9 +89,9 @@ func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 	return buckets
 }
 
-// QueryOverdueItems returns tasks and cards with due dates strictly before the cutoff date.
-// Only due dates count as overdue (not scheduled dates). Notes are excluded.
-// Results are sorted by date ascending (oldest first).
+// QueryOverdueItems returns tasks and cards with due or scheduled dates strictly before the cutoff date.
+// Notes are excluded. If a task/card has both an overdue due date and an overdue scheduled date,
+// it appears once using the due date. Results are sorted by date ascending (oldest first).
 func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board, cutoff time.Time) []AgendaItem {
 	cutoffDay := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.Local)
 	var items []AgendaItem
@@ -101,6 +101,7 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 		if tasks, err := taskSvc.ListPending(); err == nil {
 			for i := range tasks {
 				task := &tasks[i]
+				added := false
 				if dueStr := task.GetDueDate(); dueStr != "" {
 					if dueDate, err := time.Parse("2006-01-02", dueStr); err == nil {
 						d := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), 0, 0, 0, 0, time.Local)
@@ -111,6 +112,22 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 								Date:   dueDate,
 								Task:   task,
 							})
+							added = true
+						}
+					}
+				}
+				if !added {
+					if schedStr := task.GetScheduledDate(); schedStr != "" {
+						if schedDate, err := time.Parse("2006-01-02", schedStr); err == nil {
+							d := time.Date(schedDate.Year(), schedDate.Month(), schedDate.Day(), 0, 0, 0, 0, time.Local)
+							if d.Before(cutoffDay) {
+								items = append(items, AgendaItem{
+									Source: SourceTask,
+									Reason: ReasonScheduled,
+									Date:   schedDate,
+									Task:   task,
+								})
+							}
 						}
 					}
 				}
@@ -126,6 +143,7 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 			}
 			for cardIdx := range col.Cards {
 				card := &col.Cards[cardIdx]
+				added := false
 				if card.DueDate != nil {
 					dueDate := *card.DueDate
 					d := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), 0, 0, 0, 0, time.Local)
@@ -134,6 +152,24 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 							Source:     SourceCard,
 							Reason:     ReasonDue,
 							Date:       dueDate,
+							Card:       card,
+							BoardName:  board.Name,
+							BoardPath:  board.Path,
+							ColumnName: col.Name,
+							ColIndex:   colIdx,
+							CardIndex:  cardIdx,
+						})
+						added = true
+					}
+				}
+				if !added && card.ScheduledDate != nil {
+					schedDate := *card.ScheduledDate
+					d := time.Date(schedDate.Year(), schedDate.Month(), schedDate.Day(), 0, 0, 0, 0, time.Local)
+					if d.Before(cutoffDay) {
+						items = append(items, AgendaItem{
+							Source:     SourceCard,
+							Reason:     ReasonScheduled,
+							Date:       schedDate,
 							Card:       card,
 							BoardName:  board.Name,
 							BoardPath:  board.Path,

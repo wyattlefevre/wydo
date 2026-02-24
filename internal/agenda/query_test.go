@@ -288,22 +288,59 @@ func TestQueryOverdueItems_BasicTask(t *testing.T) {
 	}
 }
 
-func TestQueryOverdueItems_ScheduledDateExcluded(t *testing.T) {
+func TestQueryOverdueItems_ScheduledDateIncluded(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
 			{ID: "t1", Name: "Scheduled only", Tags: map[string]string{"scheduled": "2026-02-01"}},
-			{ID: "t2", Name: "Due and scheduled", Tags: map[string]string{"due": "2026-02-01", "scheduled": "2026-02-01"}},
 		},
 	}
 
 	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
 
-	// Only the task with a due date should appear (not scheduled-only)
 	if len(items) != 1 {
 		t.Fatalf("expected 1 overdue item, got %d", len(items))
 	}
-	if items[0].Task.Name != "Due and scheduled" {
-		t.Errorf("expected 'Due and scheduled', got '%s'", items[0].Task.Name)
+	if items[0].Task.Name != "Scheduled only" {
+		t.Errorf("expected 'Scheduled only', got '%s'", items[0].Task.Name)
+	}
+	if items[0].Reason != ReasonScheduled {
+		t.Errorf("expected ReasonScheduled, got %v", items[0].Reason)
+	}
+}
+
+func TestQueryOverdueItems_BothOverdueDeduped(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Both overdue", Tags: map[string]string{"due": "2026-02-01", "scheduled": "2026-02-02"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	// Should appear once, using due date
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Reason != ReasonDue {
+		t.Errorf("expected ReasonDue (preferred over scheduled), got %v", items[0].Reason)
+	}
+}
+
+func TestQueryOverdueItems_ScheduledOverdueDueNotOverdue(t *testing.T) {
+	svc := &mockTaskService{
+		tasks: []data.Task{
+			{ID: "t1", Name: "Sched past due future", Tags: map[string]string{"due": "2026-02-10", "scheduled": "2026-02-01"}},
+		},
+	}
+
+	items := QueryOverdueItems(svc, nil, date(2026, 2, 6))
+
+	// Due date is in the future, but scheduled is overdue — should appear as scheduled
+	if len(items) != 1 {
+		t.Fatalf("expected 1 overdue item, got %d", len(items))
+	}
+	if items[0].Reason != ReasonScheduled {
+		t.Errorf("expected ReasonScheduled, got %v", items[0].Reason)
 	}
 }
 
