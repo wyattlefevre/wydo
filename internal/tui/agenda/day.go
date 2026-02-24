@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sahilm/fuzzy"
 	agendapkg "wydo/internal/agenda"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
@@ -24,19 +26,32 @@ type DayModel struct {
 	taskSvc      service.TaskService
 	boards       []kanbanmodels.Board
 	notes        []notes.Note
-	items        []agendapkg.AgendaItem // flattened items for cursor navigation
+	allItems     []agendapkg.AgendaItem // all flattened items before filtering
+	items        []agendapkg.AgendaItem // flattened items for cursor navigation (after filter)
 	cursor       int
 	width        int
 	height       int
+
+	// Search state
+	searchActive     bool
+	searchFilterMode bool
+	searchInput      textinput.Model
+	searchQuery      string
 }
 
 // NewDayModel creates a new day agenda view
 func NewDayModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) DayModel {
+	si := textinput.New()
+	si.Placeholder = "Search..."
+	si.CharLimit = 100
+	si.Width = 40
+
 	m := DayModel{
-		date:    time.Now(),
-		taskSvc: taskSvc,
-		boards:  boards,
-		notes:   allNotes,
+		date:        time.Now(),
+		taskSvc:     taskSvc,
+		boards:      boards,
+		notes:       allNotes,
+		searchInput: si,
 	}
 	m.refreshData()
 	return m
@@ -47,20 +62,55 @@ func (m *DayModel) refreshData() {
 	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
 	m.overdueItems = agendapkg.QueryOverdueItems(m.taskSvc, m.boards, dateRange.Start)
 
-	// Flatten items for cursor navigation: overdue first, then regular, then completed
-	m.items = nil
-	m.items = append(m.items, m.overdueItems...)
+	// Flatten all items: overdue first, then regular, then completed
+	m.allItems = nil
+	m.allItems = append(m.allItems, m.overdueItems...)
 	for _, bucket := range m.buckets {
-		m.items = append(m.items, bucket.AllItems()...)
+		m.allItems = append(m.allItems, bucket.AllItems()...)
 	}
 	for _, bucket := range m.buckets {
-		m.items = append(m.items, bucket.AllCompletedItems()...)
+		m.allItems = append(m.allItems, bucket.AllCompletedItems()...)
+	}
+
+	// Apply search filter
+	m.applySearchFilter()
+}
+
+func (m *DayModel) applySearchFilter() {
+	if m.searchQuery == "" {
+		m.items = m.allItems
+	} else {
+		names := make([]string, len(m.allItems))
+		for i, item := range m.allItems {
+			names[i] = AgendaSearchString(item)
+		}
+		matches := fuzzy.Find(m.searchQuery, names)
+		m.items = make([]agendapkg.AgendaItem, len(matches))
+		for i, match := range matches {
+			m.items[i] = m.allItems[match.Index]
+		}
 	}
 
 	// Clamp cursor
 	if m.cursor >= len(m.items) {
 		m.cursor = max(0, len(m.items)-1)
 	}
+}
+
+// IsSearching returns true when in search mode
+func (m DayModel) IsSearching() bool {
+	return m.searchActive
+}
+
+// HintText returns hint text for the current state
+func (m DayModel) HintText() string {
+	if m.searchActive {
+		if m.searchFilterMode {
+			return "type to filter  enter:confirm  esc:exit"
+		}
+		return "/:edit filter  j/k:navigate  enter:open  esc:exit"
+	}
+	return ""
 }
 
 // SetSize updates the view dimensions
@@ -86,7 +136,16 @@ func (m DayModel) Init() tea.Cmd {
 func (m DayModel) Update(msg tea.Msg) (DayModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.searchActive {
+			return m.handleSearchMode(msg)
+		}
+
 		switch msg.String() {
+		case "/":
+			m.searchActive = true
+			m.searchFilterMode = true
+			m.searchInput.SetValue(m.searchQuery)
+			return m, m.searchInput.Focus()
 		case "h", "left":
 			m.date = m.date.AddDate(0, 0, -1)
 			m.refreshData()
@@ -105,26 +164,84 @@ func (m DayModel) Update(msg tea.Msg) (DayModel, tea.Cmd) {
 				m.cursor--
 			}
 		case "enter":
-			if m.cursor < len(m.items) {
-				item := m.items[m.cursor]
-				switch item.Source {
-				case agendapkg.SourceTask:
-					if item.Task != nil {
-						return m, func() tea.Msg {
-							return messages.FocusTaskMsg{TaskID: item.Task.ID}
-						}
-					}
-				case agendapkg.SourceCard:
-					return m, func() tea.Msg {
-						return messages.OpenBoardMsg{
-							BoardPath: item.BoardPath,
-							ColIndex:  item.ColIndex,
-							CardIndex: item.CardIndex,
-						}
-					}
+			return m.openSelectedItem()
+		}
+	}
+
+	return m, nil
+}
+
+func (m DayModel) openSelectedItem() (DayModel, tea.Cmd) {
+	if m.cursor < len(m.items) {
+		item := m.items[m.cursor]
+		switch item.Source {
+		case agendapkg.SourceTask:
+			if item.Task != nil {
+				return m, func() tea.Msg {
+					return messages.FocusTaskMsg{TaskID: item.Task.ID}
+				}
+			}
+		case agendapkg.SourceCard:
+			return m, func() tea.Msg {
+				return messages.OpenBoardMsg{
+					BoardPath: item.BoardPath,
+					ColIndex:  item.ColIndex,
+					CardIndex: item.CardIndex,
 				}
 			}
 		}
+	}
+	return m, nil
+}
+
+func (m DayModel) handleSearchMode(msg tea.KeyMsg) (DayModel, tea.Cmd) {
+	if m.searchFilterMode {
+		switch msg.String() {
+		case "enter":
+			m.searchFilterMode = false
+			m.searchInput.Blur()
+			return m, nil
+		case "esc":
+			m.searchInput.SetValue("")
+			m.searchQuery = ""
+			m.searchActive = false
+			m.searchFilterMode = false
+			m.searchInput.Blur()
+			m.applySearchFilter()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			m.searchQuery = m.searchInput.Value()
+			m.applySearchFilter()
+			return m, cmd
+		}
+	}
+
+	// Navigation mode
+	switch msg.String() {
+	case "/":
+		m.searchFilterMode = true
+		return m, m.searchInput.Focus()
+	case "enter":
+		return m.openSelectedItem()
+	case "esc":
+		m.searchInput.SetValue("")
+		m.searchQuery = ""
+		m.searchActive = false
+		m.searchFilterMode = false
+		m.applySearchFilter()
+		return m, nil
+	case "j", "down":
+		if m.cursor < len(m.items)-1 {
+			m.cursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -138,11 +255,36 @@ func (m DayModel) View() string {
 	dateStr := m.date.Format("Monday, Jan 2 2006")
 	title := titleStyle.Render(fmt.Sprintf(" Agenda: %s", dateStr))
 	sb.WriteString(title)
-	sb.WriteString("\n\n")
+	sb.WriteString("\n")
+
+	if m.searchActive {
+		if m.searchFilterMode {
+			sb.WriteString("  " + m.searchInput.View())
+		} else if m.searchQuery != "" {
+			sb.WriteString("  " + searchLabelStyle.Render("Filter: ") + m.searchQuery)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
 
 	if len(m.items) == 0 {
-		sb.WriteString(emptyStyle.Render("  No items scheduled for this day."))
+		if m.searchQuery != "" {
+			sb.WriteString(emptyStyle.Render("  No matching items."))
+		} else {
+			sb.WriteString(emptyStyle.Render("  No items scheduled for this day."))
+		}
 		sb.WriteString("\n")
+	} else if m.searchQuery != "" {
+		// Filtered flat list — render items directly from m.items
+		sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Results (%d)", len(m.items))))
+		sb.WriteString("\n")
+		for i, item := range m.items {
+			selected := i == m.cursor
+			line := RenderItemLine(item, selected, m.width-4)
+			sb.WriteString("   ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
 	} else {
 		// Separate tasks, cards, notes, and completed items from buckets
 		var allTasks, allCards, allNotes, allCompleted []agendapkg.AgendaItem

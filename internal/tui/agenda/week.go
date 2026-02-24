@@ -5,7 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sahilm/fuzzy"
 	agendapkg "wydo/internal/agenda"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
@@ -19,23 +21,35 @@ type WeekModel struct {
 	date         time.Time // any date in the week being viewed
 	buckets      []agendapkg.DateBucket
 	overdueItems []agendapkg.AgendaItem
-	allItems     []agendapkg.AgendaItem // flattened items across all days
-	dayOffsets   []int                   // index into allItems where each day starts
+	unfilteredItems []agendapkg.AgendaItem // all flattened items before filtering
+	allItems     []agendapkg.AgendaItem    // flattened items across all days (after filter)
 	taskSvc      service.TaskService
 	boards       []kanbanmodels.Board
 	notes        []notes.Note
 	cursor       int
 	width        int
 	height       int
+
+	// Search state
+	searchActive     bool
+	searchFilterMode bool
+	searchInput      textinput.Model
+	searchQuery      string
 }
 
 // NewWeekModel creates a new week agenda view
 func NewWeekModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) WeekModel {
+	si := textinput.New()
+	si.Placeholder = "Search..."
+	si.CharLimit = 100
+	si.Width = 40
+
 	m := WeekModel{
-		date:    time.Now(),
-		taskSvc: taskSvc,
-		boards:  boards,
-		notes:   allNotes,
+		date:        time.Now(),
+		taskSvc:     taskSvc,
+		boards:      boards,
+		notes:       allNotes,
+		searchInput: si,
 	}
 	m.refreshData()
 	return m
@@ -55,19 +69,34 @@ func (m *WeekModel) refreshData() {
 	}
 
 	// Build flattened item list: overdue first, then day offsets for the 7 days
-	m.allItems = nil
-	m.allItems = append(m.allItems, m.overdueItems...)
+	m.unfilteredItems = nil
+	m.unfilteredItems = append(m.unfilteredItems, m.overdueItems...)
 
-	m.dayOffsets = make([]int, 7)
 	start := agendapkg.WeekRange(m.date).Start
-
 	for d := 0; d < 7; d++ {
 		day := start.AddDate(0, 0, d)
 		key := day.Format("2006-01-02")
-		m.dayOffsets[d] = len(m.allItems)
 		if bucket, ok := bucketMap[key]; ok {
-			m.allItems = append(m.allItems, bucket.AllItems()...)
-			m.allItems = append(m.allItems, bucket.AllCompletedItems()...)
+			m.unfilteredItems = append(m.unfilteredItems, bucket.AllItems()...)
+			m.unfilteredItems = append(m.unfilteredItems, bucket.AllCompletedItems()...)
+		}
+	}
+
+	m.applySearchFilter()
+}
+
+func (m *WeekModel) applySearchFilter() {
+	if m.searchQuery == "" {
+		m.allItems = m.unfilteredItems
+	} else {
+		names := make([]string, len(m.unfilteredItems))
+		for i, item := range m.unfilteredItems {
+			names[i] = AgendaSearchString(item)
+		}
+		matches := fuzzy.Find(m.searchQuery, names)
+		m.allItems = make([]agendapkg.AgendaItem, len(matches))
+		for i, match := range matches {
+			m.allItems[i] = m.unfilteredItems[match.Index]
 		}
 	}
 
@@ -75,6 +104,22 @@ func (m *WeekModel) refreshData() {
 	if m.cursor >= len(m.allItems) {
 		m.cursor = max(0, len(m.allItems)-1)
 	}
+}
+
+// IsSearching returns true when in search mode
+func (m WeekModel) IsSearching() bool {
+	return m.searchActive
+}
+
+// HintText returns hint text for the current state
+func (m WeekModel) HintText() string {
+	if m.searchActive {
+		if m.searchFilterMode {
+			return "type to filter  enter:confirm  esc:exit"
+		}
+		return "/:edit filter  j/k:navigate  enter:open  esc:exit"
+	}
+	return ""
 }
 
 // SetSize updates the view dimensions
@@ -95,7 +140,16 @@ func (m *WeekModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.B
 func (m WeekModel) Update(msg tea.Msg) (WeekModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.searchActive {
+			return m.handleSearchMode(msg)
+		}
+
 		switch msg.String() {
+		case "/":
+			m.searchActive = true
+			m.searchFilterMode = true
+			m.searchInput.SetValue(m.searchQuery)
+			return m, m.searchInput.Focus()
 		case "h", "left":
 			m.date = m.date.AddDate(0, 0, -7)
 			m.refreshData()
@@ -114,26 +168,84 @@ func (m WeekModel) Update(msg tea.Msg) (WeekModel, tea.Cmd) {
 				m.cursor--
 			}
 		case "enter":
-			if m.cursor < len(m.allItems) {
-				item := m.allItems[m.cursor]
-				switch item.Source {
-				case agendapkg.SourceTask:
-					if item.Task != nil {
-						return m, func() tea.Msg {
-							return messages.FocusTaskMsg{TaskID: item.Task.ID}
-						}
-					}
-				case agendapkg.SourceCard:
-					return m, func() tea.Msg {
-						return messages.OpenBoardMsg{
-							BoardPath: item.BoardPath,
-							ColIndex:  item.ColIndex,
-							CardIndex: item.CardIndex,
-						}
-					}
+			return m.openSelectedItem()
+		}
+	}
+
+	return m, nil
+}
+
+func (m WeekModel) openSelectedItem() (WeekModel, tea.Cmd) {
+	if m.cursor < len(m.allItems) {
+		item := m.allItems[m.cursor]
+		switch item.Source {
+		case agendapkg.SourceTask:
+			if item.Task != nil {
+				return m, func() tea.Msg {
+					return messages.FocusTaskMsg{TaskID: item.Task.ID}
+				}
+			}
+		case agendapkg.SourceCard:
+			return m, func() tea.Msg {
+				return messages.OpenBoardMsg{
+					BoardPath: item.BoardPath,
+					ColIndex:  item.ColIndex,
+					CardIndex: item.CardIndex,
 				}
 			}
 		}
+	}
+	return m, nil
+}
+
+func (m WeekModel) handleSearchMode(msg tea.KeyMsg) (WeekModel, tea.Cmd) {
+	if m.searchFilterMode {
+		switch msg.String() {
+		case "enter":
+			m.searchFilterMode = false
+			m.searchInput.Blur()
+			return m, nil
+		case "esc":
+			m.searchInput.SetValue("")
+			m.searchQuery = ""
+			m.searchActive = false
+			m.searchFilterMode = false
+			m.searchInput.Blur()
+			m.applySearchFilter()
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			m.searchQuery = m.searchInput.Value()
+			m.applySearchFilter()
+			return m, cmd
+		}
+	}
+
+	// Navigation mode
+	switch msg.String() {
+	case "/":
+		m.searchFilterMode = true
+		return m, m.searchInput.Focus()
+	case "enter":
+		return m.openSelectedItem()
+	case "esc":
+		m.searchInput.SetValue("")
+		m.searchQuery = ""
+		m.searchActive = false
+		m.searchFilterMode = false
+		m.applySearchFilter()
+		return m, nil
+	case "j", "down":
+		if m.cursor < len(m.allItems)-1 {
+			m.cursor++
+		}
+		return m, nil
+	case "k", "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -151,11 +263,36 @@ func (m WeekModel) View() string {
 	titleStr := fmt.Sprintf(" Week: %s - %s", start.Format("Jan 2"), end.Format("Jan 2 2006"))
 	title := titleStyle.Render(titleStr)
 	sb.WriteString(title)
-	sb.WriteString("\n\n")
+	sb.WriteString("\n")
+
+	if m.searchActive {
+		if m.searchFilterMode {
+			sb.WriteString("  " + m.searchInput.View())
+		} else if m.searchQuery != "" {
+			sb.WriteString("  " + searchLabelStyle.Render("Filter: ") + m.searchQuery)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
 
 	if len(m.allItems) == 0 {
-		sb.WriteString(emptyStyle.Render("  No items scheduled for this week."))
+		if m.searchQuery != "" {
+			sb.WriteString(emptyStyle.Render("  No matching items."))
+		} else {
+			sb.WriteString(emptyStyle.Render("  No items scheduled for this week."))
+		}
 		sb.WriteString("\n")
+	} else if m.searchQuery != "" {
+		// Filtered flat list — render items directly from m.allItems
+		sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Results (%d)", len(m.allItems))))
+		sb.WriteString("\n")
+		for i, item := range m.allItems {
+			selected := i == m.cursor
+			line := RenderItemLine(item, selected, m.width-6)
+			sb.WriteString("     ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
 	} else {
 		// Build a map of date -> bucket for rendering
 		bucketMap := make(map[string]*agendapkg.DateBucket)

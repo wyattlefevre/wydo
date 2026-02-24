@@ -12,21 +12,25 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sahilm/fuzzy"
 )
 
 type pickerMode int
 
 const (
 	modeList pickerMode = iota
+	modeSearch
 	modeSelectDir
 	modeCreate
 )
 
 type PickerModel struct {
 	boards         []models.Board
+	filtered       []int // indices into boards
 	selected       int
 	mode           pickerMode
 	textInput      textinput.Model
+	searchQuery    string
 	defaultDir     string
 	availableDirs  []string
 	selectedDirIdx int
@@ -42,8 +46,14 @@ func NewPickerModel(boards []models.Board, defaultDir string, availableDirs []st
 	ti.CharLimit = 50
 	ti.Width = 40
 
+	filtered := make([]int, len(boards))
+	for i := range boards {
+		filtered[i] = i
+	}
+
 	return PickerModel{
 		boards:        boards,
+		filtered:      filtered,
 		selected:      0,
 		mode:          modeList,
 		textInput:     ti,
@@ -58,28 +68,50 @@ func (m *PickerModel) SetSize(width, height int) {
 	m.height = height
 }
 
-// IsTyping returns true when the picker is in create mode with active text input
+// IsTyping returns true when the picker is in create or search mode with active text input
 func (m PickerModel) IsTyping() bool {
-	return m.mode == modeCreate
+	return m.mode == modeCreate || m.mode == modeSearch
 }
 
 // HintText returns the raw hint string for the current picker mode.
 func (m PickerModel) HintText() string {
 	switch m.mode {
+	case modeSearch:
+		return "type to filter  enter:confirm  esc:cancel"
 	case modeSelectDir:
 		return "j/k:navigate  enter:select  esc:cancel"
 	case modeCreate:
 		return "enter:create  esc:cancel"
 	default:
-		return "j/k:navigate  enter:select  n:new board  ?:help  q:quit"
+		return "j/k:navigate  /:search  enter:select  n:new board  ?:help  q:quit"
 	}
 }
 
 // SetBoards updates the boards list
 func (m *PickerModel) SetBoards(boards []models.Board) {
 	m.boards = boards
-	if m.selected >= len(m.boards) {
-		m.selected = max(0, len(m.boards)-1)
+	m.applyFilter()
+}
+
+func (m *PickerModel) applyFilter() {
+	if m.searchQuery == "" {
+		m.filtered = make([]int, len(m.boards))
+		for i := range m.boards {
+			m.filtered[i] = i
+		}
+	} else {
+		names := make([]string, len(m.boards))
+		for i, b := range m.boards {
+			names[i] = b.Name
+		}
+		matches := fuzzy.Find(m.searchQuery, names)
+		m.filtered = make([]int, len(matches))
+		for i, match := range matches {
+			m.filtered[i] = match.Index
+		}
+	}
+	if m.selected >= len(m.filtered) {
+		m.selected = max(0, len(m.filtered)-1)
 	}
 }
 
@@ -106,6 +138,8 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 		switch m.mode {
 		case modeList:
 			return m.updateList(msg)
+		case modeSearch:
+			return m.updateSearch(msg)
 		case modeSelectDir:
 			return m.updateSelectDir(msg)
 		case modeCreate:
@@ -122,12 +156,24 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 		return m, tea.Quit
 
 	case "esc":
+		if m.searchQuery != "" {
+			m.searchQuery = ""
+			m.applyFilter()
+			return m, nil
+		}
 		return m, func() tea.Msg {
 			return messages.SwitchViewMsg{View: messages.ViewAgendaDay}
 		}
 
+	case "/":
+		m.mode = modeSearch
+		m.textInput.Placeholder = "Search boards..."
+		m.textInput.SetValue(m.searchQuery)
+		m.textInput.Focus()
+		return m, textinput.Blink
+
 	case "j", "down":
-		if len(m.boards) > 0 && m.selected < len(m.boards)-1 {
+		if len(m.filtered) > 0 && m.selected < len(m.filtered)-1 {
 			m.selected++
 		}
 
@@ -145,18 +191,20 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 		}
 		// Otherwise go straight to create mode
 		m.mode = modeCreate
+		m.textInput.Placeholder = "Enter board name..."
 		m.textInput.Focus()
 		return m, textinput.Blink
 
 	case "enter":
-		if len(m.boards) == 0 {
+		if len(m.filtered) == 0 {
 			// If no boards, enter means create new
 			m.mode = modeCreate
+			m.textInput.Placeholder = "Enter board name..."
 			m.textInput.Focus()
 			return m, textinput.Blink
-		} else if m.selected < len(m.boards) {
+		} else if m.selected < len(m.filtered) {
 			// Select board - send OpenBoardMsg
-			board := m.boards[m.selected]
+			board := m.boards[m.filtered[m.selected]]
 			return m, func() tea.Msg {
 				return messages.OpenBoardMsg{
 					BoardPath: board.Path,
@@ -166,6 +214,29 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m PickerModel) updateSearch(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeList
+		m.searchQuery = ""
+		m.textInput.SetValue("")
+		m.applyFilter()
+		return m, nil
+
+	case "enter":
+		m.searchQuery = m.textInput.Value()
+		m.mode = modeList
+		m.applyFilter()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	m.searchQuery = m.textInput.Value()
+	m.applyFilter()
+	return m, cmd
 }
 
 func (m PickerModel) updateCreate(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
@@ -233,6 +304,8 @@ func (m PickerModel) updateSelectDir(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 
 func (m PickerModel) View() string {
 	switch m.mode {
+	case modeSearch:
+		return m.viewSearch()
 	case modeSelectDir:
 		return m.viewSelectDir()
 	case modeCreate:
@@ -242,6 +315,35 @@ func (m PickerModel) View() string {
 	}
 }
 
+func (m PickerModel) viewSearch() string {
+	var lines []string
+	lines = append(lines, titleStyle.Render("Search Boards"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+m.textInput.View())
+	lines = append(lines, "")
+
+	// Show live results
+	if len(m.filtered) > 0 {
+		show := min(8, len(m.filtered))
+		for i := 0; i < show; i++ {
+			board := m.boards[m.filtered[i]]
+			prefix := "  "
+			if i == m.selected {
+				prefix = "► "
+			}
+			lines = append(lines, listItemStyle.Render(prefix+board.Name))
+		}
+		if len(m.filtered) > show {
+			lines = append(lines, pathStyle.Render(fmt.Sprintf("  ... %d more", len(m.filtered)-show)))
+		}
+	} else {
+		lines = append(lines, listItemStyle.Render("  No matches"))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
 func (m PickerModel) viewList() string {
 	var lines []string
 
@@ -249,22 +351,32 @@ func (m PickerModel) viewList() string {
 	lines = append(lines, titleStyle.Render("Board Picker"))
 	lines = append(lines, "")
 
-	if len(m.boards) == 0 {
-		lines = append(lines, listItemStyle.Render("No boards found. Press 'n' to create one."))
+	if m.searchQuery != "" {
+		lines = append(lines, filterIndicatorStyle.Render("  Filter: ")+pathStyle.Render(m.searchQuery))
+		lines = append(lines, "")
+	}
+
+	if len(m.filtered) == 0 {
+		if len(m.boards) == 0 {
+			lines = append(lines, listItemStyle.Render("No boards found. Press 'n' to create one."))
+		} else {
+			lines = append(lines, listItemStyle.Render("No matching boards."))
+		}
 		lines = append(lines, "")
 	} else {
 		// Calculate max board name width for alignment
 		maxNameWidth := 0
-		for _, board := range m.boards {
-			// Account for prefix
+		for _, idx := range m.filtered {
+			board := m.boards[idx]
 			width := lipgloss.Width(listItemStyle.Render("► " + board.Name))
 			if width > maxNameWidth {
 				maxNameWidth = width
 			}
 		}
 
-		// List boards
-		for i, board := range m.boards {
+		// List filtered boards
+		for i, idx := range m.filtered {
+			board := m.boards[idx]
 			style := listItemStyle
 			prefix := "  "
 			if i == m.selected {

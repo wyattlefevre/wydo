@@ -7,9 +7,10 @@ import (
 
 // -- day.go styles --
 var (
-	titleStyle   = theme.Title
-	sectionStyle = theme.Subtitle
-	emptyStyle   = lipgloss.NewStyle().Foreground(theme.TextMuted).Italic(true)
+	titleStyle       = theme.Title
+	sectionStyle     = theme.Subtitle
+	emptyStyle       = lipgloss.NewStyle().Foreground(theme.TextMuted).Italic(true)
+	searchLabelStyle = lipgloss.NewStyle().Foreground(theme.Secondary).Bold(true)
 )
 
 // -- item_line.go styles --

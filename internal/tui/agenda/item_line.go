@@ -59,6 +59,11 @@ func RenderItemLine(item agendapkg.AgendaItem, selected bool, width int) string 
 	return line + strings.Repeat(" ", padding) + reasonDate
 }
 
+// AgendaSearchString returns the search string for an agenda item (used by search/filter).
+func AgendaSearchString(item agendapkg.AgendaItem) string {
+	return itemTitle(item)
+}
+
 func itemTitle(item agendapkg.AgendaItem) string {
 	switch item.Source {
 	case agendapkg.SourceTask:

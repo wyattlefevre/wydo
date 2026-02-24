@@ -368,6 +368,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.currentView == ViewProjects && m.projectsView.IsTyping() {
 			// Projects view has active text input (search, create, rename)
 			// Let it handle all keys
+		} else if m.currentView == ViewAgendaDay && m.dayView.IsSearching() {
+			// Day agenda search is active — let it handle all keys
+		} else if m.currentView == ViewAgendaWeek && m.weekView.IsSearching() {
+			// Week agenda search is active — let it handle all keys
 		} else {
 			// Global navigation keys for agenda/task views
 			switch msg.String() {
@@ -475,6 +479,10 @@ func (m *AppModel) isChildInputActive() bool {
 		return m.projectsView.IsTyping()
 	case ViewProjectDetail:
 		return m.projectDetailView.IsModal()
+	case ViewAgendaDay:
+		return m.dayView.IsSearching()
+	case ViewAgendaWeek:
+		return m.weekView.IsSearching()
 	default:
 		return false
 	}
@@ -629,9 +637,17 @@ func (m AppModel) renderHintBar() string {
 
 	switch m.currentView {
 	case ViewAgendaDay:
-		hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  enter:open  ?:help  q:quit"
+		if m.dayView.IsSearching() {
+			hintText = m.dayView.HintText()
+		} else {
+			hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  /:search  enter:open  ?:help  q:quit"
+		}
 	case ViewAgendaWeek:
-		hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  enter:open  ?:help  q:quit"
+		if m.weekView.IsSearching() {
+			hintText = m.weekView.HintText()
+		} else {
+			hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  /:search  enter:open  ?:help  q:quit"
+		}
 	case ViewAgendaMonth:
 		hintText = m.monthView.HintText()
 		hintText = "1:day 2:week 3:month  " + hintText + "  ?:help  q:quit"
@@ -730,6 +746,7 @@ func (m AppModel) renderHelpOverlay() string {
 				{"j / k", "Navigate items"},
 				{"t", "Jump to today"},
 				{"enter", "Open selected item"},
+				{"/", "Search"},
 			},
 		})
 	case ViewAgendaMonth:
