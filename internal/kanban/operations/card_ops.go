@@ -20,7 +20,7 @@ func CreateCard(board *models.Board, columnName string) (models.Card, error) {
 		return models.Card{}, err
 	}
 
-	defaultTitle := "New Card"
+	defaultTitle := ""
 	baseFilename := ToSnakeCase(defaultTitle)
 	filename := UniqueFilename(baseFilename, cardsDir, "")
 
@@ -30,7 +30,7 @@ func CreateCard(board *models.Board, columnName string) (models.Card, error) {
 		Filename: filename,
 		Title:    defaultTitle,
 		Tags:     []string{},
-		Content:  "# New Card\n\nEnter card description here...\n",
+		Content:  "# \n",
 	}
 
 	if err := fs.WriteCard(card, cardPath); err != nil {
