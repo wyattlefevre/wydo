@@ -155,3 +155,8 @@ var (
 				Foreground(theme.Warning).
 				Bold(true)
 )
+
+// modeIndicatorStyle returns a bold style with the given foreground color for mode badges.
+func modeIndicatorStyle(color lipgloss.Color) lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).Foreground(color)
+}

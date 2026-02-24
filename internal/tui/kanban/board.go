@@ -37,6 +37,52 @@ const (
 	boardModeBoardMove
 )
 
+func (m boardMode) String() string {
+	switch m {
+	case boardModeNormal:
+		return "NORMAL"
+	case boardModeMove:
+		return "MOVE"
+	case boardModeConfirmDelete:
+		return "DELETE"
+	case boardModeTagEdit:
+		return "TAG"
+	case boardModeProjectEdit:
+		return "PROJECT"
+	case boardModeColumnEdit:
+		return "COLUMN"
+	case boardModeURLInput:
+		return "URL"
+	case boardModeDueDateEdit:
+		return "DUE DATE"
+	case boardModeScheduledDateEdit:
+		return "SCHEDULED"
+	case boardModePriorityInput:
+		return "PRIORITY"
+	case boardModeFilter:
+		return "FILTER"
+	case boardModeBoardMove:
+		return "BOARD"
+	default:
+		return "NORMAL"
+	}
+}
+
+func (m boardMode) modeColor() lipgloss.Color {
+	switch m {
+	case boardModeNormal:
+		return theme.Primary
+	case boardModeMove:
+		return theme.Warning
+	case boardModeFilter:
+		return theme.Secondary
+	case boardModeConfirmDelete:
+		return theme.Danger
+	default:
+		return theme.Accent
+	}
+}
+
 type BoardModel struct {
 	board                  models.Board
 	allProjects            []string
@@ -128,6 +174,11 @@ func (m BoardModel) HintText() string {
 		}
 		return "?:help  /:filter  space/m:move  esc:back"
 	}
+}
+
+// ModeText returns a styled mode badge like [MOVE] in the mode's color.
+func (m BoardModel) ModeText() string {
+	return modeIndicatorStyle(m.mode.modeColor()).Render("[" + m.mode.String() + "]")
 }
 
 func (m BoardModel) Init() tea.Cmd {

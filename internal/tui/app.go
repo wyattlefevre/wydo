@@ -669,6 +669,14 @@ func (m AppModel) renderHintBar() string {
 
 	styled := theme.HelpHint.Render(hintText)
 	centered := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, styled)
+
+	// For kanban board, prepend the mode indicator left-aligned
+	if m.currentView == ViewKanbanBoard && m.boardLoaded {
+		modeText := m.boardView.ModeText()
+		// Overlay mode badge at left, hints stay centered
+		centered = modeText + centered[lipgloss.Width(modeText):]
+	}
+
 	return theme.StatusBar.Width(m.width).Render(centered)
 }
 
