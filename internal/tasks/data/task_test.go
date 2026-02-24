@@ -139,6 +139,24 @@ func TestTask_SetDueDate(t *testing.T) {
 	}
 }
 
+func TestTask_ClearDueDate(t *testing.T) {
+	task := Task{Name: "test"}
+	task.SetDueDate("2026-03-01")
+	task.SetDueDate("")
+	if _, ok := task.Tags["due"]; ok {
+		t.Error("expected due tag to be removed after clearing")
+	}
+}
+
+func TestTask_ClearScheduledDate(t *testing.T) {
+	task := Task{Name: "test"}
+	task.SetScheduledDate("2026-03-01")
+	task.SetScheduledDate("")
+	if _, ok := task.Tags["scheduled"]; ok {
+		t.Error("expected scheduled tag to be removed after clearing")
+	}
+}
+
 func TestParseTask_QuotedTagURL(t *testing.T) {
 	task := ParseTask(`Buy domain url:"https://example.com/path?q=1"`, "id1", "todo.txt")
 	if task.Name != "Buy domain" {

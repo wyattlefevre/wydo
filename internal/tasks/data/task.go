@@ -88,7 +88,11 @@ func (t *Task) SetDueDate(date string) {
 	if t.Tags == nil {
 		t.Tags = make(map[string]string)
 	}
-	t.Tags["due"] = date
+	if date == "" {
+		delete(t.Tags, "due")
+	} else {
+		t.Tags["due"] = date
+	}
 }
 
 func (t *Task) GetURL() string {
@@ -114,7 +118,11 @@ func (t *Task) SetScheduledDate(date string) {
 	if t.Tags == nil {
 		t.Tags = make(map[string]string)
 	}
-	t.Tags["scheduled"] = date
+	if date == "" {
+		delete(t.Tags, "scheduled")
+	} else {
+		t.Tags["scheduled"] = date
+	}
 }
 
 func (t Task) String() string {
