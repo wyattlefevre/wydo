@@ -271,8 +271,8 @@ func UpdateCardProjects(board *models.Board, columnIndex, cardIndex int, project
 	return fs.WriteCard(*card, cardPath)
 }
 
-// UpdateCardURL updates a card's URL and persists to disk
-func UpdateCardURL(board *models.Board, columnIndex, cardIndex int, url string) error {
+// UpdateCardURLs updates a card's URLs and persists to disk
+func UpdateCardURLs(board *models.Board, columnIndex, cardIndex int, urls []models.CardURL) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
@@ -283,7 +283,7 @@ func UpdateCardURL(board *models.Board, columnIndex, cardIndex int, url string) 
 	}
 
 	card := &column.Cards[cardIndex]
-	card.URL = url
+	card.URLs = urls
 
 	cardPath := filepath.Join(board.Path, "cards", card.Filename)
 	return fs.WriteCard(*card, cardPath)

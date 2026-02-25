@@ -35,7 +35,7 @@ func ReadCard(cardPath string) (models.Card, error) {
 		Title:         title,
 		Tags:          result.Tags,
 		Projects:      result.Projects,
-		URL:           result.URL,
+		URLs:          result.URLs,
 		Preview:       preview,
 		Content:       result.Body,
 		DueDate:       result.DueDate,
@@ -51,7 +51,7 @@ func ReadCard(cardPath string) (models.Card, error) {
 type FrontmatterResult struct {
 	Tags          []string
 	Projects      []string
-	URL           string
+	URLs          []models.CardURL
 	DueDate       *time.Time
 	ScheduledDate *time.Time
 	DateCompleted *time.Time
@@ -88,15 +88,16 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 	// Parse frontmatter
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
 	var frontmatter struct {
-		Tags          []string `yaml:"tags"`
-		Projects      []string `yaml:"projects"`
-		URL           string   `yaml:"url"`
-		Due           string   `yaml:"due"`
-		Scheduled     string   `yaml:"scheduled"`
-		DateCompleted string   `yaml:"date_completed"`
-		Priority      int      `yaml:"priority"`
-		Archived      bool     `yaml:"archived"`
-		TmuxSession   string   `yaml:"tmux_session"`
+		Tags          []string         `yaml:"tags"`
+		Projects      []string         `yaml:"projects"`
+		URL           string           `yaml:"url"`
+		URLs          []models.CardURL `yaml:"urls"`
+		Due           string           `yaml:"due"`
+		Scheduled     string           `yaml:"scheduled"`
+		DateCompleted string           `yaml:"date_completed"`
+		Priority      int              `yaml:"priority"`
+		Archived      bool             `yaml:"archived"`
+		TmuxSession   string           `yaml:"tmux_session"`
 	}
 
 	if err := yaml.Unmarshal(frontmatterBytes, &frontmatter); err != nil {
@@ -136,10 +137,18 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		}
 	}
 
+	// Resolve URLs: prefer new urls: list, fall back to legacy url: string
+	var urls []models.CardURL
+	if len(frontmatter.URLs) > 0 {
+		urls = frontmatter.URLs
+	} else if frontmatter.URL != "" {
+		urls = []models.CardURL{{URL: frontmatter.URL}}
+	}
+
 	return FrontmatterResult{
 		Tags:          tags,
 		Projects:      projects,
-		URL:           frontmatter.URL,
+		URLs:          urls,
 		DueDate:       dueDate,
 		ScheduledDate: scheduledDate,
 		DateCompleted: dateCompleted,

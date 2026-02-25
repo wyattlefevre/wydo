@@ -29,7 +29,8 @@ const (
 	boardModeTagEdit
 	boardModeProjectEdit
 	boardModeColumnEdit
-	boardModeURLInput
+	boardModeURLPicker
+	boardModeURLEditor
 	boardModeDueDateEdit
 	boardModeScheduledDateEdit
 	boardModePriorityInput
@@ -53,7 +54,9 @@ func (m boardMode) String() string {
 		return "PROJECT"
 	case boardModeColumnEdit:
 		return "COLUMN"
-	case boardModeURLInput:
+	case boardModeURLPicker:
+		return "URL"
+	case boardModeURLEditor:
 		return "URL"
 	case boardModeDueDateEdit:
 		return "DUE DATE"
@@ -104,7 +107,8 @@ type BoardModel struct {
 	tagPicker              *TagPickerModel
 	projectPicker          *ProjectPickerModel
 	columnEditor           *ColumnEditorModel
-	urlInput               *URLInputModel
+	urlPicker              *URLPickerModel
+	urlEditor              *URLEditorModel
 	dueDatePicker          *shared.DatePickerModel
 	scheduledDatePicker    *shared.DatePickerModel
 	priorityInput          *PriorityInputModel
@@ -237,8 +241,10 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			return m.updateProjectEdit(msg)
 		case boardModeColumnEdit:
 			return m.updateColumnEdit(msg)
-		case boardModeURLInput:
-			return m.updateURLInput(msg)
+		case boardModeURLPicker:
+			return m.updateURLPicker(msg)
+		case boardModeURLEditor:
+			return m.updateURLEditor(msg)
 		case boardModeDueDateEdit:
 			return m.updateDueDateEdit(msg)
 		case boardModeScheduledDateEdit:
@@ -809,49 +815,66 @@ func (m BoardModel) updateColumnEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 func (m BoardModel) handleURLEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
-	urlInputModel := NewURLInputModel(currentCard.URL)
-	urlInputModel.width = m.width
-	urlInputModel.height = m.height
-	m.urlInput = &urlInputModel
-	m.mode = boardModeURLInput
-	return m, urlInputModel.Init()
+	editor := NewURLEditorModel(currentCard.URLs)
+	editor.width = m.width
+	editor.height = m.height
+	m.urlEditor = &editor
+	m.mode = boardModeURLEditor
+	return m, editor.Init()
 }
 
-func (m BoardModel) updateURLInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+func (m BoardModel) updateURLEditor(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var cmd tea.Cmd
+	var saved, done bool
 
-	*m.urlInput, cmd = m.urlInput.Update(msg)
+	*m.urlEditor, cmd, saved, done = m.urlEditor.Update(msg)
 
-	switch msg.String() {
-	case "enter":
-		// Save URL
-		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-		newURL := m.urlInput.GetURL()
-		err := operations.UpdateCardURL(&m.board, m.selectedCol, realIdx, newURL)
-		if err != nil {
-			m.err = err
-		} else {
-			// Reload board to refresh display
-			board, err := fs.ReadBoard(m.board.Path)
+	if done {
+		if saved {
+			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+			newURLs := m.urlEditor.GetURLs()
+			err := operations.UpdateCardURLs(&m.board, m.selectedCol, realIdx, newURLs)
 			if err != nil {
 				m.err = err
 			} else {
-				m.board = board
-				m.message = "URL updated"
-				m.reloadBoardState()
-				m.ensureCardBoardProjects(m.selectedCol, realIdx)
+				board, err := fs.ReadBoard(m.board.Path)
+				if err != nil {
+					m.err = err
+				} else {
+					m.board = board
+					m.message = "URLs updated"
+					m.reloadBoardState()
+					m.ensureCardBoardProjects(m.selectedCol, realIdx)
+				}
 			}
 		}
 		m.mode = boardModeNormal
-		m.urlInput = nil
-
-	case "esc":
-		// Cancel
-		m.mode = boardModeNormal
-		m.urlInput = nil
+		m.urlEditor = nil
 	}
 
 	return m, cmd
+}
+
+func (m BoardModel) updateURLPicker(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	var selectedURL string
+	var done bool
+
+	*m.urlPicker, selectedURL, done = m.urlPicker.Update(msg)
+
+	if done {
+		m.mode = boardModeNormal
+		m.urlPicker = nil
+		if selectedURL != "" {
+			err := operations.OpenURL(selectedURL)
+			if err != nil {
+				m.err = fmt.Errorf("failed to open URL: %v", err)
+			} else {
+				m.message = "Opening URL in browser..."
+			}
+		}
+	}
+
+	return m, nil
 }
 
 func (m BoardModel) handleDueDateEdit() (BoardModel, tea.Cmd) {
@@ -1006,18 +1029,28 @@ func (m BoardModel) handleOpenURL() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
 
-	if currentCard.URL == "" {
-		m.message = "No URL set for this card"
+	if !currentCard.HasURLs() {
+		m.message = "No URLs set for this card"
 		return m, nil
 	}
 
-	err := operations.OpenURL(currentCard.URL)
-	if err != nil {
-		m.err = fmt.Errorf("failed to open URL: %v", err)
-	} else {
-		m.message = "Opening URL in browser..."
+	// Single URL — open directly
+	if len(currentCard.URLs) == 1 {
+		err := operations.OpenURL(currentCard.URLs[0].URL)
+		if err != nil {
+			m.err = fmt.Errorf("failed to open URL: %v", err)
+		} else {
+			m.message = "Opening URL in browser..."
+		}
+		return m, nil
 	}
 
+	// Multiple URLs — open picker
+	picker := NewURLPickerModel(currentCard.URLs)
+	picker.width = m.width
+	picker.height = m.height
+	m.urlPicker = &picker
+	m.mode = boardModeURLPicker
 	return m, nil
 }
 
@@ -1192,9 +1225,14 @@ func (m BoardModel) View() string {
 		return m.columnEditor.View()
 	}
 
-	// Show URL input if in URL input mode
-	if m.mode == boardModeURLInput && m.urlInput != nil {
-		return m.urlInput.View()
+	// Show URL picker if in URL picker mode
+	if m.mode == boardModeURLPicker && m.urlPicker != nil {
+		return m.urlPicker.View()
+	}
+
+	// Show URL editor if in URL editor mode
+	if m.mode == boardModeURLEditor && m.urlEditor != nil {
+		return m.urlEditor.View()
 	}
 
 	// Show due date picker if in due date edit mode
@@ -1390,7 +1428,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	// Line 1: Card title with priority prefix and URL indicator
 	title := card.Title
 	urlIndicator := ""
-	if card.URL != "" {
+	if card.HasURLs() {
 		urlIndicator = "↗"
 	}
 
@@ -1592,8 +1630,11 @@ func cardSearchString(card models.Card) string {
 	for _, proj := range card.Projects {
 		parts = append(parts, "+"+proj)
 	}
-	if card.URL != "" {
-		parts = append(parts, card.URL)
+	for _, u := range card.URLs {
+		if u.Label != "" {
+			parts = append(parts, u.Label)
+		}
+		parts = append(parts, u.URL)
 	}
 	if card.DueDate != nil {
 		parts = append(parts, "due:"+card.DueDate.Format("2006-01-02"))

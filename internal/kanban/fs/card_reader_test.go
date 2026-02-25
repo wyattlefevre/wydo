@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"wydo/internal/kanban/models"
 )
 
 func TestReadCard_Frontmatter(t *testing.T) {
@@ -119,5 +120,124 @@ func TestReadCard_ContractorQuotes(t *testing.T) {
 
 	if card.Priority != 2 {
 		t.Errorf("expected priority 2, got %d", card.Priority)
+	}
+}
+
+func TestParseFrontmatter_LegacyURL(t *testing.T) {
+	content := []byte(`---
+url: "https://example.com"
+---
+
+# Legacy URL Card
+`)
+
+	result, err := ParseFrontmatter(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.URLs) != 1 {
+		t.Fatalf("expected 1 URL, got %d", len(result.URLs))
+	}
+	if result.URLs[0].URL != "https://example.com" {
+		t.Errorf("expected URL 'https://example.com', got %q", result.URLs[0].URL)
+	}
+	if result.URLs[0].Label != "" {
+		t.Errorf("expected empty label, got %q", result.URLs[0].Label)
+	}
+}
+
+func TestParseFrontmatter_MultiURL(t *testing.T) {
+	content := []byte(`---
+urls:
+  - label: "GitHub Repo"
+    url: "https://github.com/example/repo"
+  - url: "https://docs.example.com"
+---
+
+# Multi URL Card
+`)
+
+	result, err := ParseFrontmatter(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.URLs) != 2 {
+		t.Fatalf("expected 2 URLs, got %d", len(result.URLs))
+	}
+
+	if result.URLs[0].Label != "GitHub Repo" {
+		t.Errorf("expected label 'GitHub Repo', got %q", result.URLs[0].Label)
+	}
+	if result.URLs[0].URL != "https://github.com/example/repo" {
+		t.Errorf("expected URL 'https://github.com/example/repo', got %q", result.URLs[0].URL)
+	}
+
+	if result.URLs[1].Label != "" {
+		t.Errorf("expected empty label for second URL, got %q", result.URLs[1].Label)
+	}
+	if result.URLs[1].URL != "https://docs.example.com" {
+		t.Errorf("expected URL 'https://docs.example.com', got %q", result.URLs[1].URL)
+	}
+}
+
+func TestParseFrontmatter_NoURLs(t *testing.T) {
+	content := []byte(`---
+tags:
+  - test
+---
+
+# No URL Card
+`)
+
+	result, err := ParseFrontmatter(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.URLs) != 0 {
+		t.Errorf("expected 0 URLs, got %d", len(result.URLs))
+	}
+}
+
+func TestWriteCard_ReadCard_URLRoundTrip(t *testing.T) {
+	original := models.Card{
+		Filename: "test.md",
+		Title:    "URL Round Trip",
+		Tags:     []string{},
+		URLs: []models.CardURL{
+			{Label: "GitHub", URL: "https://github.com/example"},
+			{URL: "https://docs.example.com"},
+		},
+		Content: "# URL Round Trip\n",
+	}
+
+	tmpDir := t.TempDir()
+	tmpPath := filepath.Join(tmpDir, "url-roundtrip.md")
+
+	if err := WriteCard(original, tmpPath); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	loaded, err := ReadCard(tmpPath)
+	if err != nil {
+		t.Fatalf("read-back error: %v", err)
+	}
+
+	if len(loaded.URLs) != 2 {
+		t.Fatalf("expected 2 URLs, got %d", len(loaded.URLs))
+	}
+	if loaded.URLs[0].Label != "GitHub" {
+		t.Errorf("expected label 'GitHub', got %q", loaded.URLs[0].Label)
+	}
+	if loaded.URLs[0].URL != "https://github.com/example" {
+		t.Errorf("expected URL 'https://github.com/example', got %q", loaded.URLs[0].URL)
+	}
+	if loaded.URLs[1].Label != "" {
+		t.Errorf("expected empty label, got %q", loaded.URLs[1].Label)
+	}
+	if loaded.URLs[1].URL != "https://docs.example.com" {
+		t.Errorf("expected URL 'https://docs.example.com', got %q", loaded.URLs[1].URL)
 	}
 }
