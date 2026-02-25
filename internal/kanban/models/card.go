@@ -16,4 +16,5 @@ type Card struct {
 	DateCompleted *time.Time // From YAML frontmatter (RFC3339 datetime)
 	Priority      int        // From YAML frontmatter (0 = unset)
 	Archived      bool       // From YAML frontmatter
+	TmuxSession   string     // From YAML frontmatter
 }

@@ -43,6 +43,7 @@ func ReadCard(cardPath string) (models.Card, error) {
 		DateCompleted: result.DateCompleted,
 		Priority:      result.Priority,
 		Archived:      result.Archived,
+		TmuxSession:   result.TmuxSession,
 	}, nil
 }
 
@@ -56,6 +57,7 @@ type FrontmatterResult struct {
 	DateCompleted *time.Time
 	Priority      int
 	Archived      bool
+	TmuxSession   string
 	Body          string
 }
 
@@ -94,6 +96,7 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		DateCompleted string   `yaml:"date_completed"`
 		Priority      int      `yaml:"priority"`
 		Archived      bool     `yaml:"archived"`
+		TmuxSession   string   `yaml:"tmux_session"`
 	}
 
 	if err := yaml.Unmarshal(frontmatterBytes, &frontmatter); err != nil {
@@ -142,6 +145,7 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		DateCompleted: dateCompleted,
 		Priority:      frontmatter.Priority,
 		Archived:      frontmatter.Archived,
+		TmuxSession:   frontmatter.TmuxSession,
 		Body:          body,
 	}, nil
 }

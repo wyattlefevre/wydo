@@ -13,7 +13,7 @@ import (
 func WriteCard(card models.Card, path string) error {
 	var buf bytes.Buffer
 
-	if len(card.Tags) > 0 || len(card.Projects) > 0 || card.URL != "" || card.DueDate != nil || card.ScheduledDate != nil || card.DateCompleted != nil || card.Priority > 0 || card.Archived {
+	if len(card.Tags) > 0 || len(card.Projects) > 0 || card.URL != "" || card.DueDate != nil || card.ScheduledDate != nil || card.DateCompleted != nil || card.Priority > 0 || card.Archived || card.TmuxSession != "" {
 		buf.WriteString("---\n")
 
 		frontmatter := struct {
@@ -25,12 +25,14 @@ func WriteCard(card models.Card, path string) error {
 			DateCompleted string   `yaml:"date_completed,omitempty"`
 			Priority      int      `yaml:"priority,omitempty"`
 			Archived      bool     `yaml:"archived,omitempty"`
+			TmuxSession   string   `yaml:"tmux_session,omitempty"`
 		}{
 			Tags:     card.Tags,
 			Projects: card.Projects,
 			URL:      card.URL,
-			Priority: card.Priority,
-			Archived: card.Archived,
+			Priority:    card.Priority,
+			Archived:    card.Archived,
+			TmuxSession: card.TmuxSession,
 		}
 
 		if card.DueDate != nil {

@@ -743,6 +743,8 @@ func (m AppModel) renderHelpOverlay() string {
 				{"D", "Delete card"},
 				{"c", "Edit columns"},
 				{"/", "Filter"},
+				{"x", "Switch to tmux session"},
+				{"X", "Link tmux session"},
 				{"a", "Archive / unarchive card"},
 				{"ctrl+a", "Toggle show archived"},
 				{"esc / q", "Back"},

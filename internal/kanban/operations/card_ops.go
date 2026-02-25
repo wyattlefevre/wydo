@@ -343,6 +343,24 @@ func UpdateCardPriority(board *models.Board, columnIndex, cardIndex, priority in
 	return fs.WriteCard(*card, cardPath)
 }
 
+// UpdateCardTmuxSession updates a card's tmux session link and persists to disk
+func UpdateCardTmuxSession(board *models.Board, columnIndex, cardIndex int, session string) error {
+	if columnIndex < 0 || columnIndex >= len(board.Columns) {
+		return fmt.Errorf("invalid column index")
+	}
+
+	column := &board.Columns[columnIndex]
+	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+		return fmt.Errorf("invalid card index")
+	}
+
+	card := &column.Cards[cardIndex]
+	card.TmuxSession = session
+
+	cardPath := filepath.Join(board.Path, "cards", card.Filename)
+	return fs.WriteCard(*card, cardPath)
+}
+
 // TaskPriorityToCardPriority maps a todo.txt priority rune (A-F) to a card priority int (1-6).
 // Returns 0 for no priority.
 func TaskPriorityToCardPriority(p rune) int {

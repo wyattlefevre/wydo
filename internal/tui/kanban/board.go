@@ -35,6 +35,8 @@ const (
 	boardModePriorityInput
 	boardModeFilter
 	boardModeBoardMove
+	boardModeTmuxPicker
+	boardModeTmuxLaunch
 )
 
 func (m boardMode) String() string {
@@ -63,6 +65,10 @@ func (m boardMode) String() string {
 		return "FILTER"
 	case boardModeBoardMove:
 		return "BOARD"
+	case boardModeTmuxPicker:
+		return "TMUX"
+	case boardModeTmuxLaunch:
+		return "TMUX"
 	default:
 		return "NORMAL"
 	}
@@ -78,6 +84,8 @@ func (m boardMode) modeColor() lipgloss.Color {
 		return theme.Secondary
 	case boardModeConfirmDelete:
 		return theme.Danger
+	case boardModeTmuxPicker, boardModeTmuxLaunch:
+		return theme.Success
 	default:
 		return theme.Accent
 	}
@@ -109,6 +117,8 @@ type BoardModel struct {
 	filteredIndices        [][]int // per-column: original card indices that match
 	allBoards              []models.Board
 	boardSelector          *BoardSelectorModel
+	tmuxPicker             *TmuxPickerModel
+	tmuxLaunch             *TmuxLaunchModel
 	boardProjects          []string
 	showArchived           bool
 }
@@ -239,6 +249,10 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			return m.updateFilter(msg)
 		case boardModeBoardMove:
 			return m.updateBoardMove(msg)
+		case boardModeTmuxPicker:
+			return m.updateTmuxPicker(msg)
+		case boardModeTmuxLaunch:
+			return m.updateTmuxLaunch(msg)
 		}
 	}
 
@@ -409,6 +423,16 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustScrollPosition()
 			}
+		}
+
+	case "x":
+		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
+			return m.handleTmuxLaunch()
+		}
+
+	case "X":
+		if m.selectedCol < len(m.board.Columns) && m.selectedCard < len(m.getVisibleCards(m.selectedCol)) {
+			return m.handleTmuxEdit()
 		}
 
 	case "ctrl+a":
@@ -1053,6 +1077,105 @@ func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m BoardModel) handleTmuxEdit() (BoardModel, tea.Cmd) {
+	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	picker := NewTmuxPickerModel(currentCard.TmuxSession)
+	picker.width = m.width
+	picker.height = m.height
+	m.tmuxPicker = &picker
+	m.mode = boardModeTmuxPicker
+	return m, nil
+}
+
+func (m BoardModel) updateTmuxPicker(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	var selectedSession string
+	var done bool
+
+	*m.tmuxPicker, selectedSession, done = m.tmuxPicker.Update(msg)
+
+	if done {
+		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+		currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+
+		if selectedSession != currentCard.TmuxSession {
+			err := operations.UpdateCardTmuxSession(&m.board, m.selectedCol, realIdx, selectedSession)
+			if err != nil {
+				m.err = err
+			} else {
+				board, err := fs.ReadBoard(m.board.Path)
+				if err != nil {
+					m.err = err
+				} else {
+					m.board = board
+					if selectedSession != "" {
+						m.message = "Tmux session linked: " + selectedSession
+					} else {
+						m.message = "Tmux session unlinked"
+					}
+					m.reloadBoardState()
+				}
+			}
+		}
+		m.mode = boardModeNormal
+		m.tmuxPicker = nil
+	}
+
+	return m, nil
+}
+
+func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
+	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+
+	if currentCard.TmuxSession == "" {
+		m.message = "No tmux session linked"
+		return m, nil
+	}
+
+	// Check if any children exist
+	children := getChildSessions(currentCard.TmuxSession)
+	hasChildren := false
+	for _, exists := range children {
+		if exists {
+			hasChildren = true
+			break
+		}
+	}
+
+	if !hasChildren {
+		// Switch directly to root session
+		m.message = "Switching to " + currentCard.TmuxSession
+		return m, switchTmuxSession(currentCard.TmuxSession)
+	}
+
+	// Show launch popup
+	launch := NewTmuxLaunchModel(currentCard.TmuxSession)
+	launch.width = m.width
+	launch.height = m.height
+	m.tmuxLaunch = &launch
+	m.mode = boardModeTmuxLaunch
+	return m, nil
+}
+
+func (m BoardModel) updateTmuxLaunch(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	var targetSession string
+	var done bool
+
+	*m.tmuxLaunch, targetSession, done = m.tmuxLaunch.Update(msg)
+
+	if done {
+		m.mode = boardModeNormal
+		m.tmuxLaunch = nil
+		if targetSession != "" {
+			m.message = "Switching to " + targetSession
+			return m, switchTmuxSession(targetSession)
+		}
+	}
+
+	return m, nil
+}
+
 func (m BoardModel) View() string {
 	// Show tag picker if in tag edit mode
 	if m.mode == boardModeTagEdit && m.tagPicker != nil {
@@ -1092,6 +1215,16 @@ func (m BoardModel) View() string {
 	// Show board selector if in board move mode
 	if m.mode == boardModeBoardMove && m.boardSelector != nil {
 		return m.boardSelector.View()
+	}
+
+	// Show tmux picker if in tmux picker mode
+	if m.mode == boardModeTmuxPicker && m.tmuxPicker != nil {
+		return m.tmuxPicker.View()
+	}
+
+	// Show tmux launch popup if in tmux launch mode
+	if m.mode == boardModeTmuxLaunch && m.tmuxLaunch != nil {
+		return m.tmuxLaunch.View()
 	}
 
 	var s strings.Builder
@@ -1344,6 +1477,15 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		lines = append(lines, cardTagStyle.Render(tagsLine))
 	}
 
+	// Tmux session indicator
+	if card.TmuxSession != "" {
+		tmuxLine := " " + card.TmuxSession + " "
+		if len(tmuxLine) > maxWidth {
+			tmuxLine = tmuxLine[:maxWidth-3] + "..."
+		}
+		lines = append(lines, cardTmuxStyle.Render(tmuxLine))
+	}
+
 	// Archived indicator (only visible when showArchived is on)
 	if card.Archived {
 		archivedStyle := lipgloss.NewStyle().Background(theme.Primary).Foreground(lipgloss.Color("16"))
@@ -1461,6 +1603,9 @@ func cardSearchString(card models.Card) string {
 	}
 	if card.Priority > 0 {
 		parts = append(parts, fmt.Sprintf("priority:%d", card.Priority))
+	}
+	if card.TmuxSession != "" {
+		parts = append(parts, "tmux:"+card.TmuxSession)
 	}
 	return strings.Join(parts, " ")
 }

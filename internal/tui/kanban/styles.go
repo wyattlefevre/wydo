@@ -110,6 +110,11 @@ var (
 				Foreground(theme.Success).
 				Italic(true)
 
+	// Tmux session indicator style
+	cardTmuxStyle = lipgloss.NewStyle().
+			Background(theme.Warning).
+			Foreground(lipgloss.Color("16"))
+
 	// Scroll indicator style
 	scrollIndicatorStyle = lipgloss.NewStyle().
 				Foreground(theme.Primary).
