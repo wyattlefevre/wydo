@@ -37,6 +37,7 @@ type PickerModel struct {
 	width          int
 	height         int
 	err            error
+	showArchived   bool
 }
 
 func NewPickerModel(boards []models.Board, defaultDir string, availableDirs []string) PickerModel {
@@ -95,9 +96,12 @@ func (m *PickerModel) SetBoards(boards []models.Board) {
 
 func (m *PickerModel) applyFilter() {
 	if m.searchQuery == "" {
-		m.filtered = make([]int, len(m.boards))
+		m.filtered = nil
 		for i := range m.boards {
-			m.filtered[i] = i
+			if !m.showArchived && m.boards[i].Archived {
+				continue
+			}
+			m.filtered = append(m.filtered, i)
 		}
 	} else {
 		names := make([]string, len(m.boards))
@@ -105,9 +109,12 @@ func (m *PickerModel) applyFilter() {
 			names[i] = b.Name
 		}
 		matches := fuzzy.Find(m.searchQuery, names)
-		m.filtered = make([]int, len(matches))
-		for i, match := range matches {
-			m.filtered[i] = match.Index
+		m.filtered = nil
+		for _, match := range matches {
+			if !m.showArchived && m.boards[match.Index].Archived {
+				continue
+			}
+			m.filtered = append(m.filtered, match.Index)
 		}
 	}
 	if m.selected >= len(m.filtered) {
@@ -211,6 +218,20 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 				}
 			}
 		}
+
+	case "a":
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			board := &m.boards[m.filtered[m.selected]]
+			if err := operations.ToggleBoardArchive(board); err != nil {
+				m.err = err
+			} else {
+				m.applyFilter()
+			}
+		}
+
+	case "ctrl+a":
+		m.showArchived = !m.showArchived
+		m.applyFilter()
 	}
 
 	return m, nil
@@ -386,7 +407,11 @@ func (m PickerModel) viewList() string {
 			nameCol := style.Width(maxNameWidth).Render(prefix + board.Name)
 			parentDir := filepath.Dir(board.Path)
 			displayPath := abbreviatePath(parentDir)
-			line := nameCol + "  " + pathStyle.Render(displayPath)
+			var suffix string
+			if board.Archived {
+				suffix = " " + pathStyle.Render("[archived]")
+			}
+			line := nameCol + suffix + "  " + pathStyle.Render(displayPath)
 			lines = append(lines, line)
 		}
 		lines = append(lines, "")

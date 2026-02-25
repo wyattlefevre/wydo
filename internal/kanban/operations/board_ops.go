@@ -50,6 +50,12 @@ func DeleteBoard(board models.Board) error {
 	return os.RemoveAll(board.Path)
 }
 
+// ToggleBoardArchive flips the archived state of a board and persists to disk
+func ToggleBoardArchive(board *models.Board) error {
+	board.Archived = !board.Archived
+	return fs.WriteBoard(*board)
+}
+
 func sanitizeName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, " ", "-")

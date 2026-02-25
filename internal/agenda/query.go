@@ -61,10 +61,16 @@ func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 
 	// Scan cards from boards
 	for _, board := range boards {
+		if board.Archived {
+			continue
+		}
 		for colIdx, col := range board.Columns {
 			isDone := strings.EqualFold(col.Name, "done")
 			for cardIdx := range col.Cards {
 				card := &col.Cards[cardIdx]
+				if card.Archived {
+					continue
+				}
 				addCardItems(card, board.Name, board.Path, col.Name, colIdx, cardIdx, isDone, dateRange, bucketMap)
 			}
 		}
@@ -137,12 +143,18 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 
 	// Scan cards from boards
 	for _, board := range boards {
+		if board.Archived {
+			continue
+		}
 		for colIdx, col := range board.Columns {
 			if strings.EqualFold(col.Name, "done") {
 				continue
 			}
 			for cardIdx := range col.Cards {
 				card := &col.Cards[cardIdx]
+				if card.Archived {
+					continue
+				}
 				added := false
 				if card.DueDate != nil {
 					dueDate := *card.DueDate

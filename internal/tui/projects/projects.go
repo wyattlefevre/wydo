@@ -54,9 +54,10 @@ type ProjectsModel struct {
 	// Rename flow state
 	renameEntry *projectEntry
 
-	width  int
-	height int
-	err    error
+	width        int
+	height       int
+	err          error
+	showArchived bool
 }
 
 func NewProjectsModel(workspaces []*workspace.Workspace) ProjectsModel {
@@ -116,6 +117,9 @@ func (m *ProjectsModel) buildEntries() {
 			continue
 		}
 		for _, p := range ws.Projects.List() {
+			if !m.showArchived && p.Archived {
+				continue
+			}
 			m.entries = append(m.entries, projectEntry{
 				Project:  p,
 				RootDir:  ws.RootDir,
@@ -237,6 +241,27 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 				}
 			}
 		}
+
+	case "a":
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			entry := m.entries[m.filtered[m.selected]]
+			if entry.Project.DirPath == "" {
+				m.err = fmt.Errorf("cannot archive virtual project")
+			} else {
+				newArchived := !entry.Project.Archived
+				if err := workspace.SetProjectArchived(entry.Project, newArchived); err != nil {
+					m.err = err
+				} else {
+					m.buildEntries()
+					m.applyFilter()
+				}
+			}
+		}
+
+	case "ctrl+a":
+		m.showArchived = !m.showArchived
+		m.buildEntries()
+		m.applyFilter()
 	}
 	return m, nil
 }
@@ -563,7 +588,9 @@ func (m ProjectsModel) viewList() string {
 
 			name := entry.Project.Name
 			var suffix string
-			if entry.Project.DirPath == "" {
+			if entry.Project.Archived {
+				suffix = " " + virtualBadgeStyle.Render("[archived]")
+			} else if entry.Project.DirPath == "" {
 				suffix = " " + virtualBadgeStyle.Render("(virtual)")
 			}
 			if m.multiWorkspace {

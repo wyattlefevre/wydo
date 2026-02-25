@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
+	"gopkg.in/yaml.v3"
 )
 
 // ReadBoard reads a board.md file and parses it into a Board struct
@@ -20,12 +22,15 @@ func ReadBoard(boardPath string) (models.Board, error) {
 		return models.Board{}, err
 	}
 
+	body, archived := stripBoardFrontmatter(content)
+
 	board := models.Board{
-		Path:    boardPath,
-		Columns: []models.Column{},
+		Path:     boardPath,
+		Columns:  []models.Column{},
+		Archived: archived,
 	}
 
-	reader := text.NewReader(content)
+	reader := text.NewReader(body)
 	parser := goldmark.DefaultParser()
 	doc := parser.Parse(reader)
 
@@ -38,7 +43,7 @@ func ReadBoard(boardPath string) (models.Board, error) {
 
 		switch node := n.(type) {
 		case *ast.Heading:
-			headingText := string(node.Text(content))
+			headingText := string(node.Text(body))
 
 			if node.Level == 1 {
 				board.Name = headingText
@@ -71,4 +76,36 @@ func ReadBoard(boardPath string) (models.Board, error) {
 	}
 
 	return board, nil
+}
+
+// stripBoardFrontmatter extracts optional YAML frontmatter from board.md content.
+// Returns the body (without frontmatter) and whether archived is true.
+func stripBoardFrontmatter(content []byte) ([]byte, bool) {
+	lines := bytes.Split(content, []byte("\n"))
+	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
+		return content, false
+	}
+
+	var frontmatterEnd int
+	for i := 1; i < len(lines); i++ {
+		if bytes.Equal(bytes.TrimSpace(lines[i]), []byte("---")) {
+			frontmatterEnd = i
+			break
+		}
+	}
+
+	if frontmatterEnd == 0 {
+		return content, false
+	}
+
+	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
+	var fm struct {
+		Archived bool `yaml:"archived"`
+	}
+	if err := yaml.Unmarshal(frontmatterBytes, &fm); err != nil {
+		return content, false
+	}
+
+	body := bytes.TrimLeft(bytes.Join(lines[frontmatterEnd+1:], []byte("\n")), "\n")
+	return body, fm.Archived
 }

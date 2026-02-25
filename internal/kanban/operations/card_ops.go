@@ -505,6 +505,24 @@ func hasProject(projects []string, name string) bool {
 	return false
 }
 
+// ToggleCardArchive flips the archived state of a card and persists to disk
+func ToggleCardArchive(board *models.Board, columnIndex, cardIndex int) error {
+	if columnIndex < 0 || columnIndex >= len(board.Columns) {
+		return fmt.Errorf("invalid column index")
+	}
+
+	column := &board.Columns[columnIndex]
+	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+		return fmt.Errorf("invalid card index")
+	}
+
+	card := &column.Cards[cardIndex]
+	card.Archived = !card.Archived
+
+	cardPath := filepath.Join(board.Path, "cards", card.Filename)
+	return fs.WriteCard(*card, cardPath)
+}
+
 // OpenURL opens a URL in the default browser
 func OpenURL(url string) error {
 	var cmd *exec.Cmd

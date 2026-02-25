@@ -110,6 +110,7 @@ type BoardModel struct {
 	allBoards              []models.Board
 	boardSelector          *BoardSelectorModel
 	boardProjects          []string
+	showArchived           bool
 }
 
 func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board, boardProjects []string) BoardModel {
@@ -163,7 +164,7 @@ func (m BoardModel) IsModal() bool {
 func (m BoardModel) HintText() string {
 	switch m.mode {
 	case boardModeMove:
-		return "h/l:move card  j/k:reorder  esc:cancel"
+		return "h/l:move card  j/k:reorder  enter:open  esc:cancel"
 	case boardModeConfirmDelete:
 		return "Delete this card? (y/n)"
 	case boardModeFilter:
@@ -388,6 +389,32 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
 			return m.handleBoardMove()
 		}
+
+	case "a":
+		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
+			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+			if err := operations.ToggleCardArchive(&m.board, m.selectedCol, realIdx); err != nil {
+				m.err = err
+			} else {
+				if m.board.Columns[m.selectedCol].Cards[realIdx].Archived {
+					m.message = "Card archived"
+				} else {
+					m.message = "Card unarchived"
+				}
+				// Clamp cursor for potentially reduced visible set
+				visibleCount := len(m.getVisibleCards(m.selectedCol))
+				if m.selectedCard >= visibleCount && m.selectedCard > 0 {
+					m.selectedCard--
+				}
+				m.columnCursorPos[m.selectedCol] = m.selectedCard
+				m.adjustScrollPosition()
+			}
+		}
+
+	case "ctrl+a":
+		m.showArchived = !m.showArchived
+		m.clampFilteredCursors()
+		m.adjustScrollPosition()
 	}
 
 	return m, nil
@@ -398,6 +425,10 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "esc", "q", " ":
 		m.mode = boardModeNormal
 		return m, nil
+
+	case "enter":
+		m.mode = boardModeNormal
+		return m.handleEdit()
 
 	case "h", "left":
 		if m.selectedCol > 0 {
@@ -1313,6 +1344,12 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		lines = append(lines, cardTagStyle.Render(tagsLine))
 	}
 
+	// Archived indicator (only visible when showArchived is on)
+	if card.Archived {
+		archivedStyle := lipgloss.NewStyle().Background(theme.Primary).Foreground(lipgloss.Color("16"))
+		lines = append(lines, archivedStyle.Render(" archived "))
+	}
+
 	content := strings.Join(lines, "\n")
 
 	style := cardStyle
@@ -1451,25 +1488,50 @@ func (m *BoardModel) recomputeFilter() {
 	}
 }
 
-// getVisibleCards returns the cards to display for a column, respecting the active filter
-func (m *BoardModel) getVisibleCards(colIndex int) []models.Card {
-	if !m.filterActive || m.filteredIndices == nil || colIndex >= len(m.filteredIndices) {
-		return m.board.Columns[colIndex].Cards
+// getVisibleCardIndices returns the real card indices that should be visible,
+// respecting both archive filtering and fuzzy filter.
+func (m *BoardModel) getVisibleCardIndices(colIndex int) []int {
+	allCards := m.board.Columns[colIndex].Cards
+
+	// Start with all indices
+	var baseIndices []int
+	if m.filterActive && m.filteredIndices != nil && colIndex < len(m.filteredIndices) {
+		baseIndices = m.filteredIndices[colIndex]
+	} else {
+		baseIndices = make([]int, len(allCards))
+		for i := range allCards {
+			baseIndices[i] = i
+		}
 	}
-	indices := m.filteredIndices[colIndex]
+
+	// Filter out archived cards unless showArchived
+	if m.showArchived {
+		return baseIndices
+	}
+
+	visible := make([]int, 0, len(baseIndices))
+	for _, idx := range baseIndices {
+		if !allCards[idx].Archived {
+			visible = append(visible, idx)
+		}
+	}
+	return visible
+}
+
+// getVisibleCards returns the cards to display for a column, respecting the active filter and archive state
+func (m *BoardModel) getVisibleCards(colIndex int) []models.Card {
+	indices := m.getVisibleCardIndices(colIndex)
+	allCards := m.board.Columns[colIndex].Cards
 	cards := make([]models.Card, len(indices))
 	for i, idx := range indices {
-		cards[i] = m.board.Columns[colIndex].Cards[idx]
+		cards[i] = allCards[idx]
 	}
 	return cards
 }
 
-// resolveCardIndex translates a filtered position back to the real card index
+// resolveCardIndex translates a visible position back to the real card index
 func (m *BoardModel) resolveCardIndex(colIndex, filteredIndex int) int {
-	if !m.filterActive || m.filteredIndices == nil || colIndex >= len(m.filteredIndices) {
-		return filteredIndex
-	}
-	indices := m.filteredIndices[colIndex]
+	indices := m.getVisibleCardIndices(colIndex)
 	if filteredIndex < len(indices) {
 		return indices[filteredIndex]
 	}

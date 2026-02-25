@@ -743,7 +743,21 @@ func (m AppModel) renderHelpOverlay() string {
 				{"D", "Delete card"},
 				{"c", "Edit columns"},
 				{"/", "Filter"},
+				{"a", "Archive / unarchive card"},
+				{"ctrl+a", "Toggle show archived"},
 				{"esc / q", "Back"},
+			},
+		})
+	case ViewKanbanPicker:
+		sections = append(sections, shared.HelpSection{
+			Title: "Board Picker",
+			Binds: []shared.HelpBind{
+				{"j / k", "Navigate"},
+				{"enter", "Open board"},
+				{"/", "Search"},
+				{"n", "New board"},
+				{"a", "Archive / unarchive board"},
+				{"ctrl+a", "Toggle show archived"},
 			},
 		})
 	case ViewAgendaDay, ViewAgendaWeek:
@@ -776,6 +790,10 @@ func (m AppModel) renderHelpOverlay() string {
 				{"j / k", "Navigate"},
 				{"enter", "Open project"},
 				{"/", "Search"},
+				{"n", "New project"},
+				{"r", "Rename project"},
+				{"a", "Archive / unarchive project"},
+				{"ctrl+a", "Toggle show archived"},
 			},
 		})
 	}

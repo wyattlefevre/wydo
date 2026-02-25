@@ -13,6 +13,10 @@ func WriteBoard(board models.Board) error {
 
 	var buf bytes.Buffer
 
+	if board.Archived {
+		buf.WriteString("---\narchived: true\n---\n\n")
+	}
+
 	buf.WriteString("# ")
 	buf.WriteString(board.Name)
 	buf.WriteString("\n\n")

@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"wydo/internal/scanner"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tasks/service"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Workspace holds all loaded data for one workspace
@@ -230,6 +233,7 @@ type Project struct {
 	DirPath  string // from projects/ directory, "" if virtual
 	Parent   string
 	Children []string
+	Archived bool
 }
 
 // ProjectRegistry manages project discovery and cross-entity queries within a workspace
@@ -283,17 +287,93 @@ func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
 		// Upgrade virtual project with directory info
 		if dirPath != "" && existing.DirPath == "" {
 			existing.DirPath = dirPath
+			existing.Archived = readProjectArchived(dirPath, name)
 		}
 		if parent != "" && existing.Parent == "" {
 			existing.Parent = parent
 		}
 		return
 	}
-	r.projects[name] = &Project{
-		Name:    name,
-		DirPath: dirPath,
-		Parent:  parent,
+	archived := false
+	if dirPath != "" {
+		archived = readProjectArchived(dirPath, name)
 	}
+	r.projects[name] = &Project{
+		Name:     name,
+		DirPath:  dirPath,
+		Parent:   parent,
+		Archived: archived,
+	}
+}
+
+// readProjectArchived reads the project index file and checks for archived: true in frontmatter
+func readProjectArchived(dirPath, name string) bool {
+	indexPath := filepath.Join(dirPath, name+".md")
+	content, err := os.ReadFile(indexPath)
+	if err != nil {
+		return false
+	}
+
+	lines := bytes.Split(content, []byte("\n"))
+	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
+		return false
+	}
+
+	var frontmatterEnd int
+	for i := 1; i < len(lines); i++ {
+		if bytes.Equal(bytes.TrimSpace(lines[i]), []byte("---")) {
+			frontmatterEnd = i
+			break
+		}
+	}
+	if frontmatterEnd == 0 {
+		return false
+	}
+
+	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
+	var fm struct {
+		Archived bool `yaml:"archived"`
+	}
+	if err := yaml.Unmarshal(frontmatterBytes, &fm); err != nil {
+		return false
+	}
+	return fm.Archived
+}
+
+// SetProjectArchived sets the archived state for a project by updating its index file frontmatter.
+// Returns an error for virtual projects (no DirPath).
+func SetProjectArchived(project *Project, archived bool) error {
+	if project.DirPath == "" {
+		return fmt.Errorf("cannot archive virtual project %q", project.Name)
+	}
+
+	indexPath := filepath.Join(project.DirPath, project.Name+".md")
+	content, err := os.ReadFile(indexPath)
+	if err != nil {
+		// File doesn't exist — create it
+		content = []byte(fmt.Sprintf("# %s\n", project.Name))
+	}
+
+	// Strip existing frontmatter
+	body := content
+	lines := bytes.Split(content, []byte("\n"))
+	if len(lines) > 0 && bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
+		for i := 1; i < len(lines); i++ {
+			if bytes.Equal(bytes.TrimSpace(lines[i]), []byte("---")) {
+				body = bytes.TrimLeft(bytes.Join(lines[i+1:], []byte("\n")), "\n")
+				break
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	if archived {
+		buf.WriteString("---\narchived: true\n---\n\n")
+	}
+	buf.Write(body)
+
+	project.Archived = archived
+	return os.WriteFile(indexPath, buf.Bytes(), 0644)
 }
 
 // List returns all projects
