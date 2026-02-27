@@ -1777,7 +1777,7 @@ func (m *BoardModel) adjustScrollPosition() {
 				break
 			}
 
-			accumulatedHeight += cardHeight
+			accumulatedHeight += cardHeight + 1 // +1 for the \n separator added in renderColumn
 			visibleCards++
 		}
 
