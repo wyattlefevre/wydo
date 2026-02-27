@@ -80,6 +80,9 @@ func (m *MonthModel) SetSize(width, height int) {
 
 // SetData updates the data sources and refreshes
 func (m *MonthModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) {
+	now := time.Now()
+	m.viewMonth = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	m.cursorDate = now
 	m.taskSvc = taskSvc
 	m.boards = boards
 	m.notes = allNotes
