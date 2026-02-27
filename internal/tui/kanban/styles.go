@@ -57,6 +57,14 @@ var (
 				MarginBottom(1).
 				Bold(true)
 
+	moveSelectedCardStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder(), false, false, false, true).
+				BorderForeground(theme.Warning).
+				Background(theme.Surface).
+				Padding(0, cardPaddingHorizontal).
+				MarginBottom(1).
+				Bold(true)
+
 	cardTitleStyle = lipgloss.NewStyle().
 			Foreground(theme.Primary).
 			Bold(true)

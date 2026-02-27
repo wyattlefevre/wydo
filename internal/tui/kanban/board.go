@@ -1451,16 +1451,24 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	}
 
 	isSelected := colIndex == m.selectedCol && cardIndex == m.selectedCard
+	isMoveSelected := isSelected && m.mode == boardModeMove
 	if card.Priority > 0 {
 		pStyle := lipgloss.NewStyle().Bold(true).Foreground(priorityColor(card.Priority))
 		tStyle := cardTitleStyle
-		if isSelected {
+		if isMoveSelected {
+			pStyle = pStyle.Background(theme.Surface)
+			tStyle = tStyle.Foreground(theme.Warning).Background(theme.Surface)
+		} else if isSelected {
 			pStyle = pStyle.Background(theme.Surface)
 			tStyle = tStyle.Background(theme.Surface)
 		}
 		lines = append(lines, pStyle.Render(priorityPrefix)+tStyle.Render(title))
 	} else {
-		lines = append(lines, cardTitleStyle.Render(title))
+		tStyle := cardTitleStyle
+		if isMoveSelected {
+			tStyle = tStyle.Foreground(theme.Warning)
+		}
+		lines = append(lines, tStyle.Render(title))
 	}
 
 	// Line 2: Preview/Description (only if not empty)
@@ -1532,7 +1540,11 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 
 	style := cardStyle
 	if colIndex == m.selectedCol && cardIndex == m.selectedCard {
-		style = selectedCardStyle
+		if m.mode == boardModeMove {
+			style = moveSelectedCardStyle
+		} else {
+			style = selectedCardStyle
+		}
 	}
 
 	return style.Render(content)
