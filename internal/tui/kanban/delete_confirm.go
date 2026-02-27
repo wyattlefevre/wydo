@@ -44,11 +44,12 @@ func (m DeleteConfirmModel) View() string {
 
 	// Show card title, truncated to fit the modal width
 	displayTitle := m.cardTitle
-	maxLen := 44 // modal width 50 minus padding
-	if len(displayTitle) > maxLen {
-		displayTitle = displayTitle[:maxLen-3] + "..."
+	const maxLen = 44 // modal width 50 minus padding
+	runes := []rune(displayTitle)
+	if len(runes) > maxLen {
+		displayTitle = string(runes[:maxLen-3]) + "..."
 	}
-	s.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(`"` + displayTitle + `"`))
+	s.WriteString(deleteConfirmCardTitleStyle.Render(`"` + displayTitle + `"`))
 	s.WriteString("\n\n")
 
 	s.WriteString(theme.Muted.Render("This action cannot be undone."))

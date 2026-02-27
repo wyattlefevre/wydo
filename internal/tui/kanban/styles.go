@@ -166,6 +166,8 @@ var (
 				Width(50)
 
 	deleteConfirmTitleStyle = theme.ModalTitle.Foreground(theme.Danger)
+
+	deleteConfirmCardTitleStyle = lipgloss.NewStyle().Foreground(theme.Text)
 )
 
 // modeIndicatorStyle returns a bold style with the given foreground color for mode badges.
