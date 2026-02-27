@@ -657,6 +657,10 @@ func (m BoardModel) handleNew() (BoardModel, tea.Cmd) {
 		return m, nil
 	}
 
+	// Point cursor at the new card so editorFinishedMsg can find it
+	m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
+	m.columnCursorPos[m.selectedCol] = m.selectedCard
+
 	// Open editor for the new card
 	return m, openEditor(m.board.Path, card.Filename)
 }
