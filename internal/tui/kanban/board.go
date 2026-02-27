@@ -468,11 +468,10 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			} else {
 				m.selectedCol--
 				// Card is appended to destination column, so it's at the end
-				m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
 				if m.filterActive {
 					m.recomputeFilter()
-					m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				}
+				m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
@@ -487,11 +486,10 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			} else {
 				m.selectedCol++
 				// Card is appended to destination column, so it's at the end
-				m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
 				if m.filterActive {
 					m.recomputeFilter()
-					m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				}
+				m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
@@ -1459,16 +1457,24 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	}
 
 	isSelected := colIndex == m.selectedCol && cardIndex == m.selectedCard
+	isMoveSelected := isSelected && m.mode == boardModeMove
 	if card.Priority > 0 {
 		pStyle := lipgloss.NewStyle().Bold(true).Foreground(priorityColor(card.Priority))
 		tStyle := cardTitleStyle
-		if isSelected {
+		if isMoveSelected {
+			pStyle = pStyle.Background(lipgloss.Color("54"))
+			tStyle = tStyle.Foreground(theme.Warning).Background(lipgloss.Color("54")).Width(maxWidth - priorityPrefixWidth)
+		} else if isSelected {
 			pStyle = pStyle.Background(theme.Surface)
 			tStyle = tStyle.Background(theme.Surface)
 		}
 		lines = append(lines, pStyle.Render(priorityPrefix)+tStyle.Render(title))
 	} else {
-		lines = append(lines, cardTitleStyle.Render(title))
+		tStyle := cardTitleStyle
+		if isMoveSelected {
+			tStyle = tStyle.Foreground(theme.Warning).Background(lipgloss.Color("54")).Width(maxWidth)
+		}
+		lines = append(lines, tStyle.Render(title))
 	}
 
 	// Line 2: Preview/Description (only if not empty)
@@ -1540,7 +1546,11 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 
 	style := cardStyle
 	if colIndex == m.selectedCol && cardIndex == m.selectedCard {
-		style = selectedCardStyle
+		if m.mode == boardModeMove {
+			style = moveSelectedCardStyle
+		} else {
+			style = selectedCardStyle
+		}
 	}
 
 	return style.Render(content)
