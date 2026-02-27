@@ -121,6 +121,7 @@ func (m *DayModel) SetSize(width, height int) {
 
 // SetData updates the data sources and refreshes
 func (m *DayModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) {
+	m.date = time.Now()
 	m.taskSvc = taskSvc
 	m.boards = boards
 	m.notes = allNotes

@@ -130,6 +130,7 @@ func (m *WeekModel) SetSize(width, height int) {
 
 // SetData updates the data sources and refreshes
 func (m *WeekModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) {
+	m.date = time.Now()
 	m.taskSvc = taskSvc
 	m.boards = boards
 	m.notes = allNotes
