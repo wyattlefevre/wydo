@@ -474,6 +474,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
+				m.adjustScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
 			}
 		}
@@ -492,6 +493,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
+				m.adjustScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
 			}
 		}
@@ -1791,7 +1793,7 @@ func (m *BoardModel) adjustScrollPosition() {
 				break
 			}
 
-			accumulatedHeight += cardHeight
+			accumulatedHeight += cardHeight + 1 // +1 for the \n separator added in renderColumn
 			visibleCards++
 		}
 
