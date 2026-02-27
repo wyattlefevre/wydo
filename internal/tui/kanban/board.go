@@ -1456,7 +1456,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		pStyle := lipgloss.NewStyle().Bold(true).Foreground(priorityColor(card.Priority))
 		tStyle := cardTitleStyle
 		if isMoveSelected {
-			pStyle = pStyle.Background(theme.Surface)
+			pStyle = pStyle.Background(lipgloss.Color("54"))
 			tStyle = tStyle.Foreground(theme.Warning).Background(lipgloss.Color("54")).Width(maxWidth - priorityPrefixWidth)
 		} else if isSelected {
 			pStyle = pStyle.Background(theme.Surface)
