@@ -123,6 +123,12 @@ var (
 			Background(theme.Warning).
 			Foreground(lipgloss.Color("16"))
 
+	// Claude session indicator style
+	cardClaudeStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("5")).
+			Foreground(lipgloss.Color("16")).
+			Bold(true)
+
 	// Scroll indicator style
 	scrollIndicatorStyle = lipgloss.NewStyle().
 				Foreground(theme.Primary).

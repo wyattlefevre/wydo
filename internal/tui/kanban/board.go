@@ -409,6 +409,11 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		}
 
 	case "c":
+		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
+			return m.handleClaudeLaunch()
+		}
+
+	case "C":
 		return m.handleColumnEdit()
 
 	case "M":
@@ -1206,6 +1211,26 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m BoardModel) handleClaudeLaunch() (BoardModel, tea.Cmd) {
+	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+
+	if currentCard.TmuxSession == "" {
+		m.message = "No tmux session linked"
+		return m, nil
+	}
+
+	claudeSession := currentCard.TmuxSession + "-claude"
+	children := getChildSessions(currentCard.TmuxSession)
+	if !children["-claude"] {
+		m.message = "No claude session found"
+		return m, nil
+	}
+
+	m.message = "Switching to " + claudeSession
+	return m, switchTmuxSession(claudeSession)
+}
+
 func (m BoardModel) updateTmuxLaunch(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var targetSession string
 	var done bool
@@ -1545,11 +1570,33 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 
 	// Tmux session indicator
 	if card.TmuxSession != "" {
+		hasClaudeSession := getChildSessions(card.TmuxSession)["-claude"]
 		tmuxLine := " " + card.TmuxSession + " "
-		if len(tmuxLine) > maxWidth {
-			tmuxLine = tmuxLine[:maxWidth-3] + "..."
+		if hasClaudeSession {
+			// Reserve 4 chars for " C " plus min gap (space + " C ")
+			maxTmux := maxWidth - 4
+			if len(tmuxLine) > maxTmux {
+				tmuxLine = tmuxLine[:maxTmux-3] + "..."
+			}
+			padding := maxWidth - len(tmuxLine) - 3 // 3 for " C "
+			if padding < 1 {
+				padding = 1
+			}
+			var gapStyle lipgloss.Style
+			if isMoveSelected {
+				gapStyle = lipgloss.NewStyle().Background(lipgloss.Color("54"))
+			} else if isSelected {
+				gapStyle = lipgloss.NewStyle().Background(theme.Surface)
+			} else {
+				gapStyle = lipgloss.NewStyle()
+			}
+			lines = append(lines, cardTmuxStyle.Render(tmuxLine)+gapStyle.Render(strings.Repeat(" ", padding))+cardClaudeStyle.Render(" C "))
+		} else {
+			if len(tmuxLine) > maxWidth {
+				tmuxLine = tmuxLine[:maxWidth-3] + "..."
+			}
+			lines = append(lines, cardTmuxStyle.Render(tmuxLine))
 		}
-		lines = append(lines, cardTmuxStyle.Render(tmuxLine))
 	}
 
 	// Archived indicator (only visible when showArchived is on)
