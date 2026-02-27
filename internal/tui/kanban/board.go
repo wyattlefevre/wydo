@@ -1457,7 +1457,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		tStyle := cardTitleStyle
 		if isMoveSelected {
 			pStyle = pStyle.Background(theme.Surface)
-			tStyle = tStyle.Foreground(theme.Warning).Background(theme.Surface)
+			tStyle = tStyle.Foreground(theme.Warning).Background(theme.Accent)
 		} else if isSelected {
 			pStyle = pStyle.Background(theme.Surface)
 			tStyle = tStyle.Background(theme.Surface)
@@ -1466,7 +1466,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	} else {
 		tStyle := cardTitleStyle
 		if isMoveSelected {
-			tStyle = tStyle.Foreground(theme.Warning)
+			tStyle = tStyle.Foreground(theme.Warning).Background(theme.Accent)
 		}
 		lines = append(lines, tStyle.Render(title))
 	}
