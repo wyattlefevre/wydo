@@ -395,6 +395,7 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			model.height = m.height
 			m.deleteConfirm = &model
 			m.mode = boardModeConfirmDelete
+			return m, m.deleteConfirm.Init()
 		}
 
 	case "s":
