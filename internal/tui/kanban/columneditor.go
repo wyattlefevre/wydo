@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type columnEditorMode int
@@ -29,6 +30,8 @@ type ColumnEditorModel struct {
 	err           error
 	deleteConfirm bool // Track if in delete confirmation
 	insertBefore  bool // Track if inserting before vs after cursor
+	width         int
+	height        int
 }
 
 // NewColumnEditorModel creates a new column editor
@@ -401,5 +404,6 @@ func (m ColumnEditorModel) View() string {
 
 	// Wrap in box
 	content := s.String()
-	return columnEditorBoxStyle.Render(content)
+	box := columnEditorBoxStyle.Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }

@@ -759,6 +759,8 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleColumnEdit() (BoardModel, tea.Cmd) {
 	editor := NewColumnEditorModel(&m.board)
+	editor.width = m.width
+	editor.height = m.height
 	m.columnEditor = &editor
 	m.mode = boardModeColumnEdit
 	return m, editor.Init()
