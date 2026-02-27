@@ -180,8 +180,6 @@ func (m BoardModel) HintText() string {
 	switch m.mode {
 	case boardModeMove:
 		return "h/l:move card  j/k:reorder  enter:open  esc:cancel"
-	case boardModeConfirmDelete:
-		return "Delete this card? (y/n)"
 	case boardModeFilter:
 		return "type to filter  enter:lock filter  esc:cancel"
 	default:
