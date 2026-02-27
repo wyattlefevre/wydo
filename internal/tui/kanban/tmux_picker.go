@@ -22,6 +22,7 @@ type TmuxPickerModel struct {
 	currentSession string
 	width          int
 	height         int
+	filterMode     bool
 }
 
 // NewTmuxPickerModel creates a new tmux session picker.
@@ -62,7 +63,34 @@ func (m *TmuxPickerModel) recomputeFilter() {
 // selectedSession is the chosen session on enter, empty string on unlink (d), or empty on cancel.
 // done is true on enter, d, or esc.
 func (m TmuxPickerModel) Update(msg tea.KeyMsg) (TmuxPickerModel, string, bool) {
+	if m.filterMode {
+		switch msg.String() {
+		case "enter":
+			m.filterMode = false
+		case "esc":
+			m.filterText = ""
+			m.filterMode = false
+			m.recomputeFilter()
+			m.cursor = 0
+		case "backspace":
+			if len(m.filterText) > 0 {
+				m.filterText = m.filterText[:len(m.filterText)-1]
+				m.recomputeFilter()
+				m.cursor = 0
+			}
+		default:
+			if len(msg.String()) == 1 {
+				m.filterText += msg.String()
+				m.recomputeFilter()
+				m.cursor = 0
+			}
+		}
+		return m, "", false
+	}
+
 	switch msg.String() {
+	case "/":
+		m.filterMode = true
 	case "j", "down":
 		if m.cursor < len(m.filtered)-1 {
 			m.cursor++
@@ -87,13 +115,6 @@ func (m TmuxPickerModel) Update(msg tea.KeyMsg) (TmuxPickerModel, string, bool) 
 			m.recomputeFilter()
 			m.cursor = 0
 		}
-	default:
-		// Single printable characters for filter
-		if len(msg.String()) == 1 {
-			m.filterText += msg.String()
-			m.recomputeFilter()
-			m.cursor = 0
-		}
 	}
 	return m, "", false
 }
@@ -105,8 +126,12 @@ func (m TmuxPickerModel) View() string {
 	lines = append(lines, tagPickerTitleStyle.Render("Link Tmux Session"))
 	lines = append(lines, "")
 
-	if m.filterText != "" {
-		lines = append(lines, helpStyle.Render("/ "+m.filterText))
+	if m.filterText != "" || m.filterMode {
+		filterDisplay := "/ " + m.filterText
+		if m.filterMode {
+			filterDisplay += "_"
+		}
+		lines = append(lines, helpStyle.Render(filterDisplay))
 	}
 
 	if len(m.sessions) == 0 {
@@ -133,7 +158,12 @@ func (m TmuxPickerModel) View() string {
 	}
 
 	lines = append(lines, "")
-	help := "j/k: navigate  enter: select  d: unlink  esc: cancel"
+	var help string
+	if m.filterMode {
+		help = "enter: done  esc: clear filter"
+	} else {
+		help = "/ filter  j/k navigate  enter select  d unlink  esc cancel"
+	}
 	lines = append(lines, helpStyle.Render(help))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
