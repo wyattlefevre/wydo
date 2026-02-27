@@ -159,6 +159,15 @@ var (
 	filterIndicatorStyle = lipgloss.NewStyle().
 				Foreground(theme.Warning).
 				Bold(true)
+
+	// Delete confirmation modal styles
+	deleteConfirmBoxStyle = theme.ModalBox.
+				BorderForeground(theme.Danger).
+				Width(50)
+
+	deleteConfirmTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(theme.Danger)
 )
 
 // modeIndicatorStyle returns a bold style with the given foreground color for mode badges.
