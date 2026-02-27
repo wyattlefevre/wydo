@@ -165,9 +165,7 @@ var (
 				BorderForeground(theme.Danger).
 				Width(50)
 
-	deleteConfirmTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(theme.Danger)
+	deleteConfirmTitleStyle = theme.ModalTitle.Foreground(theme.Danger)
 )
 
 // modeIndicatorStyle returns a bold style with the given foreground color for mode badges.
