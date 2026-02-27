@@ -112,6 +112,7 @@ type BoardModel struct {
 	dueDatePicker          *shared.DatePickerModel
 	scheduledDatePicker    *shared.DatePickerModel
 	priorityInput          *PriorityInputModel
+	deleteConfirm          *DeleteConfirmModel
 	columnScrollOffsets    []int // scroll position (card index) for each column
 	columnCursorPos        []int // cursor position (card index) for each column
 	columnHorizontalOffset int   // horizontal scroll offset (first visible column index)
@@ -179,8 +180,6 @@ func (m BoardModel) HintText() string {
 	switch m.mode {
 	case boardModeMove:
 		return "h/l:move card  j/k:reorder  enter:open  esc:cancel"
-	case boardModeConfirmDelete:
-		return "Delete this card? (y/n)"
 	case boardModeFilter:
 		return "type to filter  enter:lock filter  esc:cancel"
 	default:
@@ -389,7 +388,14 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 	case "D":
 		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
+			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+			cardTitle := m.board.Columns[m.selectedCol].Cards[realIdx].Title
+			model := NewDeleteConfirmModel(cardTitle)
+			model.width = m.width
+			model.height = m.height
+			m.deleteConfirm = &model
 			m.mode = boardModeConfirmDelete
+			return m, m.deleteConfirm.Init()
 		}
 
 	case "s":
@@ -528,8 +534,15 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 }
 
 func (m BoardModel) updateConfirmDelete(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
-	switch msg.String() {
-	case "y":
+	if m.deleteConfirm == nil {
+		m.mode = boardModeNormal
+		return m, nil
+	}
+
+	updated, confirmed, cancelled := m.deleteConfirm.Update(msg)
+	*m.deleteConfirm = updated
+
+	if confirmed {
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 		if err := operations.DeleteCard(&m.board, m.selectedCol, realIdx); err != nil {
 			m.err = err
@@ -538,16 +551,11 @@ func (m BoardModel) updateConfirmDelete(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			if m.filterActive {
 				m.recomputeFilter()
 			}
-			// Adjust selection against visible cards
 			visibleCount := len(m.getVisibleCards(m.selectedCol))
 			if m.selectedCard >= visibleCount && m.selectedCard > 0 {
 				m.selectedCard--
 			}
-
-			// Sync saved cursor position
 			m.columnCursorPos[m.selectedCol] = m.selectedCard
-
-			// Adjust scroll position if needed
 			if m.columnScrollOffsets[m.selectedCol] >= visibleCount {
 				if m.columnScrollOffsets[m.selectedCol] > 0 {
 					m.columnScrollOffsets[m.selectedCol]--
@@ -555,9 +563,10 @@ func (m BoardModel) updateConfirmDelete(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			}
 		}
 		m.mode = boardModeNormal
-
-	case "n", "esc":
+		m.deleteConfirm = nil
+	} else if cancelled {
 		m.mode = boardModeNormal
+		m.deleteConfirm = nil
 	}
 
 	return m, nil
@@ -1254,6 +1263,11 @@ func (m BoardModel) View() string {
 	// Show priority input if in priority input mode
 	if m.mode == boardModePriorityInput && m.priorityInput != nil {
 		return m.priorityInput.View()
+	}
+
+	// Show delete confirm modal if in confirm delete mode
+	if m.mode == boardModeConfirmDelete && m.deleteConfirm != nil {
+		return m.deleteConfirm.View()
 	}
 
 	// Show board selector if in board move mode
