@@ -468,11 +468,10 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			} else {
 				m.selectedCol--
 				// Card is appended to destination column, so it's at the end
-				m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
 				if m.filterActive {
 					m.recomputeFilter()
-					m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				}
+				m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
@@ -487,11 +486,10 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			} else {
 				m.selectedCol++
 				// Card is appended to destination column, so it's at the end
-				m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
 				if m.filterActive {
 					m.recomputeFilter()
-					m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				}
+				m.selectedCard = max(0, len(m.getVisibleCards(m.selectedCol))-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 				m.adjustHorizontalScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
