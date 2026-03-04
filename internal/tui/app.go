@@ -89,9 +89,28 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		view = ViewProjects
 	}
 
-	// Compute available dirs for picker
-	availableDirs := make([]string, 0, len(cfg.Workspaces))
-	availableDirs = append(availableDirs, cfg.Workspaces...)
+	// Compute available boards/ directories for the picker.
+	// Use parent dirs of discovered boards; fall back to <workspace>/boards/ for empty workspaces.
+	seen := make(map[string]bool)
+	var availableDirs []string
+
+	for _, ws := range workspaces {
+		for _, board := range ws.Boards {
+			dir := filepath.Dir(board.Path)
+			if !seen[dir] {
+				seen[dir] = true
+				availableDirs = append(availableDirs, dir)
+			}
+		}
+		if len(ws.Boards) == 0 {
+			fallback := filepath.Join(ws.RootDir, "boards")
+			if !seen[fallback] {
+				seen[fallback] = true
+				availableDirs = append(availableDirs, fallback)
+			}
+		}
+	}
+	sort.Strings(availableDirs)
 
 	defaultDir := ""
 	if len(availableDirs) > 0 {
