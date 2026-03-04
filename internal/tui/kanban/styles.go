@@ -129,6 +129,11 @@ var (
 			Foreground(lipgloss.Color("16")).
 			Bold(true)
 
+	// Jira issue badge style
+	jiraStatusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("69")).
+			Italic(true)
+
 	// Scroll indicator style
 	scrollIndicatorStyle = lipgloss.NewStyle().
 				Foreground(theme.Primary).

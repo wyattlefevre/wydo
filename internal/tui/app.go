@@ -764,6 +764,8 @@ func (m AppModel) renderHelpOverlay() string {
 				{"/", "Filter"},
 				{"x", "Switch to tmux session"},
 				{"X", "Link tmux session"},
+				{"ctrl+j", "Link Jira board"},
+				{"J", "Link Jira issue to card"},
 				{"a", "Archive / unarchive card"},
 				{"ctrl+a", "Toggle show archived"},
 				{"esc / q", "Back"},

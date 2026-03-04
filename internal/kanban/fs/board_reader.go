@@ -22,12 +22,13 @@ func ReadBoard(boardPath string) (models.Board, error) {
 		return models.Board{}, err
 	}
 
-	body, archived := stripBoardFrontmatter(content)
+	body, archived, jiraBoardID := stripBoardFrontmatter(content)
 
 	board := models.Board{
-		Path:     boardPath,
-		Columns:  []models.Column{},
-		Archived: archived,
+		Path:        boardPath,
+		Columns:     []models.Column{},
+		Archived:    archived,
+		JiraBoardID: jiraBoardID,
 	}
 
 	reader := text.NewReader(body)
@@ -79,11 +80,11 @@ func ReadBoard(boardPath string) (models.Board, error) {
 }
 
 // stripBoardFrontmatter extracts optional YAML frontmatter from board.md content.
-// Returns the body (without frontmatter) and whether archived is true.
-func stripBoardFrontmatter(content []byte) ([]byte, bool) {
+// Returns the body (without frontmatter), whether archived is true, and the jira_board_id.
+func stripBoardFrontmatter(content []byte) ([]byte, bool, int) {
 	lines := bytes.Split(content, []byte("\n"))
 	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
-		return content, false
+		return content, false, 0
 	}
 
 	var frontmatterEnd int
@@ -95,17 +96,18 @@ func stripBoardFrontmatter(content []byte) ([]byte, bool) {
 	}
 
 	if frontmatterEnd == 0 {
-		return content, false
+		return content, false, 0
 	}
 
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
 	var fm struct {
-		Archived bool `yaml:"archived"`
+		Archived    bool `yaml:"archived"`
+		JiraBoardID int  `yaml:"jira_board_id"`
 	}
 	if err := yaml.Unmarshal(frontmatterBytes, &fm); err != nil {
-		return content, false
+		return content, false, 0
 	}
 
 	body := bytes.TrimLeft(bytes.Join(lines[frontmatterEnd+1:], []byte("\n")), "\n")
-	return body, fm.Archived
+	return body, fm.Archived, fm.JiraBoardID
 }

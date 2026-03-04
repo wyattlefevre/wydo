@@ -4,10 +4,11 @@ import "strings"
 
 // Board represents a kanban board with its columns and cards
 type Board struct {
-	Name     string   // Board name from H1 in board.md
-	Path     string   // Absolute path to board directory
-	Columns  []Column // List of columns
-	Archived bool     // From YAML frontmatter in board.md
+	Name        string   // Board name from H1 in board.md
+	Path        string   // Absolute path to board directory
+	Columns     []Column // List of columns
+	Archived    bool     // From YAML frontmatter in board.md
+	JiraBoardID int      // From YAML frontmatter in board.md (optional)
 }
 
 // GetColumn returns a pointer to the column with the given name

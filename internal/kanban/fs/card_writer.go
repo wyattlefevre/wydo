@@ -13,7 +13,7 @@ import (
 func WriteCard(card models.Card, path string) error {
 	var buf bytes.Buffer
 
-	if len(card.Tags) > 0 || len(card.Projects) > 0 || len(card.URLs) > 0 || card.DueDate != nil || card.ScheduledDate != nil || card.DateCompleted != nil || card.Priority > 0 || card.Archived || card.TmuxSession != "" {
+	if len(card.Tags) > 0 || len(card.Projects) > 0 || len(card.URLs) > 0 || card.DueDate != nil || card.ScheduledDate != nil || card.DateCompleted != nil || card.Priority > 0 || card.Archived || card.TmuxSession != "" || card.JiraKey != "" || card.JiraStatus != "" {
 		buf.WriteString("---\n")
 
 		frontmatter := struct {
@@ -26,6 +26,8 @@ func WriteCard(card models.Card, path string) error {
 			Priority      int              `yaml:"priority,omitempty"`
 			Archived      bool             `yaml:"archived,omitempty"`
 			TmuxSession   string           `yaml:"tmux_session,omitempty"`
+			JiraKey       string           `yaml:"jira_key,omitempty"`
+			JiraStatus    string           `yaml:"jira_status,omitempty"`
 		}{
 			Tags:        card.Tags,
 			Projects:    card.Projects,
@@ -33,6 +35,8 @@ func WriteCard(card models.Card, path string) error {
 			Priority:    card.Priority,
 			Archived:    card.Archived,
 			TmuxSession: card.TmuxSession,
+			JiraKey:     card.JiraKey,
+			JiraStatus:  card.JiraStatus,
 		}
 
 		if card.DueDate != nil {

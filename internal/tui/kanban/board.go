@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"wydo/internal/config"
 	"wydo/internal/kanban/fs"
 	"wydo/internal/kanban/models"
 	"wydo/internal/kanban/operations"
@@ -38,6 +39,10 @@ const (
 	boardModeBoardMove
 	boardModeTmuxPicker
 	boardModeTmuxLaunch
+	boardModeJiraSetup
+	boardModeJiraLink
+	boardModeJiraIssue
+	boardModeJiraLoading
 )
 
 func (m boardMode) String() string {
@@ -72,6 +77,8 @@ func (m boardMode) String() string {
 		return "TMUX"
 	case boardModeTmuxLaunch:
 		return "TMUX"
+	case boardModeJiraSetup, boardModeJiraLink, boardModeJiraIssue, boardModeJiraLoading:
+		return "JIRA"
 	default:
 		return "NORMAL"
 	}
@@ -89,6 +96,8 @@ func (m boardMode) modeColor() lipgloss.Color {
 		return theme.Danger
 	case boardModeTmuxPicker, boardModeTmuxLaunch:
 		return theme.Success
+	case boardModeJiraSetup, boardModeJiraLink, boardModeJiraIssue, boardModeJiraLoading:
+		return lipgloss.Color("69")
 	default:
 		return theme.Accent
 	}
@@ -126,6 +135,9 @@ type BoardModel struct {
 	tmuxLaunch             *TmuxLaunchModel
 	boardProjects          []string
 	showArchived           bool
+	jiraSetup              *JiraSetupModel
+	jiraBoardPicker        *JiraBoardPickerModel
+	jiraIssueInput         *JiraIssueInputModel
 }
 
 func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board, boardProjects []string) BoardModel {
@@ -196,12 +208,72 @@ func (m BoardModel) ModeText() string {
 }
 
 func (m BoardModel) Init() tea.Cmd {
-	return nil
+	return m.initJiraRefresh()
+}
+
+func (m BoardModel) initJiraRefresh() tea.Cmd {
+	cfg := config.Get()
+	if cfg == nil || cfg.Jira == nil {
+		return nil
+	}
+
+	// Collect all JiraKey values across all cards
+	var keys []string
+	seen := make(map[string]bool)
+	for _, col := range m.board.Columns {
+		for _, card := range col.Cards {
+			if card.JiraKey != "" && !seen[card.JiraKey] {
+				keys = append(keys, card.JiraKey)
+				seen[card.JiraKey] = true
+			}
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+
+	return refreshJiraStatuses(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, keys)
 }
 
 // Update handles board events as a child view
 func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case jiraStatusMsg:
+		if len(msg.statuses) > 0 {
+			for ci, col := range m.board.Columns {
+				for ki, card := range col.Cards {
+					if card.JiraKey != "" {
+						if status, ok := msg.statuses[card.JiraKey]; ok && status != card.JiraStatus {
+							m.board.Columns[ci].Cards[ki].JiraStatus = status
+							cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
+							_ = fs.WriteCard(m.board.Columns[ci].Cards[ki], cardPath)
+						}
+					}
+				}
+			}
+		}
+		return m, nil
+
+	case jiraFetchBoardsMsg:
+		m.mode = boardModeNormal
+		if msg.err != nil {
+			m.err = fmt.Errorf("Jira: %w", msg.err)
+			m.jiraBoardPicker = nil
+			return m, nil
+		}
+		picker := NewJiraBoardPickerModel(msg.boards)
+		picker.width = m.width
+		picker.height = m.height
+		m.jiraBoardPicker = &picker
+		m.mode = boardModeJiraLink
+		return m, nil
+
+	case jiraFetchSingleIssueMsg:
+		if m.jiraIssueInput != nil {
+			m.jiraIssueInput.SetPreview(msg.issue, msg.err)
+		}
+		return m, nil
+
 	case editorFinishedMsg:
 		if msg.err != nil {
 			m.err = msg.err
@@ -258,6 +330,15 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			return m.updateTmuxPicker(msg)
 		case boardModeTmuxLaunch:
 			return m.updateTmuxLaunch(msg)
+		case boardModeJiraSetup:
+			return m.updateJiraSetup(msg)
+		case boardModeJiraLink:
+			return m.updateJiraLink(msg)
+		case boardModeJiraIssue:
+			return m.updateJiraIssue(msg)
+		case boardModeJiraLoading:
+			// Ignore keypresses while loading
+			return m, nil
 		}
 	}
 
@@ -456,6 +537,14 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		m.showArchived = !m.showArchived
 		m.clampFilteredCursors()
 		m.adjustScrollPosition()
+
+	case "ctrl+j":
+		return m.handleJiraLink()
+
+	case "J":
+		if m.selectedCol < len(m.board.Columns) && m.selectedCard < len(m.getVisibleCards(m.selectedCol)) {
+			return m.handleJiraIssue()
+		}
 	}
 
 	return m, nil
@@ -1049,14 +1138,26 @@ func (m BoardModel) handleOpenURL() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
 
-	if !currentCard.HasURLs() {
+	// Build effective URL list: Jira ticket first (if linked), then card URLs
+	urls := make([]models.CardURL, 0, len(currentCard.URLs)+1)
+	if currentCard.JiraKey != "" {
+		jiraURL := currentCard.JiraKey // fallback label if no base URL
+		cfg := config.Get()
+		if cfg != nil && cfg.Jira != nil {
+			jiraURL = cfg.Jira.BaseURL + "/browse/" + currentCard.JiraKey
+		}
+		urls = append(urls, models.CardURL{Label: "jira", URL: jiraURL})
+	}
+	urls = append(urls, currentCard.URLs...)
+
+	if len(urls) == 0 {
 		m.message = "No URLs set for this card"
 		return m, nil
 	}
 
 	// Single URL — open directly
-	if len(currentCard.URLs) == 1 {
-		err := operations.OpenURL(currentCard.URLs[0].URL)
+	if len(urls) == 1 {
+		err := operations.OpenURL(urls[0].URL)
 		if err != nil {
 			m.err = fmt.Errorf("failed to open URL: %v", err)
 		} else {
@@ -1066,7 +1167,7 @@ func (m BoardModel) handleOpenURL() (BoardModel, tea.Cmd) {
 	}
 
 	// Multiple URLs — open picker
-	picker := NewURLPickerModel(currentCard.URLs)
+	picker := NewURLPickerModel(urls)
 	picker.width = m.width
 	picker.height = m.height
 	m.urlPicker = &picker
@@ -1249,7 +1350,139 @@ func (m BoardModel) updateTmuxLaunch(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	return m, nil
 }
 
+func (m BoardModel) handleJiraLink() (BoardModel, tea.Cmd) {
+	cfg := config.Get()
+	if cfg == nil || cfg.Jira == nil {
+		var existing *config.JiraConfig
+		if cfg != nil {
+			existing = cfg.Jira
+		}
+		setup := NewJiraSetupModel(existing)
+		setup.width = m.width
+		setup.height = m.height
+		m.jiraSetup = &setup
+		m.mode = boardModeJiraSetup
+		return m, setup.Init()
+	}
+	m.mode = boardModeJiraLoading
+	m.message = "Loading Jira boards..."
+	return m, fetchJiraBoards(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken)
+}
+
+func (m BoardModel) updateJiraSetup(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	if m.jiraSetup == nil {
+		m.mode = boardModeNormal
+		return m, nil
+	}
+
+	updated, savedCfg, done := m.jiraSetup.Update(msg)
+	*m.jiraSetup = updated
+
+	if done {
+		m.jiraSetup = nil
+		m.mode = boardModeNormal
+		if savedCfg != nil {
+			if err := config.SaveJiraConfig(savedCfg); err != nil {
+				m.err = fmt.Errorf("failed to save Jira config: %w", err)
+				return m, nil
+			}
+			m.message = "Jira configured — loading boards..."
+			m.mode = boardModeJiraLoading
+			return m, fetchJiraBoards(savedCfg.BaseURL, savedCfg.Email, savedCfg.APIToken)
+		}
+	}
+
+	return m, nil
+}
+
+func (m BoardModel) updateJiraLink(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	if m.jiraBoardPicker == nil {
+		m.mode = boardModeNormal
+		return m, nil
+	}
+
+	updated, selected, done := m.jiraBoardPicker.Update(msg)
+	*m.jiraBoardPicker = updated
+
+	if done {
+		m.mode = boardModeNormal
+		m.jiraBoardPicker = nil
+		if selected != nil {
+			m.board.JiraBoardID = selected.ID
+			if err := fs.WriteBoard(m.board); err != nil {
+				m.err = err
+			} else {
+				m.message = fmt.Sprintf("Linked to Jira board: %s (ID %d)", selected.Name, selected.ID)
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m BoardModel) handleJiraIssue() (BoardModel, tea.Cmd) {
+	cfg := config.Get()
+	if cfg == nil || cfg.Jira == nil {
+		return m.handleJiraLink()
+	}
+	input := NewJiraIssueInputModel()
+	input.width = m.width
+	input.height = m.height
+	m.jiraIssueInput = &input
+	m.mode = boardModeJiraIssue
+	return m, textinput.Blink
+}
+
+func (m BoardModel) updateJiraIssue(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	if m.jiraIssueInput == nil {
+		m.mode = boardModeNormal
+		return m, nil
+	}
+
+	updated, keyToFetch, confirmed, done := m.jiraIssueInput.Update(msg)
+	*m.jiraIssueInput = updated
+
+	if keyToFetch != "" {
+		cfg := config.Get()
+		return m, fetchJiraSingleIssue(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, keyToFetch)
+	}
+
+	if done {
+		m.mode = boardModeNormal
+		m.jiraIssueInput = nil
+		if confirmed != nil {
+			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+			m.board.Columns[m.selectedCol].Cards[realIdx].JiraKey = confirmed.Key
+			m.board.Columns[m.selectedCol].Cards[realIdx].JiraStatus = confirmed.Status
+			card := m.board.Columns[m.selectedCol].Cards[realIdx]
+			cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
+			if err := fs.WriteCard(card, cardPath); err != nil {
+				m.err = err
+			} else {
+				m.message = fmt.Sprintf("Linked to Jira issue: %s [%s]", confirmed.Key, confirmed.Status)
+			}
+		}
+	}
+
+	return m, nil
+}
+
 func (m BoardModel) View() string {
+	// Show Jira setup wizard if not yet configured
+	if m.mode == boardModeJiraSetup && m.jiraSetup != nil {
+		return m.jiraSetup.View()
+	}
+
+	// Show Jira board picker if in jira link mode
+	if m.mode == boardModeJiraLink && m.jiraBoardPicker != nil {
+		return m.jiraBoardPicker.View()
+	}
+
+	// Show Jira issue input if in jira issue mode
+	if m.mode == boardModeJiraIssue && m.jiraIssueInput != nil {
+		return m.jiraIssueInput.View()
+	}
+
 	// Show tag picker if in tag edit mode
 	if m.mode == boardModeTagEdit && m.tagPicker != nil {
 		return m.tagPicker.View()
@@ -1566,6 +1799,15 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 			tagsLine = tagsLine[:maxWidth-3] + "..."
 		}
 		lines = append(lines, cardTagStyle.Render(tagsLine))
+	}
+
+	// Jira issue badge
+	if card.JiraKey != "" {
+		jiraLine := jiraStatusLabel(card.JiraKey, card.JiraStatus)
+		if len(jiraLine) > maxWidth {
+			jiraLine = jiraLine[:maxWidth-3] + "..."
+		}
+		lines = append(lines, jiraStatusStyle.Render(jiraLine))
 	}
 
 	// Tmux session indicator

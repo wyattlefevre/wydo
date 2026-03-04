@@ -7,17 +7,26 @@ import (
 	"strings"
 )
 
+// JiraConfig holds Jira API credentials and connection info
+type JiraConfig struct {
+	BaseURL  string `json:"base_url"`
+	Email    string `json:"email"`
+	APIToken string `json:"api_token"`
+}
+
 // Config holds the unified application configuration
 type Config struct {
-	Workspaces   []string `json:"workspaces"`
-	DefaultView  string   `json:"default_view"`
-	DefaultBoard string   `json:"-"` // runtime-only: open a specific board by name
+	Workspaces   []string    `json:"workspaces"`
+	DefaultView  string      `json:"default_view"`
+	DefaultBoard string      `json:"-"` // runtime-only: open a specific board by name
+	Jira         *JiraConfig `json:"jira,omitempty"`
 }
 
 // Settings represents the config file structure
 type Settings struct {
-	Workspaces  []string `json:"workspaces"`
-	DefaultView string   `json:"default_view,omitempty"`
+	Workspaces  []string    `json:"workspaces"`
+	DefaultView string      `json:"default_view,omitempty"`
+	Jira        *JiraConfig `json:"jira,omitempty"`
 }
 
 // CLIFlags holds parsed CLI flags
@@ -42,6 +51,9 @@ func Load(flags CLIFlags) (*Config, error) {
 			}
 			if len(fileConfig.Workspaces) > 0 {
 				cfg.Workspaces = expandPaths(fileConfig.Workspaces)
+			}
+			if fileConfig.Jira != nil {
+				cfg.Jira = fileConfig.Jira
 			}
 		}
 	}
@@ -106,6 +118,42 @@ func loadConfigFile(path string) (*Settings, error) {
 	}
 
 	return &settings, nil
+}
+
+// SaveJiraConfig writes the Jira config block into the config file, preserving other settings.
+func SaveJiraConfig(jira *JiraConfig) error {
+	configPath, err := getConfigPath()
+	if err != nil {
+		return err
+	}
+
+	var settings Settings
+	if data, err := os.ReadFile(configPath); err == nil {
+		_ = json.Unmarshal(data, &settings)
+	}
+
+	settings.Jira = jira
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return err
+	}
+
+	// Update global config in memory
+	if globalConfig != nil {
+		globalConfig.Jira = jira
+	}
+
+	return nil
 }
 
 // EnsureWorkspaces ensures all workspace directories exist (creates them if missing)

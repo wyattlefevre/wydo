@@ -23,6 +23,8 @@ type Card struct {
 	Priority      int        // From YAML frontmatter (0 = unset)
 	Archived      bool       // From YAML frontmatter
 	TmuxSession   string     // From YAML frontmatter
+	JiraKey       string     // From YAML frontmatter (e.g. "PROJ-123")
+	JiraStatus    string     // From YAML frontmatter (cached Jira status)
 }
 
 // HasURLs returns true if the card has at least one URL

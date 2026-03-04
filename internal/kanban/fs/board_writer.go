@@ -2,6 +2,7 @@ package fs
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"wydo/internal/kanban/models"
@@ -13,8 +14,15 @@ func WriteBoard(board models.Board) error {
 
 	var buf bytes.Buffer
 
-	if board.Archived {
-		buf.WriteString("---\narchived: true\n---\n\n")
+	if board.Archived || board.JiraBoardID != 0 {
+		buf.WriteString("---\n")
+		if board.Archived {
+			buf.WriteString("archived: true\n")
+		}
+		if board.JiraBoardID != 0 {
+			buf.WriteString(fmt.Sprintf("jira_board_id: %d\n", board.JiraBoardID))
+		}
+		buf.WriteString("---\n\n")
 	}
 
 	buf.WriteString("# ")

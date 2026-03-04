@@ -44,6 +44,8 @@ func ReadCard(cardPath string) (models.Card, error) {
 		Priority:      result.Priority,
 		Archived:      result.Archived,
 		TmuxSession:   result.TmuxSession,
+		JiraKey:       result.JiraKey,
+		JiraStatus:    result.JiraStatus,
 	}, nil
 }
 
@@ -58,6 +60,8 @@ type FrontmatterResult struct {
 	Priority      int
 	Archived      bool
 	TmuxSession   string
+	JiraKey       string
+	JiraStatus    string
 	Body          string
 }
 
@@ -98,6 +102,8 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		Priority      int              `yaml:"priority"`
 		Archived      bool             `yaml:"archived"`
 		TmuxSession   string           `yaml:"tmux_session"`
+		JiraKey       string           `yaml:"jira_key,omitempty"`
+		JiraStatus    string           `yaml:"jira_status,omitempty"`
 	}
 
 	if err := yaml.Unmarshal(frontmatterBytes, &frontmatter); err != nil {
@@ -155,6 +161,8 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		Priority:      frontmatter.Priority,
 		Archived:      frontmatter.Archived,
 		TmuxSession:   frontmatter.TmuxSession,
+		JiraKey:       frontmatter.JiraKey,
+		JiraStatus:    frontmatter.JiraStatus,
 		Body:          body,
 	}, nil
 }
