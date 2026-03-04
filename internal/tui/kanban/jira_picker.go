@@ -161,11 +161,12 @@ type JiraIssueInputModel struct {
 	height  int
 }
 
-func NewJiraIssueInputModel() JiraIssueInputModel {
+func NewJiraIssueInputModel(currentKey string) JiraIssueInputModel {
 	ti := textinput.New()
 	ti.Placeholder = "e.g. CE-487"
 	ti.CharLimit = 30
 	ti.Width = 20
+	ti.SetValue(currentKey)
 	ti.Focus()
 	return JiraIssueInputModel{input: ti}
 }
@@ -199,7 +200,8 @@ func (m JiraIssueInputModel) Update(msg tea.KeyMsg) (JiraIssueInputModel, string
 		case jiraIssueInputTyping:
 			key := strings.TrimSpace(strings.ToUpper(m.input.Value()))
 			if key == "" {
-				return m, "", nil, false
+				// Empty submit = unlink
+				return m, "", &jira.Issue{}, true
 			}
 			m.state = jiraIssueInputLoading
 			m.input.Blur()
@@ -234,7 +236,7 @@ func (m JiraIssueInputModel) View() string {
 	case jiraIssueInputTyping:
 		b.WriteString("  Issue key: " + m.input.View())
 		b.WriteString("\n\n")
-		b.WriteString(helpStyle.Render("  enter: look up • esc: cancel"))
+		b.WriteString(helpStyle.Render("  enter: look up • enter (empty): unlink • esc: cancel"))
 
 	case jiraIssueInputLoading:
 		b.WriteString(pathStyle.Render("  Looking up " + strings.ToUpper(m.input.Value()) + "..."))

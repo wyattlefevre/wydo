@@ -1425,7 +1425,9 @@ func (m BoardModel) handleJiraIssue() (BoardModel, tea.Cmd) {
 	if cfg == nil || cfg.Jira == nil {
 		return m.handleJiraLink()
 	}
-	input := NewJiraIssueInputModel()
+	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+	currentKey := m.board.Columns[m.selectedCol].Cards[realIdx].JiraKey
+	input := NewJiraIssueInputModel(currentKey)
 	input.width = m.width
 	input.height = m.height
 	m.jiraIssueInput = &input
@@ -1458,6 +1460,8 @@ func (m BoardModel) updateJiraIssue(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
 			if err := fs.WriteCard(card, cardPath); err != nil {
 				m.err = err
+			} else if confirmed.Key == "" {
+				m.message = "Jira issue unlinked"
 			} else {
 				m.message = fmt.Sprintf("Linked to Jira issue: %s [%s]", confirmed.Key, confirmed.Status)
 			}
