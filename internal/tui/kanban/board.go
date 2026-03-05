@@ -1717,7 +1717,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	priorityPrefix := ""
 	priorityPrefixWidth := 0
 	if card.Priority > 0 {
-		priorityPrefix = fmt.Sprintf("%d ", card.Priority)
+		priorityPrefix = fmt.Sprintf(" %d ", card.Priority)
 		priorityPrefixWidth = len(priorityPrefix)
 	}
 
