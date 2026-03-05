@@ -141,7 +141,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
 			loaded, err := fs.ReadBoard(board.Path)
 			if err == nil {
-				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjectNames(workspaces), allBoards, projectsForBoard(workspaces, board.Path))
+				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjects(workspaces), allBoards, projectsForBoard(workspaces, board.Path))
 				app.boardLoaded = true
 				app.currentView = ViewKanbanBoard
 			}
@@ -184,7 +184,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Stay on current view if board can't be loaded
 			return m, nil
 		}
-		m.boardView = kanbanview.NewBoardModel(board, collectAllProjectNames(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
+		m.boardView = kanbanview.NewBoardModel(board, collectAllProjects(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
 		m.boardView.SetSize(m.width, m.height-4)
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
 			m.boardView.NavigateTo(msg.ColIndex, msg.CardIndex)
@@ -559,24 +559,66 @@ func collectProjectDates(workspaces []*workspace.Workspace) []agendapkg.ProjectD
 	return result
 }
 
-// collectAllProjectNames returns a sorted, deduplicated list of project names
+// collectAllProjects returns projects in hierarchical DFS order with depth metadata,
 // from all workspaces (directories, task +tags, and card frontmatter).
-func collectAllProjectNames(workspaces []*workspace.Workspace) []string {
-	seen := make(map[string]bool)
+func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectPickerItem {
+	// Collect all unique projects across workspaces
+	seen := make(map[string]*workspace.Project)
 	for _, ws := range workspaces {
 		if ws.Projects == nil {
 			continue
 		}
 		for _, p := range ws.Projects.List() {
-			seen[p.Name] = true
+			if _, exists := seen[p.Name]; !exists {
+				seen[p.Name] = p
+			}
 		}
 	}
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
+
+	// Build parent -> children adjacency (sorted)
+	children := make(map[string][]string)
+	for name, p := range seen {
+		children[p.Parent] = append(children[p.Parent], name)
 	}
-	sort.Strings(names)
-	return names
+	for k := range children {
+		sort.Strings(children[k])
+	}
+
+	// DFS from roots to build ordered list with depths
+	var result []kanbanview.ProjectPickerItem
+	visited := make(map[string]bool)
+
+	var dfs func(name string, depth int)
+	dfs = func(name string, depth int) {
+		if visited[name] {
+			return
+		}
+		visited[name] = true
+		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: depth})
+		for _, child := range children[name] {
+			dfs(child, depth+1)
+		}
+	}
+
+	// Visit roots (Parent == "") in sorted order
+	roots := children[""]
+	for _, root := range roots {
+		dfs(root, 0)
+	}
+
+	// Append any unvisited projects (virtual projects without matching parent) at depth 0
+	remaining := make([]string, 0)
+	for name := range seen {
+		if !visited[name] {
+			remaining = append(remaining, name)
+		}
+	}
+	sort.Strings(remaining)
+	for _, name := range remaining {
+		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: 0})
+	}
+
+	return result
 }
 
 // projectsForBoard returns the project names (immediate + ancestors) that own
