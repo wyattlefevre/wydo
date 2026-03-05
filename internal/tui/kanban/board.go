@@ -1500,7 +1500,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	isSelected := colIndex == m.selectedCol && cardIndex == m.selectedCard
 	isMoveSelected := isSelected && m.mode == boardModeMove
 	if card.Priority > 0 {
-		pStyle := lipgloss.NewStyle().Bold(true).Foreground(priorityColor(card.Priority))
+		pStyle := kanbanPriorityStyle(card.Priority)
 		tStyle := cardTitleStyle
 		if isMoveSelected {
 			pStyle = pStyle.Background(lipgloss.Color("54"))
