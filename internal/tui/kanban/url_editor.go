@@ -201,6 +201,17 @@ func (m URLEditorModel) GetURLs() []models.CardURL {
 	return m.urls
 }
 
+// SetSize sets the display dimensions for centering the modal.
+func (m *URLEditorModel) SetSize(w, h int) {
+	m.width = w
+	m.height = h
+}
+
+// IsTyping returns true when a text input is active inside the editor.
+func (m URLEditorModel) IsTyping() bool {
+	return m.mode != urlEditorNav
+}
+
 // View renders the URL editor modal.
 func (m URLEditorModel) View() string {
 	var s strings.Builder
