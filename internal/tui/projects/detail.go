@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	xansi "github.com/charmbracelet/x/ansi"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
 	"wydo/internal/tasks/data"
@@ -17,7 +18,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const detailColWidth = 38
+const detailIndicatorWidth = 3
 
 type colKind int
 
@@ -347,7 +348,7 @@ func (m DetailModel) View() string {
 		fixedColHeight = 5
 	}
 
-	startCol, endCol := m.calculateVisibleColumns()
+	startCol, endCol, colWidth := m.calculateVisibleColumns()
 
 	var colViews []string
 
@@ -358,7 +359,7 @@ func (m DetailModel) View() string {
 	}
 
 	for i := startCol; i < endCol; i++ {
-		colViews = append(colViews, m.renderColumn(i, fixedColHeight))
+		colViews = append(colViews, m.renderColumn(i, fixedColHeight, colWidth))
 	}
 
 	if endCol < int(colCount) {
@@ -374,16 +375,17 @@ func (m DetailModel) View() string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, content)
 }
 
-func (m DetailModel) renderColumn(colIdx int, fixedHeight int) string {
+func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) string {
 	col := colKind(colIdx)
 	rows := m.columns[colIdx]
 	focused := colIdx == m.selectedCol
 
 	var s strings.Builder
 
-	// Title line
+	// Title line — truncate to column width
 	count := m.totalColCount(col)
 	title := fmt.Sprintf("%s (%d)", colNames[col], count)
+	title = xansi.Truncate(title, colWidth, "")
 	if focused {
 		s.WriteString(sectionActiveStyle.Render(title))
 	} else {
@@ -415,7 +417,7 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int) string {
 			end = len(rows)
 		}
 		for i := scrollOff; i < end; i++ {
-			s.WriteString(m.renderRow(rows[i], i == cursor && focused, col))
+			s.WriteString(m.renderRow(rows[i], i == cursor && focused, col, colWidth))
 			s.WriteString("\n")
 		}
 	}
@@ -430,15 +432,17 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int) string {
 	}
 	s.WriteString("\n")
 
-	return lipgloss.NewStyle().Width(detailColWidth + 2).Height(fixedHeight).Render(s.String())
+	return lipgloss.NewStyle().Width(colWidth).Height(fixedHeight).Render(s.String())
 }
 
-func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind) string {
+func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colWidth int) string {
 	indent := strings.Repeat("  ", row.depth)
 	prefix := "  "
 	if isSelected {
 		prefix = "► "
 	}
+
+	var rendered string
 
 	switch row.kind {
 	case rowKindGroup:
@@ -450,9 +454,10 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind) stri
 		count := m.subtreeCount(row.projectName, col)
 		content := fmt.Sprintf("%s%s%s %s (%d)", indent, prefix, marker, row.projectName, count)
 		if isSelected {
-			return selectedDetailItemStyle.Render(content)
+			rendered = selectedDetailItemStyle.Render(content)
+		} else {
+			rendered = sectionHeaderStyle.Render(content)
 		}
-		return sectionHeaderStyle.Render(content)
 
 	case rowKindNote:
 		display := row.note.Title
@@ -461,16 +466,18 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind) stri
 		}
 		content := indent + prefix + display
 		if isSelected {
-			return selectedDetailItemStyle.Render(content)
+			rendered = selectedDetailItemStyle.Render(content)
+		} else {
+			rendered = detailItemStyle.Render(content)
 		}
-		return detailItemStyle.Render(content)
 
 	case rowKindTask:
 		taskLine := shared.StyledTaskLine(row.task)
 		if isSelected {
-			return selectedDetailItemStyle.Render(indent+prefix) + taskLine
+			rendered = selectedDetailItemStyle.Render(indent+prefix) + taskLine
+		} else {
+			rendered = detailItemStyle.Render(indent+prefix) + taskLine
 		}
-		return detailItemStyle.Render(indent+prefix) + taskLine
 
 	case rowKindCard:
 		title := row.card.Title
@@ -479,12 +486,16 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind) stri
 		}
 		content := indent + prefix + title
 		if isSelected {
-			return selectedDetailItemStyle.Render(content)
+			rendered = selectedDetailItemStyle.Render(content)
+		} else {
+			rendered = detailItemStyle.Render(content)
 		}
-		return detailItemStyle.Render(content)
+
+	default:
+		return ""
 	}
 
-	return ""
+	return xansi.Truncate(rendered, colWidth, "")
 }
 
 // subtreeCount counts total items in the subtree of projName for the given column kind.
@@ -571,24 +582,36 @@ func (m *DetailModel) adjustScrollPosition() {
 	}
 }
 
-func (m DetailModel) calculateVisibleColumns() (start, end int) {
-	const colTotalWidth = detailColWidth + 4
-	const indicatorWidth = 3
-	availableWidth := m.width - indicatorWidth*2
-	visibleCount := availableWidth / colTotalWidth
-	if visibleCount < 1 {
-		visibleCount = 1
+// calculateVisibleColumns returns the start/end column indices and the width
+// each column should occupy so they fill the available screen width evenly.
+func (m DetailModel) calculateVisibleColumns() (start, end, colWidth int) {
+	const minColWidth = 20
+	availableWidth := m.width - detailIndicatorWidth*2
+	if availableWidth < minColWidth {
+		availableWidth = minColWidth
 	}
+	visibleCount := int(colCount) // try to show all columns
+	// Shrink visible count until each column is at least minColWidth wide
+	for visibleCount > 1 && availableWidth/visibleCount < minColWidth {
+		visibleCount--
+	}
+	colWidth = availableWidth / visibleCount
+
 	start = m.colHorizOffset
 	end = start + visibleCount
 	if end > int(colCount) {
 		end = int(colCount)
 	}
-	return start, end
+	// Recalculate: if fewer columns remain than visibleCount, spread them wider
+	actual := end - start
+	if actual > 0 {
+		colWidth = availableWidth / actual
+	}
+	return start, end, colWidth
 }
 
 func (m *DetailModel) adjustHorizScroll() {
-	startCol, endCol := m.calculateVisibleColumns()
+	startCol, endCol, _ := m.calculateVisibleColumns()
 	if m.selectedCol < startCol {
 		m.colHorizOffset = m.selectedCol
 		return
