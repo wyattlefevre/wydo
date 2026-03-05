@@ -81,7 +81,8 @@ type DetailModel struct {
 	allBoards []kanbanmodels.Board
 	allTasks  []data.Task
 	allNotes  []notes.Note
-	cardBoard map[string]kanbanmodels.Board // card filename → parent board
+	cardBoard   map[string]kanbanmodels.Board  // card filename → parent board
+	cardColumn  map[string]string              // card filename → column name
 
 	// Column state
 	columns        [colCount][]detailRow
@@ -192,10 +193,12 @@ func (p projectURLPicker) View() string {
 
 func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
+	cardColumn := make(map[string]string)
 	for _, b := range allBoards {
 		for _, col := range b.Columns {
 			for _, c := range col.Cards {
 				cardBoard[c.Filename] = b
+				cardColumn[c.Filename] = col.Name
 			}
 		}
 	}
@@ -210,6 +213,7 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 		allTasks:        allTasks,
 		allNotes:        allNotes,
 		cardBoard:       cardBoard,
+		cardColumn:      cardColumn,
 		collapsedGroups: make(map[string]bool),
 	}
 
@@ -666,11 +670,11 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 }
 
 func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colWidth int) string {
-	indent := strings.Repeat("  ", row.depth)
 	prefix := "  "
 	if isSelected {
 		prefix = "► "
 	}
+	indent := strings.Repeat("  ", row.depth)
 
 	var rendered string
 
@@ -694,19 +698,18 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		if display == "" {
 			display = filepath.Base(row.note.FilePath)
 		}
-		content := indent + prefix + display
 		if isSelected {
-			rendered = selectedDetailItemStyle.Render(content)
+			rendered = selectedDetailItemStyle.Render(prefix + display)
 		} else {
-			rendered = detailItemStyle.Render(content)
+			rendered = detailItemStyle.Render(prefix + display)
 		}
 
 	case rowKindTask:
 		taskLine := shared.StyledTaskLine(row.task)
 		if isSelected {
-			rendered = selectedDetailItemStyle.Render(indent+prefix) + taskLine
+			rendered = selectedDetailItemStyle.Render(prefix) + taskLine
 		} else {
-			rendered = detailItemStyle.Render(indent+prefix) + taskLine
+			rendered = detailItemStyle.Render(prefix) + taskLine
 		}
 
 	case rowKindCard:
@@ -714,11 +717,25 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		if title == "" {
 			title = row.card.Filename
 		}
-		content := indent + prefix + title
-		if isSelected {
-			rendered = selectedDetailItemStyle.Render(content)
+		colName := m.cardColumn[row.card.Filename]
+		isDone := strings.EqualFold(colName, "done")
+		if isDone {
+			doneStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color("2")).
+				Foreground(lipgloss.Color("12"))
+			rendered = doneStyle.Render(prefix+title) + pathStyle.Render(" "+colName)
+		} else if isSelected {
+			if colName != "" {
+				rendered = selectedDetailItemStyle.Render(prefix+title) + pathStyle.Render(" "+colName)
+			} else {
+				rendered = selectedDetailItemStyle.Render(prefix + title)
+			}
 		} else {
-			rendered = detailItemStyle.Render(content)
+			if colName != "" {
+				rendered = detailItemStyle.Render(prefix+title) + pathStyle.Render(" "+colName)
+			} else {
+				rendered = detailItemStyle.Render(prefix + title)
+			}
 		}
 
 	default:
