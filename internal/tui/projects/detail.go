@@ -3,6 +3,7 @@ package projects
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,18 +19,45 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type detailSection int
+const detailColWidth = 38
+
+type colKind int
 
 const (
-	sectionNotes detailSection = iota
-	sectionTasks
-	sectionCards
-	sectionBoards
-	sectionSubProjects
-	sectionDates
-	sectionChildrenData // tasks+cards grouped by child project
-	sectionCount        // sentinel for cycling
+	colNotes  colKind = iota
+	colTasks
+	colCards
+	colBoards
+	colDates
+	colCount
 )
+
+var colNames = [colCount]string{"Notes", "Tasks", "Cards", "Boards", "Dates"}
+
+type rowKind int
+
+const (
+	rowKindGroup rowKind = iota
+	rowKindNote
+	rowKindTask
+	rowKindCard
+	rowKindBoard
+	rowKindDate
+)
+
+type detailRow struct {
+	kind        rowKind
+	depth       int
+	projectName string
+
+	// Only one populated based on kind:
+	note    notes.Note
+	task    data.Task
+	card    kanbanmodels.Card
+	board   kanbanmodels.Board
+	date    workspace.ProjectDate
+	dateIdx int // index in project.Dates
+}
 
 type detailEditMode int
 
@@ -40,59 +68,58 @@ const (
 	detailModeCreateSubName                // typing new sub-project name
 )
 
-// DetailModel shows project details with notes, tasks, cards, boards, sub-projects, and dates.
+// DetailModel shows project details with notes, tasks, cards, boards, and dates
+// in a kanban-style column layout with hierarchical grouping by child project.
 type DetailModel struct {
-	name      string
-	wsDir     string
-	notes     []notes.Note
-	tasks     []data.Task
-	cards     []kanbanmodels.Card
-	boards    []kanbanmodels.Board
-	cardBoard map[string]kanbanmodels.Board // card filename → parent board
-	section   detailSection
-	selected  int // cursor within current section
-	width     int
-	height    int
-
-	// New fields
+	name         string
+	wsDir        string
 	project      *workspace.Project
 	registry     *workspace.ProjectRegistry
-	children     []*workspace.Project
 	indexPreview string
+	width, height int
 
-	// Child project aggregation
-	childTasks map[string][]data.Task
-	childCards map[string][]kanbanmodels.Card
-	allTasks   []data.Task
+	// Pre-computed per-project data (keyed by project name)
+	projectNotes  map[string][]notes.Note
+	projectTasks  map[string][]data.Task
+	projectCards  map[string][]kanbanmodels.Card
+	projectBoards map[string][]kanbanmodels.Board
+	allDescendants []*workspace.Project
+
+	// Raw all-data
+	allBoards []kanbanmodels.Board
+	allTasks  []data.Task
+	allNotes  []notes.Note
+	cardBoard map[string]kanbanmodels.Board // card filename → parent board
+
+	// Column state
+	columns        [colCount][]detailRow
+	selectedCol    int
+	colScrollOff   [colCount]int
+	colCursorPos   [colCount]int
+	colHorizOffset int // first visible column index (horizontal scroll)
+
+	// Collapse state: project name → collapsed
+	collapsedGroups map[string]bool
 
 	// Date editing state
 	editMode       detailEditMode
-	editingDateIdx int // -1 = new date
+	editingDateIdx int
 	editingLabel   string
+	editingProject string // which project's dates are being edited
 	labelInput     textinput.Model
 	datePicker     *shared.DatePickerModel
 
-	// Sub-project creation state
+	// Sub-project creation
 	subNameInput textinput.Model
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
 	for _, b := range allBoards {
 		for _, col := range b.Columns {
 			for _, c := range col.Cards {
 				cardBoard[c.Filename] = b
 			}
-		}
-	}
-
-	// Compute child tasks and cards
-	childTasks := make(map[string][]data.Task)
-	childCards := make(map[string][]kanbanmodels.Card)
-	if registry != nil {
-		for _, child := range children {
-			childTasks[child.Name] = registry.TasksForProject(child.Name, allTasks)
-			childCards[child.Name] = registry.CardsForProject(child.Name, allBoards)
 		}
 	}
 
@@ -106,25 +133,153 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 	si.CharLimit = 60
 	si.Width = 40
 
-	return DetailModel{
-		name:           name,
-		wsDir:          wsDir,
-		notes:          n,
-		tasks:          tasks,
-		cards:          cards,
-		boards:         boards,
-		cardBoard:      cardBoard,
-		project:        project,
-		registry:       registry,
-		children:       children,
-		indexPreview:   indexPreview,
-		childTasks:     childTasks,
-		childCards:     childCards,
-		allTasks:       allTasks,
-		editingDateIdx: -1,
-		labelInput:     ti,
-		subNameInput:   si,
+	m := DetailModel{
+		name:            name,
+		wsDir:           wsDir,
+		project:         project,
+		registry:        registry,
+		indexPreview:    indexPreview,
+		allBoards:       allBoards,
+		allTasks:        allTasks,
+		allNotes:        allNotes,
+		cardBoard:       cardBoard,
+		collapsedGroups: make(map[string]bool),
+		editingDateIdx:  -1,
+		labelInput:      ti,
+		subNameInput:    si,
 	}
+
+	m.projectNotes = make(map[string][]notes.Note)
+	m.projectTasks = make(map[string][]data.Task)
+	m.projectCards = make(map[string][]kanbanmodels.Card)
+	m.projectBoards = make(map[string][]kanbanmodels.Board)
+
+	if registry != nil {
+		m.allDescendants = collectAllDescendants(registry, name)
+		// Root project
+		m.projectNotes[name] = registry.NotesForProject(name, allNotes)
+		m.projectTasks[name] = registry.TasksForProject(name, allTasks)
+		m.projectCards[name] = registry.CardsForProject(name, allBoards)
+		m.projectBoards[name] = registry.BoardsForProject(name, allBoards)
+		// All descendants
+		for _, desc := range m.allDescendants {
+			m.projectNotes[desc.Name] = registry.NotesForProject(desc.Name, allNotes)
+			m.projectTasks[desc.Name] = registry.TasksForProject(desc.Name, allTasks)
+			m.projectCards[desc.Name] = registry.CardsForProject(desc.Name, allBoards)
+			m.projectBoards[desc.Name] = registry.BoardsForProject(desc.Name, allBoards)
+		}
+	} else {
+		// Fallback: use directly passed data
+		m.projectNotes[name] = n
+		m.projectTasks[name] = tasks
+		m.projectCards[name] = cards
+		m.projectBoards[name] = boards
+	}
+
+	m.rebuildAllColumns()
+	return m
+}
+
+// collectAllDescendants returns all descendants in depth-first order.
+func collectAllDescendants(registry *workspace.ProjectRegistry, rootName string) []*workspace.Project {
+	var result []*workspace.Project
+	var collect func(name string)
+	collect = func(name string) {
+		children := registry.ChildrenOf(name)
+		sort.Slice(children, func(i, j int) bool {
+			return children[i].Name < children[j].Name
+		})
+		for _, child := range children {
+			result = append(result, child)
+			collect(child.Name)
+		}
+	}
+	collect(rootName)
+	return result
+}
+
+func (m *DetailModel) rebuildAllColumns() {
+	for col := colKind(0); col < colCount; col++ {
+		m.columns[col] = m.buildColumnRows(col)
+	}
+}
+
+func (m *DetailModel) buildColumnRows(col colKind) []detailRow {
+	var rows []detailRow
+	if m.project != nil {
+		m.appendProjectRows(&rows, m.project, 0, col)
+	}
+	return rows
+}
+
+func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project, depth int, col colKind) {
+	if depth > 0 {
+		*rows = append(*rows, detailRow{
+			kind:        rowKindGroup,
+			depth:       depth - 1,
+			projectName: p.Name,
+		})
+		if m.collapsedGroups[p.Name] {
+			return
+		}
+	}
+
+	// Append items for this project at this depth
+	switch col {
+	case colNotes:
+		for _, n := range m.projectNotes[p.Name] {
+			*rows = append(*rows, detailRow{kind: rowKindNote, depth: depth, projectName: p.Name, note: n})
+		}
+	case colTasks:
+		for _, t := range m.projectTasks[p.Name] {
+			*rows = append(*rows, detailRow{kind: rowKindTask, depth: depth, projectName: p.Name, task: t})
+		}
+	case colCards:
+		for _, c := range m.projectCards[p.Name] {
+			*rows = append(*rows, detailRow{kind: rowKindCard, depth: depth, projectName: p.Name, card: c})
+		}
+	case colBoards:
+		for _, b := range m.projectBoards[p.Name] {
+			*rows = append(*rows, detailRow{kind: rowKindBoard, depth: depth, projectName: p.Name, board: b})
+		}
+	case colDates:
+		var proj *workspace.Project
+		if m.registry != nil {
+			proj = m.registry.Get(p.Name)
+		}
+		if proj == nil && p.Name == m.name {
+			proj = m.project
+		}
+		if proj != nil {
+			for i, d := range proj.Dates {
+				*rows = append(*rows, detailRow{kind: rowKindDate, depth: depth, projectName: p.Name, date: d, dateIdx: i})
+			}
+		}
+	}
+
+	// Recurse into sorted children
+	if m.registry == nil {
+		return
+	}
+	children := m.registry.ChildrenOf(p.Name)
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].Name < children[j].Name
+	})
+	for _, child := range children {
+		m.appendProjectRows(rows, child, depth+1, col)
+	}
+}
+
+func (m *DetailModel) currentRow() *detailRow {
+	if m.selectedCol < 0 || m.selectedCol >= int(colCount) {
+		return nil
+	}
+	rows := m.columns[m.selectedCol]
+	pos := m.colCursorPos[m.selectedCol]
+	if pos < 0 || pos >= len(rows) {
+		return nil
+	}
+	return &rows[pos]
 }
 
 // SetSize updates the view dimensions.
@@ -158,43 +313,11 @@ func (m DetailModel) HintText() string {
 	case detailModeCreateSubName:
 		return "type name  enter:create  esc:cancel"
 	}
-	if m.section == sectionDates {
-		return "j/k:navigate  tab/1-7:sections  n:new date  e:edit  d:delete  enter:open  esc:back  ?:help"
+	base := "h/l:columns  j/k:navigate  space/enter:expand  enter:open  esc:back"
+	if m.selectedCol == int(colDates) {
+		return base + "  n:new  e:edit  d:delete"
 	}
-	if m.section == sectionSubProjects {
-		return "j/k:navigate  tab/1-7:sections  n:new sub-project  enter:open  esc:back  ?:help"
-	}
-	if m.section == sectionChildrenData {
-		return "j/k:navigate  tab/1-7:sections  esc:back  ?:help"
-	}
-	return "j/k:navigate  tab/1-7:sections  enter:open  esc:back  ?:help"
-}
-
-func (m DetailModel) sectionLen() int {
-	switch m.section {
-	case sectionNotes:
-		return len(m.notes)
-	case sectionTasks:
-		return len(m.tasks)
-	case sectionCards:
-		return len(m.cards)
-	case sectionBoards:
-		return len(m.boards)
-	case sectionSubProjects:
-		return len(m.children)
-	case sectionDates:
-		if m.project != nil {
-			return len(m.project.Dates)
-		}
-	case sectionChildrenData:
-		total := 0
-		for _, child := range m.children {
-			total += len(m.childTasks[child.Name])
-			total += len(m.childCards[child.Name])
-		}
-		return total
-	}
-	return 0
+	return base
 }
 
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
@@ -246,11 +369,19 @@ func (m DetailModel) handleDateLabelKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
 		m.editingLabel = m.labelInput.Value()
-		// Move to date picker
 		var cur *time.Time
-		if m.editingDateIdx >= 0 && m.project != nil && m.editingDateIdx < len(m.project.Dates) {
-			t := m.project.Dates[m.editingDateIdx].Date
-			cur = &t
+		if m.editingDateIdx >= 0 {
+			var proj *workspace.Project
+			if m.editingProject != "" && m.registry != nil {
+				proj = m.registry.Get(m.editingProject)
+			}
+			if proj == nil {
+				proj = m.project
+			}
+			if proj != nil && m.editingDateIdx < len(proj.Dates) {
+				t := proj.Dates[m.editingDateIdx].Date
+				cur = &t
+			}
 		}
 		dp := shared.NewDatePickerModel(cur, "Milestone Date")
 		m.datePicker = &dp
@@ -277,25 +408,31 @@ func (m DetailModel) handleDatePickerKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) 
 		m.datePicker = nil
 		return m, nil
 	case "enter":
-		if picked := m.datePicker.GetDate(); picked != nil && m.project != nil {
-			newDate := workspace.ProjectDate{
-				Label: m.editingLabel,
-				Date:  *picked,
+		if picked := m.datePicker.GetDate(); picked != nil {
+			var proj *workspace.Project
+			if m.editingProject != "" && m.registry != nil {
+				proj = m.registry.Get(m.editingProject)
 			}
-			dates := make([]workspace.ProjectDate, len(m.project.Dates))
-			copy(dates, m.project.Dates)
-			if m.editingDateIdx == -1 {
-				dates = append(dates, newDate)
-			} else if m.editingDateIdx < len(dates) {
-				dates[m.editingDateIdx] = newDate
+			if proj == nil {
+				proj = m.project
 			}
-			if err := workspace.WriteProjectDates(m.project, dates); err == nil {
-				// project.Dates already updated by WriteProjectDates
+			if proj != nil {
+				newDate := workspace.ProjectDate{
+					Label: m.editingLabel,
+					Date:  *picked,
+				}
+				dates := make([]workspace.ProjectDate, len(proj.Dates))
+				copy(dates, proj.Dates)
+				if m.editingDateIdx == -1 {
+					dates = append(dates, newDate)
+				} else if m.editingDateIdx < len(dates) {
+					dates[m.editingDateIdx] = newDate
+				}
+				_ = workspace.WriteProjectDates(proj, dates)
 			}
 		}
 		m.editMode = detailModeNormal
 		m.datePicker = nil
-		// Refresh with DataRefreshMsg so app reloads project data
 		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 	}
 	dp, cmd := m.datePicker.Update(msg)
@@ -308,128 +445,145 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	case "esc", "q":
 		return m, messages.SwitchView(messages.ViewProjects)
 
-	case "tab":
-		m.section = (m.section + 1) % sectionCount
-		// Skip sectionChildrenData if no children
-		if m.section == sectionChildrenData && len(m.children) == 0 {
-			m.section = sectionNotes
+	case "h", "left":
+		if m.selectedCol > 0 {
+			m.selectedCol--
+			m.adjustHorizScroll()
 		}
-		m.selected = 0
 
-	case "shift+tab":
-		m.section = (m.section - 1 + sectionCount) % sectionCount
-		// Skip sectionChildrenData if no children
-		if m.section == sectionChildrenData && len(m.children) == 0 {
-			m.section = sectionDates
-		}
-		m.selected = 0
-
-	case "1":
-		m.section = sectionNotes
-		m.selected = 0
-
-	case "2":
-		m.section = sectionTasks
-		m.selected = 0
-
-	case "3":
-		m.section = sectionCards
-		m.selected = 0
-
-	case "4":
-		m.section = sectionBoards
-		m.selected = 0
-
-	case "5":
-		m.section = sectionSubProjects
-		m.selected = 0
-
-	case "6":
-		m.section = sectionDates
-		m.selected = 0
-
-	case "7":
-		if len(m.children) > 0 {
-			m.section = sectionChildrenData
-			m.selected = 0
+	case "l", "right":
+		if m.selectedCol < int(colCount)-1 {
+			m.selectedCol++
+			m.adjustHorizScroll()
 		}
 
 	case "j", "down":
-		if m.selected < m.sectionLen()-1 {
-			m.selected++
+		rows := m.columns[m.selectedCol]
+		if m.colCursorPos[m.selectedCol] < len(rows)-1 {
+			m.colCursorPos[m.selectedCol]++
+			m.adjustScrollPosition()
 		}
 
 	case "k", "up":
-		if m.selected > 0 {
-			m.selected--
+		if m.colCursorPos[m.selectedCol] > 0 {
+			m.colCursorPos[m.selectedCol]--
+			m.adjustScrollPosition()
+		}
+
+	case "tab", " ":
+		row := m.currentRow()
+		if row != nil && row.kind == rowKindGroup {
+			projName := row.projectName
+			m.collapsedGroups[projName] = !m.collapsedGroups[projName]
+			m.rebuildAllColumns()
+			m.restoreCursorToGroup(projName)
+		}
+
+	case "enter":
+		row := m.currentRow()
+		if row == nil {
+			return m, nil
+		}
+		if row.kind == rowKindGroup {
+			projName := row.projectName
+			m.collapsedGroups[projName] = !m.collapsedGroups[projName]
+			m.rebuildAllColumns()
+			m.restoreCursorToGroup(projName)
+			return m, nil
+		}
+		switch row.kind {
+		case rowKindTask:
+			task := row.task
+			return m, func() tea.Msg {
+				return messages.FocusTaskMsg{TaskID: task.ID}
+			}
+		case rowKindBoard:
+			board := row.board
+			return m, func() tea.Msg {
+				return messages.OpenBoardMsg{BoardPath: board.Path}
+			}
+		case rowKindCard:
+			if b, ok := m.cardBoard[row.card.Filename]; ok {
+				return m, func() tea.Msg {
+					return messages.OpenBoardMsg{BoardPath: b.Path}
+				}
+			}
+		case rowKindDate:
+			return m.startDateEdit(row.dateIdx, row.projectName)
 		}
 
 	case "n":
-		if m.section == sectionDates {
-			return m.startDateEdit(-1)
-		}
-		if m.section == sectionSubProjects {
-			m.editMode = detailModeCreateSubName
-			m.subNameInput.SetValue("")
-			m.subNameInput.Focus()
-			return m, textinput.Blink
+		if m.selectedCol == int(colDates) {
+			return m.startDateEdit(-1, m.name)
 		}
 
-	case "e", "enter":
-		if m.section == sectionDates {
-			if m.project != nil && m.selected < len(m.project.Dates) {
-				return m.startDateEdit(m.selected)
-			}
-		}
-		if msg.String() == "enter" {
-			if m.section == sectionTasks && m.selected < len(m.tasks) {
-				task := m.tasks[m.selected]
-				return m, func() tea.Msg {
-					return messages.FocusTaskMsg{TaskID: task.ID}
-				}
-			}
-			if m.section == sectionBoards && m.selected < len(m.boards) {
-				board := m.boards[m.selected]
-				return m, func() tea.Msg {
-					return messages.OpenBoardMsg{BoardPath: board.Path}
-				}
-			}
-			if m.section == sectionSubProjects && m.selected < len(m.children) {
-				child := m.children[m.selected]
-				wsDir := m.wsDir
-				return m, func() tea.Msg {
-					return messages.OpenProjectMsg{
-						ProjectName:      child.Name,
-						WorkspaceRootDir: wsDir,
-					}
-				}
+	case "e":
+		if m.selectedCol == int(colDates) {
+			row := m.currentRow()
+			if row != nil && row.kind == rowKindDate {
+				return m.startDateEdit(row.dateIdx, row.projectName)
 			}
 		}
 
 	case "d":
-		if m.section == sectionDates && m.project != nil && m.selected < len(m.project.Dates) {
-			dates := make([]workspace.ProjectDate, 0, len(m.project.Dates)-1)
-			for i, d := range m.project.Dates {
-				if i != m.selected {
-					dates = append(dates, d)
+		if m.selectedCol == int(colDates) {
+			row := m.currentRow()
+			if row != nil && row.kind == rowKindDate {
+				var proj *workspace.Project
+				if m.registry != nil {
+					proj = m.registry.Get(row.projectName)
 				}
+				if proj == nil {
+					proj = m.project
+				}
+				if proj != nil {
+					dates := make([]workspace.ProjectDate, 0, len(proj.Dates)-1)
+					for i, d := range proj.Dates {
+						if i != row.dateIdx {
+							dates = append(dates, d)
+						}
+					}
+					_ = workspace.WriteProjectDates(proj, dates)
+				}
+				// Clamp cursor
+				col := m.selectedCol
+				if m.colCursorPos[col] > 0 && m.colCursorPos[col] >= len(m.columns[col])-1 {
+					m.colCursorPos[col]--
+				}
+				return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 			}
-			_ = workspace.WriteProjectDates(m.project, dates)
-			if m.selected >= len(m.project.Dates) {
-				m.selected = max(0, len(m.project.Dates)-1)
-			}
-			return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 		}
 	}
 	return m, nil
 }
 
-func (m DetailModel) startDateEdit(idx int) (DetailModel, tea.Cmd) {
+// restoreCursorToGroup finds the group header for projName in the focused column
+// and sets the cursor there.
+func (m *DetailModel) restoreCursorToGroup(projName string) {
+	col := m.selectedCol
+	for i, row := range m.columns[col] {
+		if row.kind == rowKindGroup && row.projectName == projName {
+			m.colCursorPos[col] = i
+			m.adjustScrollPosition()
+			return
+		}
+	}
+}
+
+func (m DetailModel) startDateEdit(idx int, projName string) (DetailModel, tea.Cmd) {
 	m.editingDateIdx = idx
+	m.editingProject = projName
 	m.editMode = detailModeDateLabel
-	if idx >= 0 && m.project != nil && idx < len(m.project.Dates) {
-		m.editingLabel = m.project.Dates[idx].Label
-		m.labelInput.SetValue(m.project.Dates[idx].Label)
+	var proj *workspace.Project
+	if m.registry != nil {
+		proj = m.registry.Get(projName)
+	}
+	if proj == nil {
+		proj = m.project
+	}
+	if idx >= 0 && proj != nil && idx < len(proj.Dates) {
+		m.editingLabel = proj.Dates[idx].Label
+		m.labelInput.SetValue(proj.Dates[idx].Label)
 	} else {
 		m.editingLabel = ""
 		m.labelInput.SetValue("")
@@ -452,7 +606,7 @@ func (m DetailModel) View() string {
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("Project: %s", m.name)))
 	lines = append(lines, "")
 
-	// Index preview (greyed, above tabs)
+	// Index preview
 	if m.indexPreview != "" {
 		for _, line := range strings.Split(m.indexPreview, "\n") {
 			lines = append(lines, pathStyle.Render("  "+line))
@@ -460,12 +614,36 @@ func (m DetailModel) View() string {
 		lines = append(lines, "")
 	}
 
-	// Focus bar (tabs)
-	lines = append(lines, m.renderTabs())
-	lines = append(lines, "")
+	headerLines := len(lines)
+	fixedColHeight := m.height - headerLines - 2
+	if fixedColHeight < 5 {
+		fixedColHeight = 5
+	}
 
-	// All sections stacked
-	lines = append(lines, m.renderAllSections()...)
+	startCol, endCol := m.calculateVisibleColumns()
+
+	var colViews []string
+
+	// Left scroll indicator
+	if startCol > 0 {
+		colViews = append(colViews, m.renderHorizIndicator("◀", fixedColHeight))
+	} else {
+		colViews = append(colViews, m.renderHorizIndicator(" ", fixedColHeight))
+	}
+
+	for i := startCol; i < endCol; i++ {
+		colViews = append(colViews, m.renderColumn(i, fixedColHeight))
+	}
+
+	// Right scroll indicator
+	if endCol < int(colCount) {
+		colViews = append(colViews, m.renderHorizIndicator("▶", fixedColHeight))
+	} else {
+		colViews = append(colViews, m.renderHorizIndicator(" ", fixedColHeight))
+	}
+
+	colArea := lipgloss.JoinHorizontal(lipgloss.Top, colViews...)
+	lines = append(lines, colArea)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, content)
@@ -486,433 +664,290 @@ func (m DetailModel) viewDatePicker() string {
 	return m.datePicker.View()
 }
 
-func (m DetailModel) renderTabs() string {
-	type tabInfo struct {
-		name  string
-		count int
+func (m DetailModel) renderColumn(colIdx int, fixedHeight int) string {
+	col := colKind(colIdx)
+	rows := m.columns[colIdx]
+	focused := colIdx == m.selectedCol
+
+	var s strings.Builder
+
+	// Title line
+	count := m.totalColCount(col)
+	title := fmt.Sprintf("%s (%d)", colNames[col], count)
+	if focused {
+		s.WriteString(sectionActiveStyle.Render(title))
+	} else {
+		s.WriteString(sectionHeaderStyle.Render(title))
 	}
-	tabs := []tabInfo{
-		{"Notes", len(m.notes)},
-		{"Tasks", len(m.tasks)},
-		{"Cards", len(m.cards)},
-		{"Boards", len(m.boards)},
-		{"Sub-projects", len(m.children)},
-		{"Dates", func() int {
+	s.WriteString("\n")
+
+	// Available rows = fixedHeight - title(1) - topIndicator(1) - bottomIndicator(1)
+	availableForRows := fixedHeight - 3
+	if availableForRows < 1 {
+		availableForRows = 1
+	}
+
+	scrollOff := m.colScrollOff[colIdx]
+	cursor := m.colCursorPos[colIdx]
+
+	// Top indicator (always reserve 1 line)
+	if scrollOff > 0 {
+		s.WriteString(pathStyle.Render(fmt.Sprintf("  ▲ %d above", scrollOff)))
+	}
+	s.WriteString("\n")
+
+	if len(rows) == 0 {
+		s.WriteString(pathStyle.Render("  (none)"))
+		s.WriteString("\n")
+	} else {
+		end := scrollOff + availableForRows
+		if end > len(rows) {
+			end = len(rows)
+		}
+		for i := scrollOff; i < end; i++ {
+			s.WriteString(m.renderRow(rows[i], i == cursor && focused, col))
+			s.WriteString("\n")
+		}
+	}
+
+	// Bottom indicator (always reserve 1 line)
+	end := scrollOff + availableForRows
+	if end > len(rows) {
+		end = len(rows)
+	}
+	remaining := len(rows) - end
+	if remaining > 0 {
+		s.WriteString(pathStyle.Render(fmt.Sprintf("  ▼ %d below", remaining)))
+	}
+	s.WriteString("\n")
+
+	style := lipgloss.NewStyle().
+		Width(detailColWidth + 2).
+		Height(fixedHeight).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("8"))
+	if focused {
+		style = style.BorderForeground(lipgloss.Color("3"))
+	}
+	return style.Render(s.String())
+}
+
+func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind) string {
+	indent := strings.Repeat("  ", row.depth)
+	prefix := "  "
+	if isSelected {
+		prefix = "► "
+	}
+
+	switch row.kind {
+	case rowKindGroup:
+		expanded := !m.collapsedGroups[row.projectName]
+		marker := "▶"
+		if expanded {
+			marker = "▼"
+		}
+		count := m.subtreeCount(row.projectName, col)
+		content := fmt.Sprintf("%s%s%s %s (%d)", indent, prefix, marker, row.projectName, count)
+		if isSelected {
+			return selectedDetailItemStyle.Render(content)
+		}
+		return sectionHeaderStyle.Render(content)
+
+	case rowKindNote:
+		display := row.note.Title
+		if display == "" {
+			display = filepath.Base(row.note.FilePath)
+		}
+		content := indent + prefix + display
+		if isSelected {
+			return selectedDetailItemStyle.Render(content)
+		}
+		return detailItemStyle.Render(content)
+
+	case rowKindTask:
+		taskLine := shared.StyledTaskLine(row.task)
+		if isSelected {
+			return selectedDetailItemStyle.Render(indent+prefix) + taskLine
+		}
+		return detailItemStyle.Render(indent+prefix) + taskLine
+
+	case rowKindCard:
+		title := row.card.Title
+		if title == "" {
+			title = row.card.Filename
+		}
+		content := indent + prefix + title
+		if isSelected {
+			return selectedDetailItemStyle.Render(content)
+		}
+		return detailItemStyle.Render(content)
+
+	case rowKindBoard:
+		title := row.board.Name
+		if title == "" {
+			title = filepath.Base(row.board.Path)
+		}
+		content := indent + prefix + title
+		if isSelected {
+			return selectedDetailItemStyle.Render(content)
+		}
+		return detailItemStyle.Render(content)
+
+	case rowKindDate:
+		label := row.date.Label
+		if label == "" {
+			label = "(no label)"
+		}
+		dateStr := row.date.Date.Format("Jan 2, 2006")
+		content := indent + prefix + label + " — " + dateStr
+		if isSelected {
+			return selectedDetailItemStyle.Render(content)
+		}
+		return detailItemStyle.Render(content)
+	}
+
+	return ""
+}
+
+// subtreeCount counts total items in the subtree of projName for the given column kind.
+func (m *DetailModel) subtreeCount(projName string, col colKind) int {
+	if m.registry == nil {
+		switch col {
+		case colNotes:
+			return len(m.projectNotes[projName])
+		case colTasks:
+			return len(m.projectTasks[projName])
+		case colCards:
+			return len(m.projectCards[projName])
+		case colBoards:
+			return len(m.projectBoards[projName])
+		case colDates:
 			if m.project != nil {
 				return len(m.project.Dates)
 			}
 			return 0
-		}()},
-	}
-	if len(m.children) > 0 {
-		total := 0
-		for _, child := range m.children {
-			total += len(m.childTasks[child.Name])
-			total += len(m.childCards[child.Name])
 		}
-		tabs = append(tabs, tabInfo{"Children", total})
+		return 0
 	}
-	var rendered []string
-	for i, t := range tabs {
-		label := fmt.Sprintf(" %d:%s (%d) ", i+1, t.name, t.count)
-		if detailSection(i) == m.section {
-			rendered = append(rendered, sectionActiveStyle.Render(label))
-		} else {
-			rendered = append(rendered, sectionHeaderStyle.Render(label))
+	var count func(name string) int
+	count = func(name string) int {
+		var n int
+		switch col {
+		case colNotes:
+			n = len(m.projectNotes[name])
+		case colTasks:
+			n = len(m.projectTasks[name])
+		case colCards:
+			n = len(m.projectCards[name])
+		case colBoards:
+			n = len(m.projectBoards[name])
+		case colDates:
+			proj := m.registry.Get(name)
+			if proj != nil {
+				n = len(proj.Dates)
+			}
 		}
+		children := m.registry.ChildrenOf(name)
+		for _, child := range children {
+			n += count(child.Name)
+		}
+		return n
 	}
-	return "  " + strings.Join(rendered, pathStyle.Render(" │ "))
+	return count(projName)
 }
 
-func (m DetailModel) countForSection(s detailSection) int {
-	switch s {
-	case sectionNotes:
-		return len(m.notes)
-	case sectionTasks:
-		return len(m.tasks)
-	case sectionCards:
-		return len(m.cards)
-	case sectionBoards:
-		return len(m.boards)
-	case sectionSubProjects:
-		return len(m.children)
-	case sectionDates:
+// totalColCount returns total items across all projects for a column.
+func (m *DetailModel) totalColCount(col colKind) int {
+	total := 0
+	switch col {
+	case colNotes:
+		for _, v := range m.projectNotes {
+			total += len(v)
+		}
+	case colTasks:
+		for _, v := range m.projectTasks {
+			total += len(v)
+		}
+	case colCards:
+		for _, v := range m.projectCards {
+			total += len(v)
+		}
+	case colBoards:
+		for _, v := range m.projectBoards {
+			total += len(v)
+		}
+	case colDates:
 		if m.project != nil {
-			return len(m.project.Dates)
+			total += len(m.project.Dates)
 		}
-	case sectionChildrenData:
-		total := 0
-		for _, child := range m.children {
-			total += len(m.childTasks[child.Name])
-			total += len(m.childCards[child.Name])
+		for _, desc := range m.allDescendants {
+			total += len(desc.Dates)
 		}
-		return total
 	}
-	return 0
+	return total
 }
 
-// renderSectionHeader renders a styled section divider with label and count.
-func (m DetailModel) renderSectionHeader(label string, count int, focused bool) string {
-	content := fmt.Sprintf("── %s (%d) ", label, count)
-	if focused {
-		return sectionActiveStyle.Render(content)
+func (m DetailModel) renderHorizIndicator(symbol string, height int) string {
+	style := lipgloss.NewStyle().
+		Width(3).
+		Height(height).
+		Align(lipgloss.Center, lipgloss.Center)
+	if symbol != " " {
+		style = style.Bold(true)
 	}
-	return sectionHeaderStyle.Render(content)
+	return style.Render(symbol)
 }
 
-// renderAllSections renders all sections stacked vertically.
-// Non-focused sections show up to 3 items; focused section shows up to 5 with cursor.
-func (m DetailModel) renderAllSections() []string {
-	const nonFocusedMax = 3
-	const focusedMax = 5
-
-	type sectionDef struct {
-		s     detailSection
-		label string
+func (m *DetailModel) adjustScrollPosition() {
+	col := m.selectedCol
+	rows := m.columns[col]
+	if len(rows) == 0 {
+		return
 	}
-
-	sections := []sectionDef{
-		{sectionNotes, "Notes"},
-		{sectionTasks, "Tasks"},
-		{sectionCards, "Cards"},
-		{sectionBoards, "Boards"},
-		{sectionSubProjects, "Sub-Projects"},
-		{sectionDates, "Dates"},
+	cursor := m.colCursorPos[col]
+	// Match the availableForRows logic in renderColumn
+	visibleRows := m.height - len(strings.Split(m.indexPreview, "\n")) - 7
+	if visibleRows < 3 {
+		visibleRows = 3
 	}
-
-	var lines []string
-
-	for _, sec := range sections {
-		count := m.countForSection(sec.s)
-		focused := sec.s == m.section
-		lines = append(lines, m.renderSectionHeader(sec.label, count, focused))
-
-		if focused {
-			switch sec.s {
-			case sectionNotes:
-				lines = append(lines, m.renderNotes(focusedMax)...)
-			case sectionTasks:
-				lines = append(lines, m.renderTasks(focusedMax)...)
-			case sectionCards:
-				lines = append(lines, m.renderCards(focusedMax)...)
-			case sectionBoards:
-				lines = append(lines, m.renderBoards(focusedMax)...)
-			case sectionSubProjects:
-				lines = append(lines, m.renderSubProjects(focusedMax)...)
-			case sectionDates:
-				lines = append(lines, m.renderDates(focusedMax)...)
-			}
-		} else {
-			lines = append(lines, m.renderSectionPreview(sec.s, nonFocusedMax)...)
+	if cursor < m.colScrollOff[col] {
+		m.colScrollOff[col] = cursor
+	} else if cursor >= m.colScrollOff[col]+visibleRows {
+		m.colScrollOff[col] = cursor - visibleRows + 1
+		if m.colScrollOff[col] < 0 {
+			m.colScrollOff[col] = 0
 		}
-		lines = append(lines, "")
 	}
-
-	// Child project data (parent projects only)
-	if len(m.children) > 0 {
-		childDataFocused := m.section == sectionChildrenData
-		childCount := m.countForSection(sectionChildrenData)
-		lines = append(lines, m.renderSectionHeader("Child Project Data", childCount, childDataFocused))
-		lines = append(lines, m.renderChildrenData(3)...)
-	}
-
-	return lines
 }
 
-// renderSectionPreview renders a section without cursor, showing up to maxItems from index 0.
-func (m DetailModel) renderSectionPreview(section detailSection, maxItems int) []string {
-	var items []string
-
-	switch section {
-	case sectionNotes:
-		for _, n := range m.notes {
-			display := n.Title
-			if display == "" {
-				display = filepath.Base(n.FilePath)
-			}
-			items = append(items, detailItemStyle.Render("  "+display))
-		}
-	case sectionTasks:
-		for _, t := range m.tasks {
-			items = append(items, detailItemStyle.Render("  ")+shared.StyledTaskLine(t))
-		}
-	case sectionCards:
-		for _, c := range m.cards {
-			title := c.Title
-			if title == "" {
-				title = c.Filename
-			}
-			if b, ok := m.cardBoard[c.Filename]; ok {
-				boardName := b.Name
-				if boardName == "" {
-					boardName = filepath.Base(b.Path)
-				}
-				items = append(items, detailItemStyle.Render("  "+title)+"  "+pathStyle.Render(boardName))
-			} else {
-				items = append(items, detailItemStyle.Render("  "+title))
-			}
-		}
-	case sectionBoards:
-		for _, b := range m.boards {
-			title := b.Name
-			if title == "" {
-				title = filepath.Base(b.Path)
-			}
-			items = append(items, detailItemStyle.Render("  "+title))
-		}
-	case sectionSubProjects:
-		for _, child := range m.children {
-			items = append(items, detailItemStyle.Render("  "+child.Name))
-		}
-	case sectionDates:
-		if m.project != nil {
-			for _, d := range m.project.Dates {
-				label := d.Label
-				if label == "" {
-					label = "(no label)"
-				}
-				dateStr := d.Date.Format("Mon Jan 2, 2006")
-				items = append(items, detailItemStyle.Render("  "+label+" — "+dateStr))
-			}
-		}
+func (m DetailModel) calculateVisibleColumns() (start, end int) {
+	// Each column: content width + 2 (border left+right) + lipgloss padding
+	const colTotalWidth = detailColWidth + 4 // border (2) + inner padding (2)
+	const indicatorWidth = 3
+	availableWidth := m.width - indicatorWidth*2
+	visibleCount := availableWidth / colTotalWidth
+	if visibleCount < 1 {
+		visibleCount = 1
 	}
-
-	if len(items) == 0 {
-		return []string{listItemStyle.Render("  (none)")}
-	}
-
-	var lines []string
-	end := len(items)
-	if end > maxItems {
-		end = maxItems
-	}
-	lines = append(lines, items[:end]...)
-	if len(items) > maxItems {
-		lines = append(lines, pathStyle.Render(fmt.Sprintf("  +%d more", len(items)-maxItems)))
-	}
-	return lines
-}
-
-// renderChildrenData renders child project tasks and cards grouped by child.
-func (m DetailModel) renderChildrenData(maxItemsPerChild int) []string {
-	var lines []string
-	for _, child := range m.children {
-		lines = append(lines, sectionHeaderStyle.Render(fmt.Sprintf("  %s", child.Name)))
-
-		tasks := m.childTasks[child.Name]
-		if len(tasks) == 0 {
-			lines = append(lines, listItemStyle.Render("    Tasks: (none)"))
-		} else {
-			for i, t := range tasks {
-				if i >= maxItemsPerChild {
-					lines = append(lines, pathStyle.Render(fmt.Sprintf("    +%d more tasks", len(tasks)-maxItemsPerChild)))
-					break
-				}
-				lines = append(lines, detailItemStyle.Render("    ")+shared.StyledTaskLine(t))
-			}
-		}
-
-		cards := m.childCards[child.Name]
-		if len(cards) == 0 {
-			lines = append(lines, listItemStyle.Render("    Cards: (none)"))
-		} else {
-			for i, c := range cards {
-				if i >= maxItemsPerChild {
-					lines = append(lines, pathStyle.Render(fmt.Sprintf("    +%d more cards", len(cards)-maxItemsPerChild)))
-					break
-				}
-				title := c.Title
-				if title == "" {
-					title = c.Filename
-				}
-				lines = append(lines, detailItemStyle.Render("    "+title))
-			}
-		}
-		lines = append(lines, "")
-	}
-	return lines
-}
-
-func (m DetailModel) renderNotes(maxItems int) []string {
-	if len(m.notes) == 0 {
-		return []string{listItemStyle.Render("  No notes found")}
-	}
-	var lines []string
-	start, end := m.visibleRange(len(m.notes), maxItems)
-	for i := start; i < end; i++ {
-		n := m.notes[i]
-		style := detailItemStyle
-		prefix := "  "
-		if i == m.selected {
-			style = selectedDetailItemStyle
-			prefix = "► "
-		}
-		display := n.Title
-		if display == "" {
-			display = filepath.Base(n.FilePath)
-		}
-		lines = append(lines, style.Render(prefix+display))
-	}
-	lines = append(lines, m.scrollIndicators(len(m.notes), start, end)...)
-	return lines
-}
-
-func (m DetailModel) renderTasks(maxItems int) []string {
-	if len(m.tasks) == 0 {
-		return []string{listItemStyle.Render("  No tasks found")}
-	}
-	var lines []string
-	start, end := m.visibleRange(len(m.tasks), maxItems)
-	for i := start; i < end; i++ {
-		t := m.tasks[i]
-		prefix := "  "
-		if i == m.selected {
-			prefix = "► "
-		}
-		taskLine := shared.StyledTaskLine(t)
-		if i == m.selected {
-			lines = append(lines, selectedDetailItemStyle.Render(prefix)+taskLine)
-		} else {
-			lines = append(lines, detailItemStyle.Render(prefix)+taskLine)
-		}
-	}
-	lines = append(lines, m.scrollIndicators(len(m.tasks), start, end)...)
-	return lines
-}
-
-func (m DetailModel) renderCards(maxItems int) []string {
-	if len(m.cards) == 0 {
-		return []string{listItemStyle.Render("  No cards found")}
-	}
-	var lines []string
-	start, end := m.visibleRange(len(m.cards), maxItems)
-	for i := start; i < end; i++ {
-		c := m.cards[i]
-		style := detailItemStyle
-		prefix := "  "
-		if i == m.selected {
-			style = selectedDetailItemStyle
-			prefix = "► "
-		}
-		title := c.Title
-		if title == "" {
-			title = c.Filename
-		}
-		if b, ok := m.cardBoard[c.Filename]; ok {
-			boardName := b.Name
-			if boardName == "" {
-				boardName = filepath.Base(b.Path)
-			}
-			relPath, err := filepath.Rel(m.wsDir, b.Path)
-			if err != nil {
-				relPath = b.Path
-			}
-			lines = append(lines, style.Render(prefix+title)+"  "+pathStyle.Render(boardName+" · "+relPath))
-		} else {
-			lines = append(lines, style.Render(prefix+title))
-		}
-	}
-	lines = append(lines, m.scrollIndicators(len(m.cards), start, end)...)
-	return lines
-}
-
-func (m DetailModel) renderBoards(maxItems int) []string {
-	if len(m.boards) == 0 {
-		return []string{listItemStyle.Render("  No boards found")}
-	}
-	var lines []string
-	start, end := m.visibleRange(len(m.boards), maxItems)
-	for i := start; i < end; i++ {
-		b := m.boards[i]
-		style := detailItemStyle
-		prefix := "  "
-		if i == m.selected {
-			style = selectedDetailItemStyle
-			prefix = "► "
-		}
-		title := b.Name
-		if title == "" {
-			title = filepath.Base(b.Path)
-		}
-		lines = append(lines, style.Render(prefix+title))
-	}
-	lines = append(lines, m.scrollIndicators(len(m.boards), start, end)...)
-	return lines
-}
-
-func (m DetailModel) renderSubProjects(maxItems int) []string {
-	var lines []string
-	if len(m.children) == 0 {
-		lines = append(lines, listItemStyle.Render("  No sub-projects found"))
-	} else {
-		start, end := m.visibleRange(len(m.children), maxItems)
-		for i := start; i < end; i++ {
-			child := m.children[i]
-			style := detailItemStyle
-			prefix := "  "
-			if i == m.selected {
-				style = selectedDetailItemStyle
-				prefix = "► "
-			}
-			lines = append(lines, style.Render(prefix+child.Name))
-		}
-		lines = append(lines, m.scrollIndicators(len(m.children), start, end)...)
-	}
-	if m.editMode == detailModeCreateSubName {
-		lines = append(lines, "")
-		lines = append(lines, "  New sub-project: "+m.subNameInput.View())
-	}
-	return lines
-}
-
-func (m DetailModel) renderDates(maxItems int) []string {
-	var dates []workspace.ProjectDate
-	if m.project != nil {
-		dates = m.project.Dates
-	}
-	if len(dates) == 0 {
-		return []string{listItemStyle.Render("  No dates. Press 'n' to add one.")}
-	}
-	var lines []string
-	start, end := m.visibleRange(len(dates), maxItems)
-	for i := start; i < end; i++ {
-		d := dates[i]
-		style := detailItemStyle
-		prefix := "  "
-		if i == m.selected {
-			style = selectedDetailItemStyle
-			prefix = "► "
-		}
-		label := d.Label
-		if label == "" {
-			label = "(no label)"
-		}
-		dateStr := d.Date.Format("Mon Jan 2, 2006")
-		lines = append(lines, style.Render(prefix+label+" — "+dateStr))
-	}
-	lines = append(lines, m.scrollIndicators(len(dates), start, end)...)
-	return lines
-}
-
-func (m DetailModel) visibleRange(total, maxItems int) (int, int) {
-	start := 0
-	if m.selected >= maxItems {
-		start = m.selected - maxItems + 1
-	}
-	end := start + maxItems
-	if end > total {
-		end = total
+	start = m.colHorizOffset
+	end = start + visibleCount
+	if end > int(colCount) {
+		end = int(colCount)
 	}
 	return start, end
 }
 
-func (m DetailModel) scrollIndicators(total, start, end int) []string {
-	var lines []string
-	if start > 0 {
-		lines = append(lines, pathStyle.Render(fmt.Sprintf("  ▲ %d more above", start)))
+func (m *DetailModel) adjustHorizScroll() {
+	startCol, endCol := m.calculateVisibleColumns()
+	if m.selectedCol < startCol {
+		m.colHorizOffset = m.selectedCol
+		return
 	}
-	if end < total {
-		lines = append(lines, pathStyle.Render(fmt.Sprintf("  ▼ %d more below", total-end)))
+	if m.selectedCol >= endCol {
+		visibleCount := endCol - startCol
+		m.colHorizOffset = m.selectedCol - visibleCount + 1
+		if m.colHorizOffset < 0 {
+			m.colHorizOffset = 0
+		}
 	}
-	return lines
 }

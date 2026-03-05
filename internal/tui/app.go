@@ -210,7 +210,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.projectDetailView = projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
 					projNotes, projTasks, projCards, projBoards, ws.Boards,
-					proj, ws.Projects, children, indexPreview, ws.Tasks,
+					proj, ws.Projects, children, indexPreview, ws.Tasks, ws.Notes,
 				)
 				m.projectDetailView.SetSize(m.width, m.height-4)
 				m.projectDetailLoaded = true
