@@ -1900,7 +1900,7 @@ func (m *BoardModel) cardLineCount(colIndex int, card models.Card) int {
 	if card.Archived {
 		lines++
 	}
-	return lines
+	return lines + 1 // +1 for MarginBottom(1) on cardStyle, matching lipgloss.Height()
 }
 
 // formatDateWithDaysUntil formats a date with days until/overdue, coloring only the offset
