@@ -445,6 +445,21 @@ func (m DetailModel) View() string {
 		lines = append(lines, "")
 	}
 
+	if m.project != nil && len(m.project.URLs) > 0 {
+		for _, u := range m.project.URLs {
+			label := u.Label
+			if label == "" {
+				label = u.URL
+				lines = append(lines, pathStyle.Render("  🔗 "+label))
+			} else {
+				lines = append(lines, pathStyle.Render("  🔗 ")+
+					sectionHeaderStyle.Render(label)+
+					pathStyle.Render("  "+u.URL))
+			}
+		}
+		lines = append(lines, "")
+	}
+
 	headerLines := len(lines)
 	fixedColHeight := m.height - headerLines - 2
 	if fixedColHeight < 5 {
