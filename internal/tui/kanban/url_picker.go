@@ -22,6 +22,12 @@ type URLPickerModel struct {
 	height     int
 }
 
+// SetSize sets the display dimensions for centering the modal.
+func (m *URLPickerModel) SetSize(w, h int) {
+	m.width = w
+	m.height = h
+}
+
 // NewURLPickerModel creates a new URL picker.
 func NewURLPickerModel(urls []models.CardURL) URLPickerModel {
 	display := make([]string, len(urls))

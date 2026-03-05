@@ -345,7 +345,8 @@ type Project struct {
 	DirPath  string // from projects/ directory, "" if virtual
 	Parent   string
 	Archived bool
-	Dates    []ProjectDate // from index frontmatter
+	Dates    []ProjectDate        // from index frontmatter
+	URLs     []kanbanmodels.CardURL // from index frontmatter
 }
 
 // ProjectRegistry manages project discovery and cross-entity queries within a workspace
@@ -400,9 +401,10 @@ func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
 		// Upgrade virtual project with directory info
 		if dirPath != "" && existing.DirPath == "" {
 			existing.DirPath = dirPath
-			archived, dates := readProjectFrontmatter(dirPath, name)
+			archived, dates, urls := readProjectFrontmatter(dirPath, name)
 			existing.Archived = archived
 			existing.Dates = dates
+			existing.URLs = urls
 		}
 		if parent != "" && existing.Parent == "" {
 			existing.Parent = parent
@@ -411,8 +413,9 @@ func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
 	}
 	var archived bool
 	var dates []ProjectDate
+	var urls []kanbanmodels.CardURL
 	if dirPath != "" {
-		archived, dates = readProjectFrontmatter(dirPath, name)
+		archived, dates, urls = readProjectFrontmatter(dirPath, name)
 	}
 	r.projects[name] = &Project{
 		Name:     name,
@@ -420,6 +423,7 @@ func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
 		Parent:   parent,
 		Archived: archived,
 		Dates:    dates,
+		URLs:     urls,
 	}
 }
 
@@ -430,19 +434,20 @@ type projectIndexFM struct {
 		Label string `yaml:"label"`
 		Date  string `yaml:"date"`
 	} `yaml:"dates,omitempty"`
+	URLs []kanbanmodels.CardURL `yaml:"urls,omitempty"`
 }
 
-// readProjectFrontmatter reads the project index file and returns archived status and dates
-func readProjectFrontmatter(dirPath, name string) (archived bool, dates []ProjectDate) {
+// readProjectFrontmatter reads the project index file and returns archived status, dates, and URLs.
+func readProjectFrontmatter(dirPath, name string) (archived bool, dates []ProjectDate, urls []kanbanmodels.CardURL) {
 	indexPath := filepath.Join(dirPath, name+".md")
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
-		return false, nil
+		return false, nil, nil
 	}
 
 	lines := bytes.Split(content, []byte("\n"))
 	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
-		return false, nil
+		return false, nil, nil
 	}
 
 	var frontmatterEnd int
@@ -453,13 +458,13 @@ func readProjectFrontmatter(dirPath, name string) (archived bool, dates []Projec
 		}
 	}
 	if frontmatterEnd == 0 {
-		return false, nil
+		return false, nil, nil
 	}
 
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
 	var fm projectIndexFM
 	if err := yaml.Unmarshal(frontmatterBytes, &fm); err != nil {
-		return false, nil
+		return false, nil, nil
 	}
 
 	for _, d := range fm.Dates {
@@ -470,7 +475,7 @@ func readProjectFrontmatter(dirPath, name string) (archived bool, dates []Projec
 		dates = append(dates, ProjectDate{Label: d.Label, Date: t})
 	}
 
-	return fm.Archived, dates
+	return fm.Archived, dates, fm.URLs
 }
 
 // writeProjectFrontmatter serializes the project's archived flag and dates back to the index file,
@@ -496,7 +501,7 @@ func writeProjectFrontmatter(project *Project) error {
 	}
 
 	// Build new frontmatter — only emit if something is non-zero
-	needsFM := project.Archived || len(project.Dates) > 0
+	needsFM := project.Archived || len(project.Dates) > 0 || len(project.URLs) > 0
 	var buf bytes.Buffer
 	if needsFM {
 		buf.WriteString("---\n")
@@ -507,6 +512,16 @@ func writeProjectFrontmatter(project *Project) error {
 			buf.WriteString("dates:\n")
 			for _, d := range project.Dates {
 				buf.WriteString(fmt.Sprintf("  - label: %s\n    date: %s\n", d.Label, d.Date.Format("2006-01-02")))
+			}
+		}
+		if len(project.URLs) > 0 {
+			buf.WriteString("urls:\n")
+			for _, u := range project.URLs {
+				if u.Label != "" {
+					buf.WriteString(fmt.Sprintf("  - label: %s\n    url: %s\n", u.Label, u.URL))
+				} else {
+					buf.WriteString(fmt.Sprintf("  - url: %s\n", u.URL))
+				}
 			}
 		}
 		buf.WriteString("---\n\n")
@@ -595,6 +610,16 @@ func WriteProjectDates(project *Project, dates []ProjectDate) error {
 		return fmt.Errorf("cannot write dates for virtual project %q", project.Name)
 	}
 	project.Dates = dates
+	return writeProjectFrontmatter(project)
+}
+
+// WriteProjectURLs sets the project's URLs and persists them to the index file frontmatter.
+// Returns an error for virtual projects (no DirPath).
+func WriteProjectURLs(project *Project, urls []kanbanmodels.CardURL) error {
+	if project.DirPath == "" {
+		return fmt.Errorf("cannot write URLs for virtual project %q", project.Name)
+	}
+	project.URLs = urls
 	return writeProjectFrontmatter(project)
 }
 

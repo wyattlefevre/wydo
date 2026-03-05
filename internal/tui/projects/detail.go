@@ -8,8 +8,10 @@ import (
 
 	xansi "github.com/charmbracelet/x/ansi"
 	kanbanmodels "wydo/internal/kanban/models"
+	"wydo/internal/kanban/operations"
 	"wydo/internal/notes"
 	"wydo/internal/tasks/data"
+	"wydo/internal/tui/kanban"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
 	"wydo/internal/workspace"
@@ -51,6 +53,14 @@ type detailRow struct {
 	card kanbanmodels.Card
 }
 
+type detailMode int
+
+const (
+	detailModeNormal    detailMode = iota
+	detailModeURLEditor            // editing project URLs
+	detailModeURLPicker            // picking a URL to open
+)
+
 // DetailModel shows project details with notes, tasks, and cards in a
 // kanban-style column layout with hierarchical grouping by child project.
 type DetailModel struct {
@@ -82,6 +92,11 @@ type DetailModel struct {
 
 	// Collapse state: project name → collapsed
 	collapsedGroups map[string]bool
+
+	// URL modal state
+	mode      detailMode
+	urlEditor *kanban.URLEditorModel
+	urlPicker *kanban.URLPickerModel
 }
 
 func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note) DetailModel {
@@ -225,24 +240,36 @@ func (m DetailModel) OpenInfo() (name, wsDir string) {
 	return m.name, m.wsDir
 }
 
-// IsModal always returns false (no modals in this view currently).
+// IsModal returns true when a URL modal is active.
 func (m DetailModel) IsModal() bool {
-	return false
+	return m.mode != detailModeNormal
 }
 
-// IsTyping always returns false (no text inputs in this view currently).
+// IsTyping returns true when the URL editor has a text input focused.
 func (m DetailModel) IsTyping() bool {
-	return false
+	return m.mode == detailModeURLEditor && m.urlEditor != nil && m.urlEditor.IsTyping()
 }
 
 // HintText returns the hint string for the detail view.
 func (m DetailModel) HintText() string {
-	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  esc:back"
+	switch m.mode {
+	case detailModeURLEditor:
+		return "n:add  d:delete  e:edit url  l:edit label  enter:save  esc:cancel"
+	case detailModeURLPicker:
+		return "j/k:navigate  /: search  enter:open  esc:cancel"
+	}
+	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  u:urls  esc:back"
 }
 
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		switch m.mode {
+		case detailModeURLEditor:
+			return m.updateURLEditor(msg)
+		case detailModeURLPicker:
+			return m.updateURLPicker(msg)
+		}
 		return m.handleKey(msg)
 	}
 	return m, nil
@@ -287,6 +314,37 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			m.restoreCursorToGroup(projName)
 		}
 
+	case "u":
+		if m.project != nil {
+			if len(m.project.URLs) == 1 {
+				// Single URL: open directly
+				url := m.project.URLs[0].URL
+				return m, func() tea.Msg {
+					_ = operations.OpenURL(url)
+					return nil
+				}
+			} else if len(m.project.URLs) > 1 {
+				picker := kanban.NewURLPickerModel(m.project.URLs)
+				picker.SetSize(m.width, m.height)
+				m.urlPicker = &picker
+				m.mode = detailModeURLPicker
+			} else {
+				// No URLs yet — open editor to add one
+				editor := kanban.NewURLEditorModel(m.project.URLs)
+				editor.SetSize(m.width, m.height)
+				m.urlEditor = &editor
+				m.mode = detailModeURLEditor
+			}
+		}
+
+	case "U":
+		if m.project != nil {
+			editor := kanban.NewURLEditorModel(m.project.URLs)
+			editor.SetSize(m.width, m.height)
+			m.urlEditor = &editor
+			m.mode = detailModeURLEditor
+		}
+
 	case "enter":
 		row := m.currentRow()
 		if row == nil {
@@ -329,7 +387,52 @@ func (m *DetailModel) restoreCursorToGroup(projName string) {
 	}
 }
 
+func (m DetailModel) updateURLEditor(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	if m.urlEditor == nil {
+		m.mode = detailModeNormal
+		return m, nil
+	}
+	editor, cmd, saved, done := m.urlEditor.Update(msg)
+	m.urlEditor = &editor
+	if done {
+		if saved && m.project != nil {
+			_ = workspace.WriteProjectURLs(m.project, m.urlEditor.GetURLs())
+		}
+		m.urlEditor = nil
+		m.mode = detailModeNormal
+	}
+	return m, cmd
+}
+
+func (m DetailModel) updateURLPicker(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	if m.urlPicker == nil {
+		m.mode = detailModeNormal
+		return m, nil
+	}
+	picker, selectedURL, done := m.urlPicker.Update(msg)
+	m.urlPicker = &picker
+	if done {
+		m.urlPicker = nil
+		m.mode = detailModeNormal
+		if selectedURL != "" {
+			url := selectedURL
+			return m, func() tea.Msg {
+				_ = operations.OpenURL(url)
+				return nil
+			}
+		}
+	}
+	return m, nil
+}
+
 func (m DetailModel) View() string {
+	if m.mode == detailModeURLEditor && m.urlEditor != nil {
+		return m.urlEditor.View()
+	}
+	if m.mode == detailModeURLPicker && m.urlPicker != nil {
+		return m.urlPicker.View()
+	}
+
 	var lines []string
 
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("Project: %s", m.name)))
