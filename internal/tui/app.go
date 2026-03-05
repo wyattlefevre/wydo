@@ -862,13 +862,15 @@ func (m AppModel) renderHelpOverlay() string {
 			Binds: []shared.HelpBind{
 				{"j / k", "Navigate"},
 				{"enter", "Open project"},
-				{"space / →", "Expand / collapse"},
+				{"space / tab / l / →", "Expand"},
+				{"←", "Collapse"},
 				{"/", "Search"},
 				{"n", "New project"},
 				{"r", "Rename project"},
 				{"p", "Reparent project"},
-				{"a", "Archive / unarchive project"},
+				{"a", "Archive / unarchive"},
 				{"ctrl+a", "Toggle show archived"},
+				{"esc", "Back"},
 			},
 		})
 	}

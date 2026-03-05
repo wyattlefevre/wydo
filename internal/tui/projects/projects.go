@@ -148,7 +148,7 @@ func (m ProjectsModel) HintText() string {
 	case modeSetParent:
 		return "j/k:navigate  enter:confirm  esc:cancel"
 	default:
-		return "j/k:navigate  space/→:expand  ←:collapse  /:search  enter:open  n:new  r:rename  p:reparent  ?:help  q:quit"
+		return "j/k:navigate  enter:open  /:search  ?:help  q:quit"
 	}
 }
 
@@ -297,7 +297,7 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 			m.selected--
 		}
 
-	case "space", "right":
+	case " ", "right", "tab", "l":
 		// Toggle expand/collapse for projects with children
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			entry := m.entries[m.filtered[m.selected]]
