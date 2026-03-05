@@ -17,6 +17,7 @@ type URLPickerModel struct {
 	cursor     int
 	filterText string
 	filtered   []int // indices into urls
+	searching  bool
 	width      int
 	height     int
 }
@@ -58,6 +59,40 @@ func (m *URLPickerModel) recomputeFilter() {
 
 // Update handles key events. Returns (model, selectedURL, done).
 func (m URLPickerModel) Update(msg tea.KeyMsg) (URLPickerModel, string, bool) {
+	if m.searching {
+		switch msg.String() {
+		case "esc":
+			m.searching = false
+		case "enter":
+			if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
+				return m, m.urls[m.filtered[m.cursor]].URL, true
+			}
+			return m, "", true
+		case "backspace":
+			if len(m.filterText) > 0 {
+				m.filterText = m.filterText[:len(m.filterText)-1]
+				m.recomputeFilter()
+				m.cursor = 0
+			}
+		case "j", "down":
+			if m.cursor < len(m.filtered)-1 {
+				m.cursor++
+			}
+		case "k", "up":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		default:
+			if len(msg.String()) == 1 {
+				m.filterText += msg.String()
+				m.recomputeFilter()
+				m.cursor = 0
+			}
+		}
+		return m, "", false
+	}
+
+	// Navigation mode
 	switch msg.String() {
 	case "j", "down":
 		if m.cursor < len(m.filtered)-1 {
@@ -74,18 +109,8 @@ func (m URLPickerModel) Update(msg tea.KeyMsg) (URLPickerModel, string, bool) {
 		return m, "", true
 	case "esc":
 		return m, "", true
-	case "backspace":
-		if len(m.filterText) > 0 {
-			m.filterText = m.filterText[:len(m.filterText)-1]
-			m.recomputeFilter()
-			m.cursor = 0
-		}
-	default:
-		if len(msg.String()) == 1 {
-			m.filterText += msg.String()
-			m.recomputeFilter()
-			m.cursor = 0
-		}
+	case "/":
+		m.searching = true
 	}
 	return m, "", false
 }
@@ -97,7 +122,9 @@ func (m URLPickerModel) View() string {
 	lines = append(lines, tagPickerTitleStyle.Render("Open URL"))
 	lines = append(lines, "")
 
-	if m.filterText != "" {
+	if m.searching {
+		lines = append(lines, helpStyle.Render("/ "+m.filterText+"_"))
+	} else if m.filterText != "" {
 		lines = append(lines, helpStyle.Render("/ "+m.filterText))
 	}
 
@@ -150,7 +177,12 @@ func (m URLPickerModel) View() string {
 	}
 
 	lines = append(lines, "")
-	help := "j/k: navigate  enter: open  esc: cancel"
+	var help string
+	if m.searching {
+		help = "type: filter  j/k: navigate  enter: open  esc: nav mode"
+	} else {
+		help = "j/k: navigate  /: search  enter: open  esc: cancel"
+	}
 	lines = append(lines, helpStyle.Render(help))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
