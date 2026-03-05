@@ -25,13 +25,31 @@ const (
 	modeSelectDir
 	modeCreate
 	modeRename
+	modeScaffoldSelect  // choose which items to scaffold
+	modeScaffoldConfirm
+	modeSetParent // selecting new parent for a project
 )
 
-// projectEntry pairs a project with its workspace context.
+// parentOption is a candidate parent in the reparent selector.
+type parentOption struct {
+	project *workspace.Project  // nil = root (no parent)
+	label   string
+	ws      *workspace.Workspace
+}
+
+// scaffoldOption is a toggleable item in the scaffold selection screen.
+type scaffoldOption struct {
+	label   string // display name
+	path    string // relative path to create (e.g. "alpha.md", "boards/", "tasks/")
+	checked bool
+}
+
+// projectEntry pairs a project with its workspace context and tree depth.
 type projectEntry struct {
 	Project  *workspace.Project
 	RootDir  string
 	Registry *workspace.ProjectRegistry
+	Depth    int // tree depth; 0 = root
 }
 
 // ProjectsModel is the main projects list view.
@@ -45,14 +63,28 @@ type ProjectsModel struct {
 	searchQuery    string
 	multiWorkspace bool
 
+	// Tree state
+	expanded map[string]bool // project name → expanded
+
 	// Create flow state
 	selectedWSIdx  int
 	selectedDirIdx int
-	createDirs     []string  // candidate projects/ dirs for create
-	createWSDir    string    // chosen workspace root
+	createDirs     []string // candidate projects/ dirs for create
+	createWSDir    string   // chosen workspace root
 
 	// Rename flow state
 	renameEntry *projectEntry
+
+	// Scaffold flow state
+	scaffoldEntry     *projectEntry    // virtual project pending scaffold confirmation
+	scaffoldTargetDir string           // chosen projects/ dir for scaffold
+	scaffoldOptions   []scaffoldOption // items user can toggle
+	scaffoldOptCursor int              // cursor in scaffold select screen
+
+	// Reparent flow state
+	reparentEntry   *projectEntry  // project being reparented
+	parentOptions   []parentOption // candidates
+	parentOptCursor int
 
 	width        int
 	height       int
@@ -68,6 +100,7 @@ func NewProjectsModel(workspaces []*workspace.Workspace) ProjectsModel {
 
 	m := ProjectsModel{
 		textInput: ti,
+		expanded:  make(map[string]bool),
 	}
 	m.SetData(workspaces)
 	return m
@@ -77,6 +110,9 @@ func NewProjectsModel(workspaces []*workspace.Workspace) ProjectsModel {
 func (m *ProjectsModel) SetData(workspaces []*workspace.Workspace) {
 	m.workspaces = workspaces
 	m.multiWorkspace = len(workspaces) > 1
+	if m.expanded == nil {
+		m.expanded = make(map[string]bool)
+	}
 	m.buildEntries()
 	m.applyFilter()
 }
@@ -105,8 +141,14 @@ func (m ProjectsModel) HintText() string {
 		return "enter:create  esc:cancel"
 	case modeRename:
 		return "enter:rename  esc:cancel"
+	case modeScaffoldSelect:
+		return "j/k:navigate  space:toggle  enter:confirm  esc:cancel"
+	case modeScaffoldConfirm:
+		return "y:create  n/esc:cancel"
+	case modeSetParent:
+		return "j/k:navigate  enter:confirm  esc:cancel"
 	default:
-		return "j/k:navigate  /:search  enter:open  n:new  r:rename  ?:help  q:quit"
+		return "j/k:navigate  space/→:expand  ←:collapse  /:search  enter:open  n:new  r:rename  p:reparent  ?:help  q:quit"
 	}
 }
 
@@ -116,29 +158,68 @@ func (m *ProjectsModel) buildEntries() {
 		if ws.Projects == nil {
 			continue
 		}
-		for _, p := range ws.Projects.List() {
-			if !m.showArchived && p.Archived {
-				continue
-			}
-			m.entries = append(m.entries, projectEntry{
-				Project:  p,
-				RootDir:  ws.RootDir,
-				Registry: ws.Projects,
-			})
+		// Find root projects (no parent or parent not in this workspace)
+		roots := rootProjectsForWS(ws, m.showArchived)
+		sort.Slice(roots, func(i, j int) bool {
+			return strings.ToLower(roots[i].Name) < strings.ToLower(roots[j].Name)
+		})
+		for _, root := range roots {
+			m.appendProjectTree(root, 0, ws)
 		}
 	}
-	sort.Slice(m.entries, func(i, j int) bool {
-		return strings.ToLower(m.entries[i].Project.Name) < strings.ToLower(m.entries[j].Project.Name)
+}
+
+func rootProjectsForWS(ws *workspace.Workspace, showArchived bool) []*workspace.Project {
+	var roots []*workspace.Project
+	for _, p := range ws.Projects.List() {
+		if !showArchived && p.Archived {
+			continue
+		}
+		if p.Parent == "" || ws.Projects.Get(p.Parent) == nil {
+			roots = append(roots, p)
+		}
+	}
+	return roots
+}
+
+func (m *ProjectsModel) appendProjectTree(p *workspace.Project, depth int, ws *workspace.Workspace) {
+	m.entries = append(m.entries, projectEntry{
+		Project:  p,
+		RootDir:  ws.RootDir,
+		Registry: ws.Projects,
+		Depth:    depth,
 	})
+	if m.isExpanded(p.Name) {
+		children := ws.Projects.ChildrenOf(p.Name)
+		sort.Slice(children, func(i, j int) bool {
+			return strings.ToLower(children[i].Name) < strings.ToLower(children[j].Name)
+		})
+		for _, child := range children {
+			if !m.showArchived && child.Archived {
+				continue
+			}
+			m.appendProjectTree(child, depth+1, ws)
+		}
+	}
+}
+
+func (m *ProjectsModel) isExpanded(name string) bool {
+	return m.expanded[name]
+}
+
+func (m *ProjectsModel) hasChildren(entry projectEntry) bool {
+	return len(entry.Registry.ChildrenOf(entry.Project.Name)) > 0
 }
 
 func (m *ProjectsModel) applyFilter() {
 	if m.searchQuery == "" {
+		// Show all entries (tree is already built with expand/collapse state)
 		m.filtered = make([]int, len(m.entries))
 		for i := range m.entries {
 			m.filtered[i] = i
 		}
 	} else {
+		// Fuzzy match on all entries ignoring tree structure
 		names := make([]string, len(m.entries))
 		for i, e := range m.entries {
 			names[i] = e.Project.Name
@@ -182,6 +263,12 @@ func (m ProjectsModel) Update(msg tea.Msg) (ProjectsModel, tea.Cmd) {
 			return m.updateCreate(msg)
 		case modeRename:
 			return m.updateRename(msg)
+		case modeScaffoldSelect:
+			return m.updateScaffoldSelect(msg)
+		case modeScaffoldConfirm:
+			return m.updateScaffoldConfirm(msg)
+		case modeSetParent:
+			return m.updateSetParent(msg)
 		}
 	}
 	return m, nil
@@ -210,6 +297,28 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 			m.selected--
 		}
 
+	case "space", "right":
+		// Toggle expand/collapse for projects with children
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			entry := m.entries[m.filtered[m.selected]]
+			if m.hasChildren(entry) {
+				m.expanded[entry.Project.Name] = !m.expanded[entry.Project.Name]
+				m.buildEntries()
+				m.applyFilter()
+			}
+		}
+
+	case "left":
+		// Collapse current project (if expanded), or no-op
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			entry := m.entries[m.filtered[m.selected]]
+			if m.expanded[entry.Project.Name] {
+				m.expanded[entry.Project.Name] = false
+				m.buildEntries()
+				m.applyFilter()
+			}
+		}
+
 	case "/":
 		m.mode = modeSearch
 		m.textInput.SetValue(m.searchQuery)
@@ -234,12 +343,22 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	case "enter":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			entry := m.entries[m.filtered[m.selected]]
+			if entry.Project.DirPath == "" {
+				// Virtual project — prompt to scaffold
+				return m.startScaffold(entry)
+			}
 			return m, func() tea.Msg {
 				return messages.OpenProjectMsg{
 					ProjectName:      entry.Project.Name,
 					WorkspaceRootDir: entry.RootDir,
 				}
 			}
+		}
+
+	case "p":
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			entry := m.entries[m.filtered[m.selected]]
+			return m.startSetParent(entry)
 		}
 
 	case "a":
@@ -344,6 +463,115 @@ func (m ProjectsModel) startCreate() (ProjectsModel, tea.Cmd) {
 	return m, textinput.Blink
 }
 
+func (m ProjectsModel) startScaffold(entry projectEntry) (ProjectsModel, tea.Cmd) {
+	m.err = nil
+	m.scaffoldEntry = &entry
+	m.createDirs = entry.Registry.ProjectsDirs(entry.RootDir)
+	if len(m.createDirs) > 1 {
+		m.mode = modeSelectDir
+		m.selectedDirIdx = 0
+		// After dir selection, scaffoldEntry is set → updateSelectDir goes to modeScaffoldSelect
+		return m, nil
+	}
+	if len(m.createDirs) > 0 {
+		m.scaffoldTargetDir = m.createDirs[0]
+	} else {
+		m.scaffoldTargetDir = filepath.Join(entry.RootDir, "projects")
+	}
+	return m.startScaffoldSelect()
+}
+
+func (m ProjectsModel) startScaffoldSelect() (ProjectsModel, tea.Cmd) {
+	name := ""
+	if m.scaffoldEntry != nil {
+		name = m.scaffoldEntry.Project.Name
+	}
+	m.scaffoldOptions = []scaffoldOption{
+		{label: name + ".md (index note)", path: name + ".md", checked: true},
+		{label: "boards/ directory", path: "boards/", checked: true},
+		{label: "tasks/ directory", path: "tasks/", checked: true},
+	}
+	m.scaffoldOptCursor = 0
+	m.mode = modeScaffoldSelect
+	return m, nil
+}
+
+func (m ProjectsModel) updateScaffoldSelect(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.scaffoldEntry = nil
+		m.mode = modeList
+	case "j", "down":
+		if m.scaffoldOptCursor < len(m.scaffoldOptions)-1 {
+			m.scaffoldOptCursor++
+		}
+	case "k", "up":
+		if m.scaffoldOptCursor > 0 {
+			m.scaffoldOptCursor--
+		}
+	case " ":
+		if m.scaffoldOptCursor < len(m.scaffoldOptions) {
+			m.scaffoldOptions[m.scaffoldOptCursor].checked = !m.scaffoldOptions[m.scaffoldOptCursor].checked
+		}
+	case "enter":
+		m.mode = modeScaffoldConfirm
+	}
+	return m, nil
+}
+
+func (m ProjectsModel) updateScaffoldConfirm(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		if m.scaffoldEntry == nil {
+			m.mode = modeList
+			return m, nil
+		}
+		name := m.scaffoldEntry.Project.Name
+		projectDir := filepath.Join(m.scaffoldTargetDir, name)
+
+		// Always create the project directory itself
+		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+			m.err = fmt.Errorf("failed to create directory: %w", err)
+			m.mode = modeList
+			return m, nil
+		}
+
+		// Create/write only checked options
+		for _, opt := range m.scaffoldOptions {
+			if !opt.checked {
+				continue
+			}
+			fullPath := filepath.Join(projectDir, opt.path)
+			if strings.HasSuffix(opt.path, "/") {
+				// Directory
+				if err := os.MkdirAll(fullPath, 0o755); err != nil {
+					m.err = fmt.Errorf("failed to create directory %s: %w", opt.path, err)
+					m.mode = modeList
+					return m, nil
+				}
+			} else {
+				// File (index note)
+				content := fmt.Sprintf("# %s\n", name)
+				if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+					m.err = fmt.Errorf("failed to write %s: %w", opt.path, err)
+					m.mode = modeList
+					return m, nil
+				}
+			}
+		}
+
+		m.scaffoldEntry = nil
+		m.mode = modeList
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+
+	case "n", "N", "esc":
+		m.scaffoldEntry = nil
+		m.mode = modeList
+		return m, nil
+	}
+	return m, nil
+}
+
 func (m ProjectsModel) updateSelectWorkspace(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -402,6 +630,11 @@ func (m ProjectsModel) updateSelectDir(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) 
 
 	case "enter":
 		if m.selectedDirIdx < len(m.createDirs) {
+			if m.scaffoldEntry != nil {
+				// We came here from scaffold flow
+				m.scaffoldTargetDir = m.createDirs[m.selectedDirIdx]
+				return m.startScaffoldSelect()
+			}
 			m.mode = modeCreate
 			m.textInput.Placeholder = "Project name..."
 			m.textInput.Focus()
@@ -539,6 +772,12 @@ func (m ProjectsModel) View() string {
 		return m.viewCreate()
 	case modeRename:
 		return m.viewRename()
+	case modeScaffoldSelect:
+		return m.viewScaffoldSelect()
+	case modeScaffoldConfirm:
+		return m.viewScaffoldConfirm()
+	case modeSetParent:
+		return m.viewSetParent()
 	default:
 		return m.viewList()
 	}
@@ -580,10 +819,25 @@ func (m ProjectsModel) viewList() string {
 		for i := startIdx; i < endIdx; i++ {
 			entry := m.entries[m.filtered[i]]
 			style := listItemStyle
-			prefix := "  "
+			cursorPrefix := "  "
 			if i == m.selected {
 				style = selectedListItemStyle
-				prefix = "► "
+				cursorPrefix = "► "
+			}
+
+			// Tree indentation
+			indent := strings.Repeat("  ", entry.Depth)
+
+			// Tree expand/collapse prefix
+			var treePrefix string
+			if m.hasChildren(entry) {
+				if m.isExpanded(entry.Project.Name) {
+					treePrefix = "▼ "
+				} else {
+					treePrefix = "▶ "
+				}
+			} else {
+				treePrefix = "  "
 			}
 
 			name := entry.Project.Name
@@ -597,7 +851,7 @@ func (m ProjectsModel) viewList() string {
 				suffix += " " + pathStyle.Render(abbreviatePath(entry.RootDir))
 			}
 
-			lines = append(lines, style.Render(prefix+name)+suffix)
+			lines = append(lines, style.Render(cursorPrefix+indent+treePrefix+name)+suffix)
 		}
 
 		if startIdx > 0 {
@@ -697,6 +951,203 @@ func (m ProjectsModel) viewCreate() string {
 	if m.err != nil {
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 		lines = append(lines, "")
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m ProjectsModel) viewScaffoldSelect() string {
+	var lines []string
+	name := ""
+	if m.scaffoldEntry != nil {
+		name = m.scaffoldEntry.Project.Name
+	}
+	lines = append(lines, titleStyle.Render(fmt.Sprintf("Select items to create for %q:", name)))
+	lines = append(lines, "")
+	for i, opt := range m.scaffoldOptions {
+		cursor := "  "
+		if i == m.scaffoldOptCursor {
+			cursor = "► "
+		}
+		check := "[ ]"
+		if opt.checked {
+			check = "[x]"
+		}
+		lines = append(lines, listItemStyle.Render(cursor+check+" "+opt.label))
+	}
+	lines = append(lines, "")
+	lines = append(lines, pathStyle.Render("  space:toggle  enter:confirm  esc:cancel"))
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m ProjectsModel) viewScaffoldConfirm() string {
+	var lines []string
+	name := ""
+	if m.scaffoldEntry != nil {
+		name = m.scaffoldEntry.Project.Name
+	}
+	lines = append(lines, titleStyle.Render(fmt.Sprintf("Scaffold project directory for %q?", name)))
+	lines = append(lines, "")
+	lines = append(lines, listItemStyle.Render("Will create:"))
+	targetDir := m.scaffoldTargetDir
+	if targetDir == "" {
+		targetDir = "~/projects"
+	}
+	projectDir := filepath.Join(targetDir, name)
+	lines = append(lines, pathStyle.Render("  "+abbreviatePath(projectDir)+"/"))
+	for _, opt := range m.scaffoldOptions {
+		if opt.checked {
+			lines = append(lines, pathStyle.Render("  "+abbreviatePath(filepath.Join(projectDir, opt.path))))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, listItemStyle.Render("[y] Create   [n/esc] Cancel"))
+
+	if m.err != nil {
+		lines = append(lines, "")
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+// collectDescendants returns a set of all transitive descendant project names.
+func collectDescendants(name string, reg *workspace.ProjectRegistry) map[string]bool {
+	result := make(map[string]bool)
+	queue := []string{name}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, child := range reg.ChildrenOf(cur) {
+			if !result[child.Name] {
+				result[child.Name] = true
+				queue = append(queue, child.Name)
+			}
+		}
+	}
+	return result
+}
+
+// startSetParent begins the reparent flow for the given entry.
+func (m ProjectsModel) startSetParent(entry projectEntry) (ProjectsModel, tea.Cmd) {
+	if entry.Project.DirPath == "" {
+		m.err = fmt.Errorf("cannot reparent virtual project")
+		return m, nil
+	}
+	m.reparentEntry = &entry
+	descendants := collectDescendants(entry.Project.Name, entry.Registry)
+
+	// Always offer "root" as the first option
+	m.parentOptions = []parentOption{{label: "(root — no parent)", project: nil, ws: nil}}
+
+	for i := range m.entries {
+		e := &m.entries[i]
+		if e.Project.Name == entry.Project.Name {
+			continue
+		}
+		if descendants[e.Project.Name] {
+			continue
+		}
+		if e.Project.DirPath == "" {
+			continue // skip virtual
+		}
+		var ws *workspace.Workspace
+		for _, w := range m.workspaces {
+			if w.RootDir == e.RootDir {
+				ws = w
+				break
+			}
+		}
+		m.parentOptions = append(m.parentOptions, parentOption{
+			project: e.Project,
+			label:   e.Project.Name,
+			ws:      ws,
+		})
+	}
+	m.parentOptCursor = 0
+	m.mode = modeSetParent
+	return m, nil
+}
+
+func (m ProjectsModel) updateSetParent(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.reparentEntry = nil
+		m.mode = modeList
+	case "j", "down":
+		if m.parentOptCursor < len(m.parentOptions)-1 {
+			m.parentOptCursor++
+		}
+	case "k", "up":
+		if m.parentOptCursor > 0 {
+			m.parentOptCursor--
+		}
+	case "enter":
+		if m.reparentEntry == nil {
+			m.mode = modeList
+			return m, nil
+		}
+		opt := m.parentOptions[m.parentOptCursor]
+		// Find workspace for the project being reparented
+		var ws *workspace.Workspace
+		for _, w := range m.workspaces {
+			if w.RootDir == m.reparentEntry.RootDir {
+				ws = w
+				break
+			}
+		}
+		if ws == nil {
+			m.err = fmt.Errorf("workspace not found")
+			m.mode = modeList
+			return m, nil
+		}
+		if err := ws.MoveProjectToParent(m.reparentEntry.Project, opt.project); err != nil {
+			m.err = err
+			m.mode = modeList
+			return m, nil
+		}
+		m.reparentEntry = nil
+		m.mode = modeList
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+	}
+	return m, nil
+}
+
+func (m ProjectsModel) viewSetParent() string {
+	var lines []string
+	name := ""
+	if m.reparentEntry != nil {
+		name = m.reparentEntry.Project.Name
+	}
+	lines = append(lines, titleStyle.Render(fmt.Sprintf("Move %q under:", name)))
+	lines = append(lines, "")
+
+	maxVisible := m.height - 8
+	if maxVisible < 3 {
+		maxVisible = 3
+	}
+	startIdx := 0
+	if m.parentOptCursor >= maxVisible {
+		startIdx = m.parentOptCursor - maxVisible + 1
+	}
+	endIdx := startIdx + maxVisible
+	if endIdx > len(m.parentOptions) {
+		endIdx = len(m.parentOptions)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		opt := m.parentOptions[i]
+		style := listItemStyle
+		prefix := "  "
+		if i == m.parentOptCursor {
+			style = selectedListItemStyle
+			prefix = "► "
+		}
+		lines = append(lines, style.Render(prefix+opt.label))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)

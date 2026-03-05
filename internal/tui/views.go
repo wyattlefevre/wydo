@@ -21,3 +21,4 @@ type OpenBoardMsg = messages.OpenBoardMsg
 type FocusTaskMsg = messages.FocusTaskMsg
 type OpenProjectMsg = messages.OpenProjectMsg
 type DataRefreshMsg = messages.DataRefreshMsg
+type CreateSubProjectMsg = messages.CreateSubProjectMsg

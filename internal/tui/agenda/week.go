@@ -18,17 +18,18 @@ import (
 
 // WeekModel is the week agenda view
 type WeekModel struct {
-	date         time.Time // any date in the week being viewed
-	buckets      []agendapkg.DateBucket
-	overdueItems []agendapkg.AgendaItem
+	date            time.Time // any date in the week being viewed
+	buckets         []agendapkg.DateBucket
+	overdueItems    []agendapkg.AgendaItem
 	unfilteredItems []agendapkg.AgendaItem // all flattened items before filtering
-	allItems     []agendapkg.AgendaItem    // flattened items across all days (after filter)
-	taskSvc      service.TaskService
-	boards       []kanbanmodels.Board
-	notes        []notes.Note
-	cursor       int
-	width        int
-	height       int
+	allItems        []agendapkg.AgendaItem // flattened items across all days (after filter)
+	taskSvc         service.TaskService
+	boards          []kanbanmodels.Board
+	notes           []notes.Note
+	projectDates    []agendapkg.ProjectDateSource
+	cursor          int
+	width           int
+	height          int
 
 	// Search state
 	searchActive     bool
@@ -38,18 +39,19 @@ type WeekModel struct {
 }
 
 // NewWeekModel creates a new week agenda view
-func NewWeekModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) WeekModel {
+func NewWeekModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []agendapkg.ProjectDateSource) WeekModel {
 	si := textinput.New()
 	si.Placeholder = "Search..."
 	si.CharLimit = 100
 	si.Width = 40
 
 	m := WeekModel{
-		date:        time.Now(),
-		taskSvc:     taskSvc,
-		boards:      boards,
-		notes:       allNotes,
-		searchInput: si,
+		date:         time.Now(),
+		taskSvc:      taskSvc,
+		boards:       boards,
+		notes:        allNotes,
+		projectDates: projectDates,
+		searchInput:  si,
 	}
 	m.refreshData()
 	return m
@@ -57,7 +59,7 @@ func NewWeekModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allN
 
 func (m *WeekModel) refreshData() {
 	dateRange := agendapkg.WeekRange(m.date)
-	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
+	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, m.projectDates, dateRange)
 	m.overdueItems = agendapkg.QueryOverdueItems(m.taskSvc, m.boards, dateRange.Start)
 
 	// Build a map of date -> bucket for fast lookup
@@ -129,11 +131,12 @@ func (m *WeekModel) SetSize(width, height int) {
 }
 
 // SetData updates the data sources and refreshes
-func (m *WeekModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) {
+func (m *WeekModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []agendapkg.ProjectDateSource) {
 	m.date = time.Now()
 	m.taskSvc = taskSvc
 	m.boards = boards
 	m.notes = allNotes
+	m.projectDates = projectDates
 	m.refreshData()
 }
 

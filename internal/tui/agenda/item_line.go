@@ -82,6 +82,12 @@ func itemTitle(item agendapkg.AgendaItem) string {
 		if item.Note != nil {
 			return item.Note.Title
 		}
+	case agendapkg.SourceProjectDate:
+		label := item.ProjectLabel
+		if label == "" {
+			label = "milestone"
+		}
+		return item.ProjectName + " · " + label
 	}
 	return ""
 }
@@ -104,6 +110,8 @@ func itemContextText(item agendapkg.AgendaItem) string {
 		if item.Note != nil {
 			return item.Note.RelPath
 		}
+	case agendapkg.SourceProjectDate:
+		return ""
 	}
 	return ""
 }
@@ -126,6 +134,8 @@ func itemContext(item agendapkg.AgendaItem) string {
 		if item.Note != nil {
 			return notePathStyle.Render(item.Note.RelPath)
 		}
+	case agendapkg.SourceProjectDate:
+		return ""
 	}
 	return ""
 }
@@ -133,6 +143,9 @@ func itemContext(item agendapkg.AgendaItem) string {
 func formatReasonDate(item agendapkg.AgendaItem) string {
 	if item.Reason == agendapkg.ReasonNote {
 		return reasonNoteStyle.Render("note")
+	}
+	if item.Reason == agendapkg.ReasonMilestone {
+		return reasonNoteStyle.Render("milestone")
 	}
 
 	now := time.Now()
