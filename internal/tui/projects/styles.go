@@ -44,6 +44,14 @@ var (
 				Bold(true).
 				Padding(0, 2)
 
+	// Column item styles — no padding, used in the column layout
+	colItemStyle = lipgloss.NewStyle().
+			Foreground(theme.Text)
+
+	colItemSelectedStyle = lipgloss.NewStyle().
+				Foreground(theme.Warning).
+				Bold(true)
+
 	// Search
 	searchLabelStyle = lipgloss.NewStyle().
 				Foreground(theme.Secondary).
