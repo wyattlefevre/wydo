@@ -89,6 +89,11 @@ func StyledTaskLine(t data.Task) string {
 	return strings.Join(parts, " ")
 }
 
+// AgendaPriorityBadge returns a styled "(A)" badge for use in the agenda view.
+func AgendaPriorityBadge(p data.Priority) string {
+	return taskPriorityStyle(p).Render("(" + string(p) + ")")
+}
+
 // taskPriorityStyle returns a background-badge style for a todo.txt priority (A–F).
 func taskPriorityStyle(p data.Priority) lipgloss.Style {
 	var bg, fg lipgloss.Color

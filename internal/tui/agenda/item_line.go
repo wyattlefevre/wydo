@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	agendapkg "wydo/internal/agenda"
+	"wydo/internal/tui/shared"
 	"wydo/internal/tui/theme"
 )
 
@@ -21,8 +22,13 @@ func RenderItemLine(item agendapkg.AgendaItem, selected bool, width int) string 
 		parts = append(parts, " ")
 	}
 
-	// Title
-	title := itemTitle(item)
+	// Priority badge (rendered separately so it gets its own background)
+	if item.Source == agendapkg.SourceTask && item.Task != nil && item.Task.Priority != 0 && !item.Completed {
+		parts = append(parts, shared.AgendaPriorityBadge(item.Task.Priority))
+	}
+
+	// Title (without priority prefix)
+	title := itemTitleNoPrefix(item)
 	if selected {
 		parts = append(parts, selectedStyle.Render(title))
 	} else if item.Completed {
@@ -62,6 +68,26 @@ func RenderItemLine(item agendapkg.AgendaItem, selected bool, width int) string 
 // AgendaSearchString returns the search string for an agenda item (used by search/filter).
 func AgendaSearchString(item agendapkg.AgendaItem) string {
 	return itemTitle(item)
+}
+
+// itemTitleNoPrefix returns the item title without the priority prefix.
+// Used when the priority badge is rendered separately.
+func itemTitleNoPrefix(item agendapkg.AgendaItem) string {
+	switch item.Source {
+	case agendapkg.SourceTask:
+		if item.Task != nil {
+			return item.Task.Name
+		}
+	case agendapkg.SourceCard:
+		if item.Card != nil {
+			return item.Card.Title
+		}
+	case agendapkg.SourceNote:
+		if item.Note != nil {
+			return item.Note.Title
+		}
+	}
+	return ""
 }
 
 func itemTitle(item agendapkg.AgendaItem) string {
