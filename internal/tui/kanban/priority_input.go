@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"wydo/internal/tui/theme"
 )
 
 type PriorityInputModel struct {
@@ -64,8 +63,7 @@ func (m PriorityInputModel) View() string {
 	s.WriteString("\n\n")
 
 	if m.priority > 0 {
-		priorityStyle := lipgloss.NewStyle().Bold(true).Foreground(priorityColor(m.priority))
-		s.WriteString(fmt.Sprintf("Priority: %s", priorityStyle.Render(fmt.Sprintf("%d", m.priority))))
+		s.WriteString(fmt.Sprintf("Priority: %s", kanbanPriorityStyle(m.priority).Render(fmt.Sprintf("%d", m.priority))))
 	} else {
 		s.WriteString(helpStyle.Render("Priority: (none)"))
 	}
@@ -84,15 +82,3 @@ func (m PriorityInputModel) GetPriority() int {
 	return m.priority
 }
 
-func priorityColor(priority int) lipgloss.Color {
-	switch priority {
-	case 1:
-		return theme.Accent  // magenta
-	case 2:
-		return theme.Danger  // red
-	case 3:
-		return lipgloss.Color("208") // orange (256-color)
-	default:
-		return theme.Warning // yellow
-	}
-}

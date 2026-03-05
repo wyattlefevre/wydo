@@ -28,7 +28,7 @@ func StyledTaskLine(t data.Task) string {
 		if t.Done {
 			parts = append(parts, theme.Done.Render("("+string(t.Priority)+")"))
 		} else {
-			parts = append(parts, theme.Priority.Render("("+string(t.Priority)+")"))
+			parts = append(parts, taskPriorityStyle(t.Priority).Render("("+string(t.Priority)+")"))
 		}
 	}
 
@@ -87,6 +87,32 @@ func StyledTaskLine(t data.Task) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// AgendaPriorityBadge returns a styled "(A)" badge for use in the agenda view.
+// Callers must ensure p != PriorityNone before calling.
+func AgendaPriorityBadge(p data.Priority) string {
+	return taskPriorityStyle(p).Render("(" + string(p) + ")")
+}
+
+// taskPriorityStyle returns a background-badge style for a todo.txt priority (A–F).
+func taskPriorityStyle(p data.Priority) lipgloss.Style {
+	var bg, fg lipgloss.Color
+	switch p {
+	case data.PriorityA:
+		bg, fg = lipgloss.Color("5"), lipgloss.Color("0")
+	case data.PriorityB:
+		bg, fg = lipgloss.Color("1"), lipgloss.Color("0")
+	case data.PriorityC:
+		bg, fg = lipgloss.Color("208"), lipgloss.Color("0")
+	case data.PriorityD:
+		bg, fg = lipgloss.Color("3"), lipgloss.Color("0")
+	case data.PriorityE:
+		bg, fg = lipgloss.Color("2"), lipgloss.Color("0")
+	default: // F and beyond
+		bg, fg = lipgloss.Color("8"), lipgloss.Color("15")
+	}
+	return lipgloss.NewStyle().Bold(true).Background(bg).Foreground(fg)
 }
 
 func renderDateTag(key, value string, done bool) string {
