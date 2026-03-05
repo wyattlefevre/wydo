@@ -27,7 +27,8 @@ const (
 	sectionBoards
 	sectionSubProjects
 	sectionDates
-	sectionCount // sentinel for cycling
+	sectionChildrenData // tasks+cards grouped by child project
+	sectionCount        // sentinel for cycling
 )
 
 type detailEditMode int
@@ -59,6 +60,11 @@ type DetailModel struct {
 	children     []*workspace.Project
 	indexPreview string
 
+	// Child project aggregation
+	childTasks map[string][]data.Task
+	childCards map[string][]kanbanmodels.Card
+	allTasks   []data.Task
+
 	// Date editing state
 	editMode       detailEditMode
 	editingDateIdx int // -1 = new date
@@ -70,13 +76,23 @@ type DetailModel struct {
 	subNameInput textinput.Model
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
 	for _, b := range allBoards {
 		for _, col := range b.Columns {
 			for _, c := range col.Cards {
 				cardBoard[c.Filename] = b
 			}
+		}
+	}
+
+	// Compute child tasks and cards
+	childTasks := make(map[string][]data.Task)
+	childCards := make(map[string][]kanbanmodels.Card)
+	if registry != nil {
+		for _, child := range children {
+			childTasks[child.Name] = registry.TasksForProject(child.Name, allTasks)
+			childCards[child.Name] = registry.CardsForProject(child.Name, allBoards)
 		}
 	}
 
@@ -91,17 +107,20 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 	si.Width = 40
 
 	return DetailModel{
-		name:         name,
-		wsDir:        wsDir,
-		notes:        n,
-		tasks:        tasks,
-		cards:        cards,
-		boards:       boards,
-		cardBoard:    cardBoard,
-		project:      project,
-		registry:     registry,
-		children:     children,
-		indexPreview: indexPreview,
+		name:           name,
+		wsDir:          wsDir,
+		notes:          n,
+		tasks:          tasks,
+		cards:          cards,
+		boards:         boards,
+		cardBoard:      cardBoard,
+		project:        project,
+		registry:       registry,
+		children:       children,
+		indexPreview:   indexPreview,
+		childTasks:     childTasks,
+		childCards:     childCards,
+		allTasks:       allTasks,
 		editingDateIdx: -1,
 		labelInput:     ti,
 		subNameInput:   si,
@@ -140,12 +159,15 @@ func (m DetailModel) HintText() string {
 		return "type name  enter:create  esc:cancel"
 	}
 	if m.section == sectionDates {
-		return "j/k:navigate  tab/1-6:sections  n:new date  e:edit  d:delete  enter:open  esc:back  ?:help"
+		return "j/k:navigate  tab/1-7:sections  n:new date  e:edit  d:delete  enter:open  esc:back  ?:help"
 	}
 	if m.section == sectionSubProjects {
-		return "j/k:navigate  tab/1-6:sections  n:new sub-project  enter:open  esc:back  ?:help"
+		return "j/k:navigate  tab/1-7:sections  n:new sub-project  enter:open  esc:back  ?:help"
 	}
-	return "j/k:navigate  tab/1-6:sections  enter:open  esc:back  ?:help"
+	if m.section == sectionChildrenData {
+		return "j/k:navigate  tab/1-7:sections  esc:back  ?:help"
+	}
+	return "j/k:navigate  tab/1-7:sections  enter:open  esc:back  ?:help"
 }
 
 func (m DetailModel) sectionLen() int {
@@ -164,6 +186,13 @@ func (m DetailModel) sectionLen() int {
 		if m.project != nil {
 			return len(m.project.Dates)
 		}
+	case sectionChildrenData:
+		total := 0
+		for _, child := range m.children {
+			total += len(m.childTasks[child.Name])
+			total += len(m.childCards[child.Name])
+		}
+		return total
 	}
 	return 0
 }
@@ -281,10 +310,18 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 
 	case "tab":
 		m.section = (m.section + 1) % sectionCount
+		// Skip sectionChildrenData if no children
+		if m.section == sectionChildrenData && len(m.children) == 0 {
+			m.section = sectionNotes
+		}
 		m.selected = 0
 
 	case "shift+tab":
 		m.section = (m.section - 1 + sectionCount) % sectionCount
+		// Skip sectionChildrenData if no children
+		if m.section == sectionChildrenData && len(m.children) == 0 {
+			m.section = sectionDates
+		}
 		m.selected = 0
 
 	case "1":
@@ -310,6 +347,12 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	case "6":
 		m.section = sectionDates
 		m.selected = 0
+
+	case "7":
+		if len(m.children) > 0 {
+			m.section = sectionChildrenData
+			m.selected = 0
+		}
 
 	case "j", "down":
 		if m.selected < m.sectionLen()-1 {
@@ -402,7 +445,6 @@ func (m DetailModel) View() string {
 	if m.editMode == detailModeDatePicker && m.datePicker != nil {
 		return m.viewDatePicker()
 	}
-	// detailModeCreateSubName renders inline in the sub-projects section (handled in renderSubProjects)
 
 	var lines []string
 
@@ -418,34 +460,15 @@ func (m DetailModel) View() string {
 		lines = append(lines, "")
 	}
 
-	// Section tabs
-	tabs := m.renderTabs()
-	lines = append(lines, tabs)
+	// Focus bar (tabs)
+	lines = append(lines, m.renderTabs())
 	lines = append(lines, "")
 
-	// Section content
-	maxItems := m.height - 10 - strings.Count(m.indexPreview, "\n") - 2
-	if maxItems < 3 {
-		maxItems = 3
-	}
-
-	switch m.section {
-	case sectionNotes:
-		lines = append(lines, m.renderNotes(maxItems)...)
-	case sectionTasks:
-		lines = append(lines, m.renderTasks(maxItems)...)
-	case sectionCards:
-		lines = append(lines, m.renderCards(maxItems)...)
-	case sectionBoards:
-		lines = append(lines, m.renderBoards(maxItems)...)
-	case sectionSubProjects:
-		lines = append(lines, m.renderSubProjects(maxItems)...)
-	case sectionDates:
-		lines = append(lines, m.renderDates(maxItems)...)
-	}
+	// All sections stacked
+	lines = append(lines, m.renderAllSections()...)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, content)
 }
 
 func (m DetailModel) viewDateLabelInput() string {
@@ -481,6 +504,14 @@ func (m DetailModel) renderTabs() string {
 			return 0
 		}()},
 	}
+	if len(m.children) > 0 {
+		total := 0
+		for _, child := range m.children {
+			total += len(m.childTasks[child.Name])
+			total += len(m.childCards[child.Name])
+		}
+		tabs = append(tabs, tabInfo{"Children", total})
+	}
 	var rendered []string
 	for i, t := range tabs {
 		label := fmt.Sprintf(" %d:%s (%d) ", i+1, t.name, t.count)
@@ -509,8 +540,197 @@ func (m DetailModel) countForSection(s detailSection) int {
 		if m.project != nil {
 			return len(m.project.Dates)
 		}
+	case sectionChildrenData:
+		total := 0
+		for _, child := range m.children {
+			total += len(m.childTasks[child.Name])
+			total += len(m.childCards[child.Name])
+		}
+		return total
 	}
 	return 0
+}
+
+// renderSectionHeader renders a styled section divider with label and count.
+func (m DetailModel) renderSectionHeader(label string, count int, focused bool) string {
+	content := fmt.Sprintf("── %s (%d) ", label, count)
+	if focused {
+		return sectionActiveStyle.Render(content)
+	}
+	return sectionHeaderStyle.Render(content)
+}
+
+// renderAllSections renders all sections stacked vertically.
+// Non-focused sections show up to 3 items; focused section shows up to 5 with cursor.
+func (m DetailModel) renderAllSections() []string {
+	const nonFocusedMax = 3
+	const focusedMax = 5
+
+	type sectionDef struct {
+		s     detailSection
+		label string
+	}
+
+	sections := []sectionDef{
+		{sectionNotes, "Notes"},
+		{sectionTasks, "Tasks"},
+		{sectionCards, "Cards"},
+		{sectionBoards, "Boards"},
+		{sectionSubProjects, "Sub-Projects"},
+		{sectionDates, "Dates"},
+	}
+
+	var lines []string
+
+	for _, sec := range sections {
+		count := m.countForSection(sec.s)
+		focused := sec.s == m.section
+		lines = append(lines, m.renderSectionHeader(sec.label, count, focused))
+
+		if focused {
+			switch sec.s {
+			case sectionNotes:
+				lines = append(lines, m.renderNotes(focusedMax)...)
+			case sectionTasks:
+				lines = append(lines, m.renderTasks(focusedMax)...)
+			case sectionCards:
+				lines = append(lines, m.renderCards(focusedMax)...)
+			case sectionBoards:
+				lines = append(lines, m.renderBoards(focusedMax)...)
+			case sectionSubProjects:
+				lines = append(lines, m.renderSubProjects(focusedMax)...)
+			case sectionDates:
+				lines = append(lines, m.renderDates(focusedMax)...)
+			}
+		} else {
+			lines = append(lines, m.renderSectionPreview(sec.s, nonFocusedMax)...)
+		}
+		lines = append(lines, "")
+	}
+
+	// Child project data (parent projects only)
+	if len(m.children) > 0 {
+		childDataFocused := m.section == sectionChildrenData
+		childCount := m.countForSection(sectionChildrenData)
+		lines = append(lines, m.renderSectionHeader("Child Project Data", childCount, childDataFocused))
+		lines = append(lines, m.renderChildrenData(3)...)
+	}
+
+	return lines
+}
+
+// renderSectionPreview renders a section without cursor, showing up to maxItems from index 0.
+func (m DetailModel) renderSectionPreview(section detailSection, maxItems int) []string {
+	var items []string
+
+	switch section {
+	case sectionNotes:
+		for _, n := range m.notes {
+			display := n.Title
+			if display == "" {
+				display = filepath.Base(n.FilePath)
+			}
+			items = append(items, detailItemStyle.Render("  "+display))
+		}
+	case sectionTasks:
+		for _, t := range m.tasks {
+			items = append(items, detailItemStyle.Render("  ")+shared.StyledTaskLine(t))
+		}
+	case sectionCards:
+		for _, c := range m.cards {
+			title := c.Title
+			if title == "" {
+				title = c.Filename
+			}
+			if b, ok := m.cardBoard[c.Filename]; ok {
+				boardName := b.Name
+				if boardName == "" {
+					boardName = filepath.Base(b.Path)
+				}
+				items = append(items, detailItemStyle.Render("  "+title)+"  "+pathStyle.Render(boardName))
+			} else {
+				items = append(items, detailItemStyle.Render("  "+title))
+			}
+		}
+	case sectionBoards:
+		for _, b := range m.boards {
+			title := b.Name
+			if title == "" {
+				title = filepath.Base(b.Path)
+			}
+			items = append(items, detailItemStyle.Render("  "+title))
+		}
+	case sectionSubProjects:
+		for _, child := range m.children {
+			items = append(items, detailItemStyle.Render("  "+child.Name))
+		}
+	case sectionDates:
+		if m.project != nil {
+			for _, d := range m.project.Dates {
+				label := d.Label
+				if label == "" {
+					label = "(no label)"
+				}
+				dateStr := d.Date.Format("Mon Jan 2, 2006")
+				items = append(items, detailItemStyle.Render("  "+label+" — "+dateStr))
+			}
+		}
+	}
+
+	if len(items) == 0 {
+		return []string{listItemStyle.Render("  (none)")}
+	}
+
+	var lines []string
+	end := len(items)
+	if end > maxItems {
+		end = maxItems
+	}
+	lines = append(lines, items[:end]...)
+	if len(items) > maxItems {
+		lines = append(lines, pathStyle.Render(fmt.Sprintf("  +%d more", len(items)-maxItems)))
+	}
+	return lines
+}
+
+// renderChildrenData renders child project tasks and cards grouped by child.
+func (m DetailModel) renderChildrenData(maxItemsPerChild int) []string {
+	var lines []string
+	for _, child := range m.children {
+		lines = append(lines, sectionHeaderStyle.Render(fmt.Sprintf("  %s", child.Name)))
+
+		tasks := m.childTasks[child.Name]
+		if len(tasks) == 0 {
+			lines = append(lines, listItemStyle.Render("    Tasks: (none)"))
+		} else {
+			for i, t := range tasks {
+				if i >= maxItemsPerChild {
+					lines = append(lines, pathStyle.Render(fmt.Sprintf("    +%d more tasks", len(tasks)-maxItemsPerChild)))
+					break
+				}
+				lines = append(lines, detailItemStyle.Render("    ")+shared.StyledTaskLine(t))
+			}
+		}
+
+		cards := m.childCards[child.Name]
+		if len(cards) == 0 {
+			lines = append(lines, listItemStyle.Render("    Cards: (none)"))
+		} else {
+			for i, c := range cards {
+				if i >= maxItemsPerChild {
+					lines = append(lines, pathStyle.Render(fmt.Sprintf("    +%d more cards", len(cards)-maxItemsPerChild)))
+					break
+				}
+				title := c.Title
+				if title == "" {
+					title = c.Filename
+				}
+				lines = append(lines, detailItemStyle.Render("    "+title))
+			}
+		}
+		lines = append(lines, "")
+	}
+	return lines
 }
 
 func (m DetailModel) renderNotes(maxItems int) []string {
