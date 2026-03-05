@@ -96,7 +96,98 @@ type DetailModel struct {
 	// URL modal state
 	mode      detailMode
 	urlEditor *kanban.URLEditorModel
-	urlPicker *kanban.URLPickerModel
+	urlPicker *projectURLPicker
+}
+
+// detailURLEntry is a URL with its owning project name.
+type detailURLEntry struct {
+	projectName string
+	url         kanbanmodels.CardURL
+}
+
+// projectURLPicker is a grouped URL picker for the project detail view.
+type projectURLPicker struct {
+	entries []detailURLEntry
+	cursor  int
+	width   int
+	height  int
+}
+
+func (p projectURLPicker) Update(msg tea.KeyMsg) (projectURLPicker, string, bool) {
+	switch msg.String() {
+	case "j", "down":
+		if p.cursor < len(p.entries)-1 {
+			p.cursor++
+		}
+	case "k", "up":
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	case "enter":
+		if len(p.entries) > 0 && p.cursor < len(p.entries) {
+			return p, p.entries[p.cursor].url.URL, true
+		}
+		return p, "", true
+	case "esc":
+		return p, "", true
+	}
+	return p, "", false
+}
+
+func (p projectURLPicker) View() string {
+	var s strings.Builder
+
+	s.WriteString(titleStyle.Render("Open URL"))
+	s.WriteString("\n\n")
+
+	if len(p.entries) == 0 {
+		s.WriteString(pathStyle.Render("No URLs"))
+		s.WriteString("\n")
+	} else {
+		lastProject := ""
+		for i, e := range p.entries {
+			if e.projectName != lastProject {
+				if lastProject != "" {
+					s.WriteString("\n")
+				}
+				s.WriteString(sectionHeaderStyle.Render(e.projectName))
+				s.WriteString("\n")
+				lastProject = e.projectName
+			}
+			prefix := "  "
+			if i == p.cursor {
+				prefix = "> "
+			}
+			u := e.url
+			var line string
+			if u.Label != "" {
+				if i == p.cursor {
+					line = selectedDetailItemStyle.Render(prefix+u.Label) + pathStyle.Render("  "+u.URL)
+				} else {
+					line = detailItemStyle.Render(prefix+u.Label) + pathStyle.Render("  "+u.URL)
+				}
+			} else {
+				if i == p.cursor {
+					line = selectedDetailItemStyle.Render(prefix + u.URL)
+				} else {
+					line = pathStyle.Render(prefix + u.URL)
+				}
+			}
+			s.WriteString(line)
+			s.WriteString("\n")
+		}
+	}
+
+	s.WriteString("\n")
+	s.WriteString(pathStyle.Render("j/k: navigate  enter: open  esc: cancel"))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("4")).
+		Padding(1, 2).
+		Render(s.String())
+
+	return lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note) DetailModel {
@@ -217,6 +308,28 @@ func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project,
 	}
 }
 
+// collectAllURLs returns URLs from the root project and all descendants, in depth-first order.
+func (m *DetailModel) collectAllURLs() []detailURLEntry {
+	var entries []detailURLEntry
+	if m.project != nil {
+		for _, u := range m.project.URLs {
+			entries = append(entries, detailURLEntry{projectName: m.name, url: u})
+		}
+	}
+	for _, desc := range m.allDescendants {
+		var proj *workspace.Project
+		if m.registry != nil {
+			proj = m.registry.Get(desc.Name)
+		}
+		if proj != nil {
+			for _, u := range proj.URLs {
+				entries = append(entries, detailURLEntry{projectName: desc.Name, url: u})
+			}
+		}
+	}
+	return entries
+}
+
 func (m *DetailModel) currentRow() *detailRow {
 	if m.selectedCol < 0 || m.selectedCol >= int(colCount) {
 		return nil
@@ -315,26 +428,23 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 		}
 
 	case "u":
-		if m.project != nil {
-			if len(m.project.URLs) == 1 {
-				// Single URL: open directly
-				url := m.project.URLs[0].URL
-				return m, func() tea.Msg {
-					_ = operations.OpenURL(url)
-					return nil
-				}
-			} else if len(m.project.URLs) > 1 {
-				picker := kanban.NewURLPickerModel(m.project.URLs)
-				picker.SetSize(m.width, m.height)
-				m.urlPicker = &picker
-				m.mode = detailModeURLPicker
-			} else {
-				// No URLs yet — open editor to add one
-				editor := kanban.NewURLEditorModel(m.project.URLs)
-				editor.SetSize(m.width, m.height)
-				m.urlEditor = &editor
-				m.mode = detailModeURLEditor
+		entries := m.collectAllURLs()
+		if len(entries) == 1 {
+			url := entries[0].url.URL
+			return m, func() tea.Msg {
+				_ = operations.OpenURL(url)
+				return nil
 			}
+		} else if len(entries) > 1 {
+			p := projectURLPicker{entries: entries, width: m.width, height: m.height}
+			m.urlPicker = &p
+			m.mode = detailModeURLPicker
+		} else if m.project != nil {
+			// No URLs anywhere — open editor for root project
+			editor := kanban.NewURLEditorModel(m.project.URLs)
+			editor.SetSize(m.width, m.height)
+			m.urlEditor = &editor
+			m.mode = detailModeURLEditor
 		}
 
 	case "U":
@@ -422,7 +532,7 @@ func (m DetailModel) updateURLPicker(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			}
 		}
 	}
-	return m, nil
+	return m, nil // no cmd needed, projectURLPicker is synchronous
 }
 
 func (m DetailModel) View() string {
@@ -445,13 +555,18 @@ func (m DetailModel) View() string {
 		lines = append(lines, "")
 	}
 
-	if m.project != nil && len(m.project.URLs) > 0 {
-		for _, u := range m.project.URLs {
+	if allURLs := m.collectAllURLs(); len(allURLs) > 0 {
+		lastProject := ""
+		for _, e := range allURLs {
+			if e.projectName != m.name && e.projectName != lastProject {
+				lines = append(lines, sectionHeaderStyle.Render("  "+e.projectName))
+			}
+			lastProject = e.projectName
+			u := e.url
 			if u.Label == "" {
-				lines = append(lines, pathStyle.Render("  "+u.URL))
+				lines = append(lines, pathStyle.Render("    "+u.URL))
 			} else {
-				lines = append(lines, sectionHeaderStyle.Render("  "+u.Label)+
-					pathStyle.Render("  "+u.URL))
+				lines = append(lines, detailItemStyle.Render("    "+u.Label)+pathStyle.Render("  "+u.URL))
 			}
 		}
 		lines = append(lines, "")
