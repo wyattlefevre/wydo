@@ -1,6 +1,9 @@
 package messages
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"wydo/internal/workspace"
+)
 
 // ViewType represents the different views in the application
 type ViewType int
@@ -41,6 +44,13 @@ type OpenProjectMsg struct {
 
 // DataRefreshMsg signals that data should be reloaded
 type DataRefreshMsg struct{}
+
+// CreateSubProjectMsg requests creating a new sub-project under a parent project
+type CreateSubProjectMsg struct {
+	ParentProject *workspace.Project
+	Name          string
+	WsDir         string
+}
 
 func SwitchView(v ViewType) tea.Cmd {
 	return func() tea.Msg {

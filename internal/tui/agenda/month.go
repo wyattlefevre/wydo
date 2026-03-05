@@ -16,30 +16,32 @@ import (
 
 // MonthModel is the month agenda view with calendar grid
 type MonthModel struct {
-	viewMonth  time.Time // first of the month being viewed
-	cursorDate time.Time // the day under cursor in the calendar
-	buckets    []agendapkg.DateBucket
-	bucketMap  map[string]*agendapkg.DateBucket
-	taskSvc    service.TaskService
-	boards     []kanbanmodels.Board
-	notes      []notes.Note
+	viewMonth    time.Time // first of the month being viewed
+	cursorDate   time.Time // the day under cursor in the calendar
+	buckets      []agendapkg.DateBucket
+	bucketMap    map[string]*agendapkg.DateBucket
+	taskSvc      service.TaskService
+	boards       []kanbanmodels.Board
+	notes        []notes.Note
+	projectDates []agendapkg.ProjectDateSource
 	// Detail panel: items for the cursor day
 	detailItems []agendapkg.AgendaItem
-	detailIdx   int // cursor within detail panel
+	detailIdx   int  // cursor within detail panel
 	inDetail    bool // true when navigating in the detail panel
 	width       int
 	height      int
 }
 
 // NewMonthModel creates a new month agenda view
-func NewMonthModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) MonthModel {
+func NewMonthModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []agendapkg.ProjectDateSource) MonthModel {
 	now := time.Now()
 	m := MonthModel{
-		viewMonth:  time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local),
-		cursorDate: now,
-		taskSvc:    taskSvc,
-		boards:     boards,
-		notes:      allNotes,
+		viewMonth:    time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local),
+		cursorDate:   now,
+		taskSvc:      taskSvc,
+		boards:       boards,
+		notes:        allNotes,
+		projectDates: projectDates,
 	}
 	m.refreshData()
 	return m
@@ -47,7 +49,7 @@ func NewMonthModel(taskSvc service.TaskService, boards []kanbanmodels.Board, all
 
 func (m *MonthModel) refreshData() {
 	dateRange := agendapkg.MonthRange(m.cursorDate)
-	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
+	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, m.projectDates, dateRange)
 
 	m.bucketMap = make(map[string]*agendapkg.DateBucket)
 	for i := range m.buckets {
@@ -79,13 +81,14 @@ func (m *MonthModel) SetSize(width, height int) {
 }
 
 // SetData updates the data sources and refreshes
-func (m *MonthModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) {
+func (m *MonthModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []agendapkg.ProjectDateSource) {
 	now := time.Now()
 	m.viewMonth = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
 	m.cursorDate = now
 	m.taskSvc = taskSvc
 	m.boards = boards
 	m.notes = allNotes
+	m.projectDates = projectDates
 	m.refreshData()
 }
 

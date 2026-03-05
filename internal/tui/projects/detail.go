@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
+	"wydo/internal/workspace"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,10 +25,21 @@ const (
 	sectionTasks
 	sectionCards
 	sectionBoards
+	sectionSubProjects
+	sectionDates
 	sectionCount // sentinel for cycling
 )
 
-// DetailModel shows project details with notes, tasks, and cards.
+type detailEditMode int
+
+const (
+	detailModeNormal        detailEditMode = iota
+	detailModeDateLabel                    // editing label text input
+	detailModeDatePicker                   // shared date picker
+	detailModeCreateSubName                // typing new sub-project name
+)
+
+// DetailModel shows project details with notes, tasks, cards, boards, sub-projects, and dates.
 type DetailModel struct {
 	name      string
 	wsDir     string
@@ -38,9 +52,25 @@ type DetailModel struct {
 	selected  int // cursor within current section
 	width     int
 	height    int
+
+	// New fields
+	project      *workspace.Project
+	registry     *workspace.ProjectRegistry
+	children     []*workspace.Project
+	indexPreview string
+
+	// Date editing state
+	editMode       detailEditMode
+	editingDateIdx int // -1 = new date
+	editingLabel   string
+	labelInput     textinput.Model
+	datePicker     *shared.DatePickerModel
+
+	// Sub-project creation state
+	subNameInput textinput.Model
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
 	for _, b := range allBoards {
 		for _, col := range b.Columns {
@@ -49,14 +79,32 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 			}
 		}
 	}
+
+	ti := textinput.New()
+	ti.Placeholder = "Date label..."
+	ti.CharLimit = 80
+	ti.Width = 40
+
+	si := textinput.New()
+	si.Placeholder = "sub-project name"
+	si.CharLimit = 60
+	si.Width = 40
+
 	return DetailModel{
-		name:      name,
-		wsDir:     wsDir,
-		notes:     n,
-		tasks:     tasks,
-		cards:     cards,
-		boards:    boards,
-		cardBoard: cardBoard,
+		name:         name,
+		wsDir:        wsDir,
+		notes:        n,
+		tasks:        tasks,
+		cards:        cards,
+		boards:       boards,
+		cardBoard:    cardBoard,
+		project:      project,
+		registry:     registry,
+		children:     children,
+		indexPreview: indexPreview,
+		editingDateIdx: -1,
+		labelInput:     ti,
+		subNameInput:   si,
 	}
 }
 
@@ -66,14 +114,38 @@ func (m *DetailModel) SetSize(w, h int) {
 	m.height = h
 }
 
-// IsModal returns false — detail view has no modals.
+// OpenInfo returns the project name and workspace dir for re-opening the detail view.
+func (m DetailModel) OpenInfo() (name, wsDir string) {
+	return m.name, m.wsDir
+}
+
+// IsModal returns true when the detail view has an active modal or text input.
 func (m DetailModel) IsModal() bool {
-	return false
+	return m.editMode != detailModeNormal
+}
+
+// IsTyping returns true when the detail view has an active text input.
+func (m DetailModel) IsTyping() bool {
+	return m.editMode == detailModeDateLabel || m.editMode == detailModeCreateSubName
 }
 
 // HintText returns the raw hint string for the detail view.
 func (m DetailModel) HintText() string {
-	return "j/k:navigate  tab/1-4:sections  enter:open  esc:back  ?:help"
+	switch m.editMode {
+	case detailModeDateLabel:
+		return "type label  enter:next  esc:cancel"
+	case detailModeDatePicker:
+		return "h/l/j/k:navigate  t:today  enter:confirm  c:clear  i:text input  esc:cancel"
+	case detailModeCreateSubName:
+		return "type name  enter:create  esc:cancel"
+	}
+	if m.section == sectionDates {
+		return "j/k:navigate  tab/1-6:sections  n:new date  e:edit  d:delete  enter:open  esc:back  ?:help"
+	}
+	if m.section == sectionSubProjects {
+		return "j/k:navigate  tab/1-6:sections  n:new sub-project  enter:open  esc:back  ?:help"
+	}
+	return "j/k:navigate  tab/1-6:sections  enter:open  esc:back  ?:help"
 }
 
 func (m DetailModel) sectionLen() int {
@@ -86,6 +158,12 @@ func (m DetailModel) sectionLen() int {
 		return len(m.cards)
 	case sectionBoards:
 		return len(m.boards)
+	case sectionSubProjects:
+		return len(m.children)
+	case sectionDates:
+		if m.project != nil {
+			return len(m.project.Dates)
+		}
 	}
 	return 0
 }
@@ -93,9 +171,107 @@ func (m DetailModel) sectionLen() int {
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.editMode == detailModeDateLabel {
+			return m.handleDateLabelKey(msg)
+		}
+		if m.editMode == detailModeDatePicker {
+			return m.handleDatePickerKey(msg)
+		}
+		if m.editMode == detailModeCreateSubName {
+			return m.handleCreateSubNameKey(msg)
+		}
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+func (m DetailModel) handleCreateSubNameKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		name := strings.TrimSpace(m.subNameInput.Value())
+		if name != "" {
+			m.editMode = detailModeNormal
+			m.subNameInput.Blur()
+			proj := m.project
+			wsDir := m.wsDir
+			return m, func() tea.Msg {
+				return messages.CreateSubProjectMsg{
+					ParentProject: proj,
+					Name:          name,
+					WsDir:         wsDir,
+				}
+			}
+		}
+		return m, nil
+	case "esc":
+		m.editMode = detailModeNormal
+		m.subNameInput.Blur()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.subNameInput, cmd = m.subNameInput.Update(msg)
+	return m, cmd
+}
+
+func (m DetailModel) handleDateLabelKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		m.editingLabel = m.labelInput.Value()
+		// Move to date picker
+		var cur *time.Time
+		if m.editingDateIdx >= 0 && m.project != nil && m.editingDateIdx < len(m.project.Dates) {
+			t := m.project.Dates[m.editingDateIdx].Date
+			cur = &t
+		}
+		dp := shared.NewDatePickerModel(cur, "Milestone Date")
+		m.datePicker = &dp
+		m.editMode = detailModeDatePicker
+		return m, nil
+	case "esc":
+		m.editMode = detailModeNormal
+		m.labelInput.SetValue("")
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.labelInput, cmd = m.labelInput.Update(msg)
+	return m, cmd
+}
+
+func (m DetailModel) handleDatePickerKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	if m.datePicker == nil {
+		m.editMode = detailModeNormal
+		return m, nil
+	}
+	switch msg.String() {
+	case "esc":
+		m.editMode = detailModeNormal
+		m.datePicker = nil
+		return m, nil
+	case "enter":
+		if picked := m.datePicker.GetDate(); picked != nil && m.project != nil {
+			newDate := workspace.ProjectDate{
+				Label: m.editingLabel,
+				Date:  *picked,
+			}
+			dates := make([]workspace.ProjectDate, len(m.project.Dates))
+			copy(dates, m.project.Dates)
+			if m.editingDateIdx == -1 {
+				dates = append(dates, newDate)
+			} else if m.editingDateIdx < len(dates) {
+				dates[m.editingDateIdx] = newDate
+			}
+			if err := workspace.WriteProjectDates(m.project, dates); err == nil {
+				// project.Dates already updated by WriteProjectDates
+			}
+		}
+		m.editMode = detailModeNormal
+		m.datePicker = nil
+		// Refresh with DataRefreshMsg so app reloads project data
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+	}
+	dp, cmd := m.datePicker.Update(msg)
+	m.datePicker = &dp
+	return m, cmd
 }
 
 func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
@@ -127,6 +303,14 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 		m.section = sectionBoards
 		m.selected = 0
 
+	case "5":
+		m.section = sectionSubProjects
+		m.selected = 0
+
+	case "6":
+		m.section = sectionDates
+		m.selected = 0
+
 	case "j", "down":
 		if m.selected < m.sectionLen()-1 {
 			m.selected++
@@ -137,29 +321,102 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			m.selected--
 		}
 
-	case "enter":
-		if m.section == sectionTasks && m.selected < len(m.tasks) {
-			task := m.tasks[m.selected]
-			return m, func() tea.Msg {
-				return messages.FocusTaskMsg{TaskID: task.ID}
+	case "n":
+		if m.section == sectionDates {
+			return m.startDateEdit(-1)
+		}
+		if m.section == sectionSubProjects {
+			m.editMode = detailModeCreateSubName
+			m.subNameInput.SetValue("")
+			m.subNameInput.Focus()
+			return m, textinput.Blink
+		}
+
+	case "e", "enter":
+		if m.section == sectionDates {
+			if m.project != nil && m.selected < len(m.project.Dates) {
+				return m.startDateEdit(m.selected)
 			}
 		}
-		if m.section == sectionBoards && m.selected < len(m.boards) {
-			board := m.boards[m.selected]
-			return m, func() tea.Msg {
-				return messages.OpenBoardMsg{BoardPath: board.Path}
+		if msg.String() == "enter" {
+			if m.section == sectionTasks && m.selected < len(m.tasks) {
+				task := m.tasks[m.selected]
+				return m, func() tea.Msg {
+					return messages.FocusTaskMsg{TaskID: task.ID}
+				}
 			}
+			if m.section == sectionBoards && m.selected < len(m.boards) {
+				board := m.boards[m.selected]
+				return m, func() tea.Msg {
+					return messages.OpenBoardMsg{BoardPath: board.Path}
+				}
+			}
+			if m.section == sectionSubProjects && m.selected < len(m.children) {
+				child := m.children[m.selected]
+				wsDir := m.wsDir
+				return m, func() tea.Msg {
+					return messages.OpenProjectMsg{
+						ProjectName:      child.Name,
+						WorkspaceRootDir: wsDir,
+					}
+				}
+			}
+		}
+
+	case "d":
+		if m.section == sectionDates && m.project != nil && m.selected < len(m.project.Dates) {
+			dates := make([]workspace.ProjectDate, 0, len(m.project.Dates)-1)
+			for i, d := range m.project.Dates {
+				if i != m.selected {
+					dates = append(dates, d)
+				}
+			}
+			_ = workspace.WriteProjectDates(m.project, dates)
+			if m.selected >= len(m.project.Dates) {
+				m.selected = max(0, len(m.project.Dates)-1)
+			}
+			return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 		}
 	}
 	return m, nil
 }
 
+func (m DetailModel) startDateEdit(idx int) (DetailModel, tea.Cmd) {
+	m.editingDateIdx = idx
+	m.editMode = detailModeDateLabel
+	if idx >= 0 && m.project != nil && idx < len(m.project.Dates) {
+		m.editingLabel = m.project.Dates[idx].Label
+		m.labelInput.SetValue(m.project.Dates[idx].Label)
+	} else {
+		m.editingLabel = ""
+		m.labelInput.SetValue("")
+	}
+	m.labelInput.Focus()
+	return m, textinput.Blink
+}
+
 func (m DetailModel) View() string {
+	if m.editMode == detailModeDateLabel {
+		return m.viewDateLabelInput()
+	}
+	if m.editMode == detailModeDatePicker && m.datePicker != nil {
+		return m.viewDatePicker()
+	}
+	// detailModeCreateSubName renders inline in the sub-projects section (handled in renderSubProjects)
+
 	var lines []string
 
 	// Title
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("Project: %s", m.name)))
 	lines = append(lines, "")
+
+	// Index preview (greyed, above tabs)
+	if m.indexPreview != "" {
+		for _, line := range strings.Split(m.indexPreview, "\n") {
+			lines = append(lines, pathStyle.Render("  "+line))
+		}
+		lines = append(lines, "")
+	}
 
 	// Section tabs
 	tabs := m.renderTabs()
@@ -167,7 +424,7 @@ func (m DetailModel) View() string {
 	lines = append(lines, "")
 
 	// Section content
-	maxItems := m.height - 10
+	maxItems := m.height - 10 - strings.Count(m.indexPreview, "\n") - 2
 	if maxItems < 3 {
 		maxItems = 3
 	}
@@ -181,24 +438,59 @@ func (m DetailModel) View() string {
 		lines = append(lines, m.renderCards(maxItems)...)
 	case sectionBoards:
 		lines = append(lines, m.renderBoards(maxItems)...)
+	case sectionSubProjects:
+		lines = append(lines, m.renderSubProjects(maxItems)...)
+	case sectionDates:
+		lines = append(lines, m.renderDates(maxItems)...)
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
+func (m DetailModel) viewDateLabelInput() string {
+	var lines []string
+	lines = append(lines, titleStyle.Render("Date Label"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+m.labelInput.View())
+	lines = append(lines, "")
+	lines = append(lines, pathStyle.Render("  Press enter to continue to date picker, esc to cancel"))
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m DetailModel) viewDatePicker() string {
+	return m.datePicker.View()
+}
+
 func (m DetailModel) renderTabs() string {
-	names := []string{"Notes", "Tasks", "Cards", "Boards"}
-	var tabs []string
-	for i, name := range names {
-		label := fmt.Sprintf(" %d:%s (%d) ", i+1, name, m.countForSection(detailSection(i)))
+	type tabInfo struct {
+		name  string
+		count int
+	}
+	tabs := []tabInfo{
+		{"Notes", len(m.notes)},
+		{"Tasks", len(m.tasks)},
+		{"Cards", len(m.cards)},
+		{"Boards", len(m.boards)},
+		{"Sub-projects", len(m.children)},
+		{"Dates", func() int {
+			if m.project != nil {
+				return len(m.project.Dates)
+			}
+			return 0
+		}()},
+	}
+	var rendered []string
+	for i, t := range tabs {
+		label := fmt.Sprintf(" %d:%s (%d) ", i+1, t.name, t.count)
 		if detailSection(i) == m.section {
-			tabs = append(tabs, sectionActiveStyle.Render(label))
+			rendered = append(rendered, sectionActiveStyle.Render(label))
 		} else {
-			tabs = append(tabs, sectionHeaderStyle.Render(label))
+			rendered = append(rendered, sectionHeaderStyle.Render(label))
 		}
 	}
-	return "  " + strings.Join(tabs, pathStyle.Render(" │ "))
+	return "  " + strings.Join(rendered, pathStyle.Render(" │ "))
 }
 
 func (m DetailModel) countForSection(s detailSection) int {
@@ -211,6 +503,12 @@ func (m DetailModel) countForSection(s detailSection) int {
 		return len(m.cards)
 	case sectionBoards:
 		return len(m.boards)
+	case sectionSubProjects:
+		return len(m.children)
+	case sectionDates:
+		if m.project != nil {
+			return len(m.project.Dates)
+		}
 	}
 	return 0
 }
@@ -319,6 +617,60 @@ func (m DetailModel) renderBoards(maxItems int) []string {
 		lines = append(lines, style.Render(prefix+title))
 	}
 	lines = append(lines, m.scrollIndicators(len(m.boards), start, end)...)
+	return lines
+}
+
+func (m DetailModel) renderSubProjects(maxItems int) []string {
+	var lines []string
+	if len(m.children) == 0 {
+		lines = append(lines, listItemStyle.Render("  No sub-projects found"))
+	} else {
+		start, end := m.visibleRange(len(m.children), maxItems)
+		for i := start; i < end; i++ {
+			child := m.children[i]
+			style := detailItemStyle
+			prefix := "  "
+			if i == m.selected {
+				style = selectedDetailItemStyle
+				prefix = "► "
+			}
+			lines = append(lines, style.Render(prefix+child.Name))
+		}
+		lines = append(lines, m.scrollIndicators(len(m.children), start, end)...)
+	}
+	if m.editMode == detailModeCreateSubName {
+		lines = append(lines, "")
+		lines = append(lines, "  New sub-project: "+m.subNameInput.View())
+	}
+	return lines
+}
+
+func (m DetailModel) renderDates(maxItems int) []string {
+	var dates []workspace.ProjectDate
+	if m.project != nil {
+		dates = m.project.Dates
+	}
+	if len(dates) == 0 {
+		return []string{listItemStyle.Render("  No dates. Press 'n' to add one.")}
+	}
+	var lines []string
+	start, end := m.visibleRange(len(dates), maxItems)
+	for i := start; i < end; i++ {
+		d := dates[i]
+		style := detailItemStyle
+		prefix := "  "
+		if i == m.selected {
+			style = selectedDetailItemStyle
+			prefix = "► "
+		}
+		label := d.Label
+		if label == "" {
+			label = "(no label)"
+		}
+		dateStr := d.Date.Format("Mon Jan 2, 2006")
+		lines = append(lines, style.Render(prefix+label+" — "+dateStr))
+	}
+	lines = append(lines, m.scrollIndicators(len(dates), start, end)...)
 	return lines
 }
 

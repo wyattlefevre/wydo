@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"wydo/internal/kanban/fs"
 	kanbanmodels "wydo/internal/kanban/models"
@@ -69,6 +70,47 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 	ws.Projects = BuildProjectRegistry(scan, ws.Tasks, ws.Boards)
 
 	return ws, nil
+}
+
+// MoveProjectToParent moves a project's directory under a new parent project (or to root).
+// If newParent is nil, moves to the first ProjectsDir of the workspace (root-level).
+// Updates project.DirPath and project.Parent in memory; caller must emit DataRefreshMsg.
+func (ws *Workspace) MoveProjectToParent(project *Project, newParent *Project) error {
+	if project.DirPath == "" {
+		return fmt.Errorf("cannot move virtual project %q", project.Name)
+	}
+	var targetBase string
+	if newParent == nil {
+		// Move to root — use the first ProjectsDir
+		dirs := ws.Projects.ProjectsDirs(ws.RootDir)
+		if len(dirs) > 0 {
+			targetBase = dirs[0]
+		} else {
+			targetBase = filepath.Join(ws.RootDir, "projects")
+		}
+	} else {
+		if newParent.DirPath == "" {
+			return fmt.Errorf("cannot move under virtual project %q", newParent.Name)
+		}
+		targetBase = filepath.Join(newParent.DirPath, "projects")
+	}
+	targetDir := filepath.Join(targetBase, project.Name)
+	if targetDir == project.DirPath {
+		return nil // already in the right place
+	}
+	if err := os.MkdirAll(targetBase, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(project.DirPath, targetDir); err != nil {
+		return err
+	}
+	project.DirPath = targetDir
+	if newParent == nil {
+		project.Parent = ""
+	} else {
+		project.Parent = newParent.Name
+	}
+	return nil
 }
 
 // RenameProject renames a project, updating the directory on disk (if physical),
@@ -227,13 +269,19 @@ func mergeDirs(src, dst string) error {
 	return os.Remove(src)
 }
 
+// ProjectDate is a labeled date stored in a project's index frontmatter
+type ProjectDate struct {
+	Label string
+	Date  time.Time
+}
+
 // Project represents a discovered project
 type Project struct {
 	Name     string
 	DirPath  string // from projects/ directory, "" if virtual
 	Parent   string
-	Children []string
 	Archived bool
+	Dates    []ProjectDate // from index frontmatter
 }
 
 // ProjectRegistry manages project discovery and cross-entity queries within a workspace
@@ -270,15 +318,6 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 		}
 	}
 
-	// Build parent-child relationships
-	for name, proj := range r.projects {
-		if proj.Parent != "" {
-			if parent, ok := r.projects[proj.Parent]; ok {
-				parent.Children = append(parent.Children, name)
-			}
-		}
-	}
-
 	return r
 }
 
@@ -287,36 +326,49 @@ func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
 		// Upgrade virtual project with directory info
 		if dirPath != "" && existing.DirPath == "" {
 			existing.DirPath = dirPath
-			existing.Archived = readProjectArchived(dirPath, name)
+			archived, dates := readProjectFrontmatter(dirPath, name)
+			existing.Archived = archived
+			existing.Dates = dates
 		}
 		if parent != "" && existing.Parent == "" {
 			existing.Parent = parent
 		}
 		return
 	}
-	archived := false
+	var archived bool
+	var dates []ProjectDate
 	if dirPath != "" {
-		archived = readProjectArchived(dirPath, name)
+		archived, dates = readProjectFrontmatter(dirPath, name)
 	}
 	r.projects[name] = &Project{
 		Name:     name,
 		DirPath:  dirPath,
 		Parent:   parent,
 		Archived: archived,
+		Dates:    dates,
 	}
 }
 
-// readProjectArchived reads the project index file and checks for archived: true in frontmatter
-func readProjectArchived(dirPath, name string) bool {
+// projectIndexFM is the shared YAML frontmatter structure for project index files
+type projectIndexFM struct {
+	Archived bool `yaml:"archived"`
+	Dates    []struct {
+		Label string `yaml:"label"`
+		Date  string `yaml:"date"`
+	} `yaml:"dates,omitempty"`
+}
+
+// readProjectFrontmatter reads the project index file and returns archived status and dates
+func readProjectFrontmatter(dirPath, name string) (archived bool, dates []ProjectDate) {
 	indexPath := filepath.Join(dirPath, name+".md")
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
-		return false
+		return false, nil
 	}
 
 	lines := bytes.Split(content, []byte("\n"))
 	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
-		return false
+		return false, nil
 	}
 
 	var frontmatterEnd int
@@ -327,26 +379,29 @@ func readProjectArchived(dirPath, name string) bool {
 		}
 	}
 	if frontmatterEnd == 0 {
-		return false
+		return false, nil
 	}
 
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
-	var fm struct {
-		Archived bool `yaml:"archived"`
-	}
+	var fm projectIndexFM
 	if err := yaml.Unmarshal(frontmatterBytes, &fm); err != nil {
-		return false
+		return false, nil
 	}
-	return fm.Archived
+
+	for _, d := range fm.Dates {
+		t, err := time.Parse("2006-01-02", d.Date)
+		if err != nil {
+			continue
+		}
+		dates = append(dates, ProjectDate{Label: d.Label, Date: t})
+	}
+
+	return fm.Archived, dates
 }
 
-// SetProjectArchived sets the archived state for a project by updating its index file frontmatter.
-// Returns an error for virtual projects (no DirPath).
-func SetProjectArchived(project *Project, archived bool) error {
-	if project.DirPath == "" {
-		return fmt.Errorf("cannot archive virtual project %q", project.Name)
-	}
-
+// writeProjectFrontmatter serializes the project's archived flag and dates back to the index file,
+// preserving the body content.
+func writeProjectFrontmatter(project *Project) error {
 	indexPath := filepath.Join(project.DirPath, project.Name+".md")
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -354,7 +409,7 @@ func SetProjectArchived(project *Project, archived bool) error {
 		content = []byte(fmt.Sprintf("# %s\n", project.Name))
 	}
 
-	// Strip existing frontmatter
+	// Strip existing frontmatter, keep body
 	body := content
 	lines := bytes.Split(content, []byte("\n"))
 	if len(lines) > 0 && bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
@@ -366,14 +421,92 @@ func SetProjectArchived(project *Project, archived bool) error {
 		}
 	}
 
+	// Build new frontmatter — only emit if something is non-zero
+	needsFM := project.Archived || len(project.Dates) > 0
 	var buf bytes.Buffer
-	if archived {
-		buf.WriteString("---\narchived: true\n---\n\n")
+	if needsFM {
+		buf.WriteString("---\n")
+		if project.Archived {
+			buf.WriteString("archived: true\n")
+		}
+		if len(project.Dates) > 0 {
+			buf.WriteString("dates:\n")
+			for _, d := range project.Dates {
+				buf.WriteString(fmt.Sprintf("  - label: %s\n    date: %s\n", d.Label, d.Date.Format("2006-01-02")))
+			}
+		}
+		buf.WriteString("---\n\n")
 	}
 	buf.Write(body)
 
-	project.Archived = archived
 	return os.WriteFile(indexPath, buf.Bytes(), 0644)
+}
+
+// SetProjectArchived sets the archived state for a project by updating its index file frontmatter.
+// Returns an error for virtual projects (no DirPath).
+func SetProjectArchived(project *Project, archived bool) error {
+	if project.DirPath == "" {
+		return fmt.Errorf("cannot archive virtual project %q", project.Name)
+	}
+	project.Archived = archived
+	return writeProjectFrontmatter(project)
+}
+
+// WriteProjectDates sets the project's dates and persists them to the index file frontmatter.
+// Returns an error for virtual projects (no DirPath).
+func WriteProjectDates(project *Project, dates []ProjectDate) error {
+	if project.DirPath == "" {
+		return fmt.Errorf("cannot write dates for virtual project %q", project.Name)
+	}
+	project.Dates = dates
+	return writeProjectFrontmatter(project)
+}
+
+// ChildrenOf returns all projects whose Parent equals name (case-insensitive).
+func (r *ProjectRegistry) ChildrenOf(name string) []*Project {
+	var result []*Project
+	for _, p := range r.projects {
+		if strings.EqualFold(p.Parent, name) {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// ReadIndexPreview returns the first 4 non-empty body lines of the project index file.
+// Strips YAML frontmatter. Returns "" if no file or empty body.
+func ReadIndexPreview(dirPath, name string) string {
+	indexPath := filepath.Join(dirPath, name+".md")
+	content, err := os.ReadFile(indexPath)
+	if err != nil {
+		return ""
+	}
+
+	// Strip frontmatter
+	body := content
+	lines := bytes.Split(content, []byte("\n"))
+	if len(lines) > 0 && bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
+		for i := 1; i < len(lines); i++ {
+			if bytes.Equal(bytes.TrimSpace(lines[i]), []byte("---")) {
+				body = bytes.Join(lines[i+1:], []byte("\n"))
+				break
+			}
+		}
+	}
+
+	// Collect up to 4 non-empty lines
+	bodyLines := bytes.Split(body, []byte("\n"))
+	var preview []string
+	for _, l := range bodyLines {
+		trimmed := bytes.TrimSpace(l)
+		if len(trimmed) > 0 {
+			preview = append(preview, string(trimmed))
+		}
+		if len(preview) >= 4 {
+			break
+		}
+	}
+	return strings.Join(preview, "\n")
 }
 
 // List returns all projects

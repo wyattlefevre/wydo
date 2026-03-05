@@ -38,8 +38,8 @@ func MonthRange(date time.Time) DateRange {
 	return DateRange{Start: start, End: end}
 }
 
-// QueryAgenda scans task, card, and note data sources for items within the date range
-func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, dateRange DateRange) []DateBucket {
+// QueryAgenda scans task, card, note, and project date sources for items within the date range
+func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []ProjectDateSource, dateRange DateRange) []DateBucket {
 	bucketMap := make(map[string]*DateBucket)
 
 	// Scan pending tasks
@@ -82,6 +82,9 @@ func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 		addNoteItems(note, dateRange, bucketMap)
 	}
 
+	// Scan project dates
+	addProjectDateItems(projectDates, dateRange, bucketMap)
+
 	// Convert map to sorted slice
 	buckets := make([]DateBucket, 0, len(bucketMap))
 	for _, bucket := range bucketMap {
@@ -93,6 +96,21 @@ func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 	})
 
 	return buckets
+}
+
+func addProjectDateItems(sources []ProjectDateSource, dateRange DateRange, bucketMap map[string]*DateBucket) {
+	for _, src := range sources {
+		if inRange(src.Date, dateRange) {
+			bucket := getOrCreateBucket(bucketMap, src.Date)
+			bucket.ProjectDates = append(bucket.ProjectDates, AgendaItem{
+				Source:       SourceProjectDate,
+				Reason:       ReasonMilestone,
+				Date:         src.Date,
+				ProjectName:  src.ProjectName,
+				ProjectLabel: src.Label,
+			})
+		}
+	}
 }
 
 // QueryOverdueItems returns tasks and cards with due or scheduled dates strictly before the cutoff date.

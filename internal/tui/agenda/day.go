@@ -26,6 +26,7 @@ type DayModel struct {
 	taskSvc      service.TaskService
 	boards       []kanbanmodels.Board
 	notes        []notes.Note
+	projectDates []agendapkg.ProjectDateSource
 	allItems     []agendapkg.AgendaItem // all flattened items before filtering
 	items        []agendapkg.AgendaItem // flattened items for cursor navigation (after filter)
 	cursor       int
@@ -40,18 +41,19 @@ type DayModel struct {
 }
 
 // NewDayModel creates a new day agenda view
-func NewDayModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) DayModel {
+func NewDayModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []agendapkg.ProjectDateSource) DayModel {
 	si := textinput.New()
 	si.Placeholder = "Search..."
 	si.CharLimit = 100
 	si.Width = 40
 
 	m := DayModel{
-		date:        time.Now(),
-		taskSvc:     taskSvc,
-		boards:      boards,
-		notes:       allNotes,
-		searchInput: si,
+		date:         time.Now(),
+		taskSvc:      taskSvc,
+		boards:       boards,
+		notes:        allNotes,
+		projectDates: projectDates,
+		searchInput:  si,
 	}
 	m.refreshData()
 	return m
@@ -59,7 +61,7 @@ func NewDayModel(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 
 func (m *DayModel) refreshData() {
 	dateRange := agendapkg.DayRange(m.date)
-	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, dateRange)
+	m.buckets = agendapkg.QueryAgenda(m.taskSvc, m.boards, m.notes, m.projectDates, dateRange)
 	m.overdueItems = agendapkg.QueryOverdueItems(m.taskSvc, m.boards, dateRange.Start)
 
 	// Flatten all items: overdue first, then regular, then completed
@@ -120,11 +122,12 @@ func (m *DayModel) SetSize(width, height int) {
 }
 
 // SetData updates the data sources and refreshes
-func (m *DayModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note) {
+func (m *DayModel) SetData(taskSvc service.TaskService, boards []kanbanmodels.Board, allNotes []notes.Note, projectDates []agendapkg.ProjectDateSource) {
 	m.date = time.Now()
 	m.taskSvc = taskSvc
 	m.boards = boards
 	m.notes = allNotes
+	m.projectDates = projectDates
 	m.refreshData()
 }
 

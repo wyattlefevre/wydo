@@ -102,7 +102,7 @@ func TestQueryAgenda_TaskDueDate(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(svc, nil, nil, DayRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(svc, nil, nil, nil, DayRange(date(2026, 2, 6)))
 
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
@@ -129,7 +129,7 @@ func TestQueryAgenda_TaskScheduledDate(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(svc, nil, nil, DayRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(svc, nil, nil, nil, DayRange(date(2026, 2, 6)))
 
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
@@ -167,7 +167,7 @@ func TestQueryAgenda_CardDueDate(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(nil, boards, nil, DayRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(nil, boards, nil, nil, DayRange(date(2026, 2, 6)))
 
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
@@ -204,7 +204,7 @@ func TestQueryAgenda_MultiDayRange(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(svc, nil, nil, WeekRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(svc, nil, nil, nil, WeekRange(date(2026, 2, 6)))
 
 	// Should include tasks on Feb 2, 5, and 8 (Mon Feb 2 to Sun Feb 8)
 	if len(buckets) != 3 {
@@ -227,7 +227,7 @@ func TestQueryAgenda_DoneTasksSeparated(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(svc, nil, nil, DayRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(svc, nil, nil, nil, DayRange(date(2026, 2, 6)))
 
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
@@ -256,7 +256,7 @@ func TestQueryAgenda_EmptyResult(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(svc, nil, nil, DayRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(svc, nil, nil, nil, DayRange(date(2026, 2, 6)))
 
 	if len(buckets) != 0 {
 		t.Fatalf("expected 0 buckets, got %d", len(buckets))
@@ -473,7 +473,7 @@ func TestQueryAgenda_TaskWithBothDates(t *testing.T) {
 		},
 	}
 
-	buckets := QueryAgenda(svc, nil, nil, DayRange(date(2026, 2, 6)))
+	buckets := QueryAgenda(svc, nil, nil, nil, DayRange(date(2026, 2, 6)))
 
 	if len(buckets) != 1 {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))

@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"time"
+	agendapkg "wydo/internal/agenda"
 	"wydo/internal/config"
 	"wydo/internal/kanban/fs"
 	kanbanmodels "wydo/internal/kanban/models"
@@ -117,6 +119,8 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		defaultDir = availableDirs[0]
 	}
 
+	projDates := collectProjectDates(workspaces)
+
 	app := AppModel{
 		cfg:             cfg,
 		workspaces:      workspaces,
@@ -124,12 +128,12 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		boards:          allBoards,
 		allNotes:        allNotes,
 		currentView:     view,
-		dayView:         agendaview.NewDayModel(taskSvc, allBoards, allNotes),
-		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes),
-		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes),
+		dayView:         agendaview.NewDayModel(taskSvc, allBoards, allNotes, projDates),
+		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes, projDates),
+		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes, projDates),
 		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
 		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards),
-		projectsView:   projectsview.NewProjectsModel(workspaces),
+		projectsView:    projectsview.NewProjectsModel(workspaces),
 	}
 
 	// If a specific board was requested, find and open it directly
@@ -198,11 +202,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				projTasks := ws.Projects.TasksForProject(msg.ProjectName, ws.Tasks)
 				projCards := ws.Projects.CardsForProject(msg.ProjectName, ws.Boards)
 				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
+				children := ws.Projects.ChildrenOf(msg.ProjectName)
+				var indexPreview string
+				if proj != nil && proj.DirPath != "" {
+					indexPreview = workspace.ReadIndexPreview(proj.DirPath, proj.Name)
+				}
 				m.projectDetailView = projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
 					projNotes, projTasks, projCards, projBoards, ws.Boards,
+					proj, ws.Projects, children, indexPreview,
 				)
-				_ = proj // proj used for future enhancements
 				m.projectDetailView.SetSize(m.width, m.height-4)
 				m.projectDetailLoaded = true
 				m.currentView = ViewProjectDetail
@@ -217,13 +226,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.View {
 		case ViewAgendaDay:
 			m.refreshData()
-			m.dayView.SetData(m.taskSvc, m.boards, m.allNotes)
+			m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewAgendaWeek:
 			m.refreshData()
-			m.weekView.SetData(m.taskSvc, m.boards, m.allNotes)
+			m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewAgendaMonth:
 			m.refreshData()
-			m.monthView.SetData(m.taskSvc, m.boards, m.allNotes)
+			m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewKanbanPicker:
 			m.refreshData()
 			m.pickerView.SetBoards(m.boards)
@@ -324,10 +333,33 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return taskview.ArchiveCompleteMsg{Count: msg.Count}
 		}
 
+	case CreateSubProjectMsg:
+		for _, ws := range m.workspaces {
+			if ws.RootDir == msg.WsDir {
+				targetDir := filepath.Join(msg.ParentProject.DirPath, "projects", msg.Name)
+				if err := os.MkdirAll(targetDir, 0o755); err != nil {
+					logs.Logger.Printf("Error creating sub-project dir: %v", err)
+					break
+				}
+				indexPath := filepath.Join(targetDir, msg.Name+".md")
+				if err := os.WriteFile(indexPath, []byte("# "+msg.Name+"\n"), 0o644); err != nil {
+					logs.Logger.Printf("Error writing sub-project index: %v", err)
+				}
+				break
+			}
+		}
+		return m, func() tea.Msg { return DataRefreshMsg{} }
+
 	case DataRefreshMsg:
 		m.refreshData()
 		if m.currentView == ViewProjects {
 			m.projectsView.SetData(m.workspaces)
+		}
+		if m.currentView == ViewProjectDetail && m.projectDetailLoaded {
+			projName, wsDir := m.projectDetailView.OpenInfo()
+			return m, func() tea.Msg {
+				return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
+			}
 		}
 		return m, nil
 
@@ -359,7 +391,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "A":
 				m.currentView = ViewAgendaDay
 				m.refreshData()
-				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes)
+				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
 			case "T":
 				if m.currentView != ViewTaskManager {
@@ -399,17 +431,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "1":
 				m.currentView = ViewAgendaDay
 				m.refreshData()
-				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes)
+				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
 			case "2":
 				m.currentView = ViewAgendaWeek
 				m.refreshData()
-				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes)
+				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
 			case "3":
 				m.currentView = ViewAgendaMonth
 				m.refreshData()
-				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes)
+				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
 			}
 		}
@@ -505,6 +537,26 @@ func (m *AppModel) isChildInputActive() bool {
 	default:
 		return false
 	}
+}
+
+// collectProjectDates collects all labeled project dates from all workspaces.
+func collectProjectDates(workspaces []*workspace.Workspace) []agendapkg.ProjectDateSource {
+	var result []agendapkg.ProjectDateSource
+	for _, ws := range workspaces {
+		if ws.Projects == nil {
+			continue
+		}
+		for _, p := range ws.Projects.List() {
+			for _, d := range p.Dates {
+				result = append(result, agendapkg.ProjectDateSource{
+					ProjectName: p.Name,
+					Label:       d.Label,
+					Date:        d.Date,
+				})
+			}
+		}
+	}
+	return result
 }
 
 // collectAllProjectNames returns a sorted, deduplicated list of project names
@@ -810,9 +862,11 @@ func (m AppModel) renderHelpOverlay() string {
 			Binds: []shared.HelpBind{
 				{"j / k", "Navigate"},
 				{"enter", "Open project"},
+				{"space / →", "Expand / collapse"},
 				{"/", "Search"},
 				{"n", "New project"},
 				{"r", "Rename project"},
+				{"p", "Reparent project"},
 				{"a", "Archive / unarchive project"},
 				{"ctrl+a", "Toggle show archived"},
 			},
