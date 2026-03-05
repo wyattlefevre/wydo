@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 	}
 
 	// Build project registry
-	ws.Projects = BuildProjectRegistry(scan, ws.Tasks, ws.Boards)
+	ws.Projects = BuildProjectRegistry(scan, ws.Tasks, ws.Boards, scan.RootDir)
 
 	return ws, nil
 }
@@ -209,6 +210,69 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 	return nil
 }
 
+// DeleteVirtualProject removes all references to a virtual project from tasks and cards,
+// and removes it from the virtual archive file.
+func DeleteVirtualProject(ws *Workspace, projectName string) error {
+	project := ws.Projects.Get(projectName)
+	if project == nil {
+		return fmt.Errorf("project %q not found", projectName)
+	}
+	if project.DirPath != "" {
+		return fmt.Errorf("DeleteVirtualProject called on physical project %q", projectName)
+	}
+
+	// Remove from task +tags
+	modified := false
+	for i := range ws.Tasks {
+		if ws.Tasks[i].HasProject(projectName) {
+			ws.Tasks[i].RemoveProject(projectName)
+			modified = true
+		}
+	}
+	if modified {
+		if err := data.WriteAllTasks(ws.Tasks); err != nil {
+			return fmt.Errorf("write tasks: %w", err)
+		}
+		if ws.TaskSvc != nil {
+			if err := ws.TaskSvc.Reload(); err != nil {
+				return fmt.Errorf("reload tasks: %w", err)
+			}
+		}
+	}
+
+	// Remove from card frontmatter
+	for bi := range ws.Boards {
+		for ci := range ws.Boards[bi].Columns {
+			for cdi := range ws.Boards[bi].Columns[ci].Cards {
+				card := &ws.Boards[bi].Columns[ci].Cards[cdi]
+				var hasProject bool
+				for _, p := range card.Projects {
+					if strings.EqualFold(p, projectName) {
+						hasProject = true
+						break
+					}
+				}
+				if !hasProject {
+					continue
+				}
+				filtered := card.Projects[:0]
+				for _, p := range card.Projects {
+					if !strings.EqualFold(p, projectName) {
+						filtered = append(filtered, p)
+					}
+				}
+				card.Projects = filtered
+				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", card.Filename)
+				if err := fs.WriteCard(*card, cardPath); err != nil {
+					return fmt.Errorf("write card %s: %w", card.Filename, err)
+				}
+			}
+		}
+	}
+
+	return RemoveFromVirtualArchive(ws.RootDir, projectName)
+}
+
 // mergeDirs recursively merges the contents of src into dst.
 // For directory entries: if dst/<name> exists as a dir, recurse; otherwise rename the subtree.
 // For file entries: if both are .txt files, append src contents to dst; otherwise rename (skip if dst exists).
@@ -290,7 +354,7 @@ type ProjectRegistry struct {
 }
 
 // BuildProjectRegistry builds a registry from scan results, tasks, and boards
-func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards []kanbanmodels.Board) *ProjectRegistry {
+func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards []kanbanmodels.Board, wsRoot string) *ProjectRegistry {
 	r := &ProjectRegistry{
 		projects: make(map[string]*Project),
 	}
@@ -314,6 +378,16 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 				for _, p := range card.Projects {
 					r.ensureProject(p, "", "")
 				}
+			}
+		}
+	}
+
+	// Apply virtual archive: mark archived virtual projects
+	if wsRoot != "" {
+		virtualArchived := readVirtualArchive(wsRoot)
+		for _, p := range r.projects {
+			if p.DirPath == "" && virtualArchived[p.Name] {
+				p.Archived = true
 			}
 		}
 	}
@@ -450,6 +524,68 @@ func SetProjectArchived(project *Project, archived bool) error {
 	}
 	project.Archived = archived
 	return writeProjectFrontmatter(project)
+}
+
+const virtualArchiveFilename = ".wydo-virtual-archive.txt"
+
+func virtualArchivePath(wsRoot string) string {
+	return filepath.Join(wsRoot, virtualArchiveFilename)
+}
+
+// readVirtualArchive returns the set of archived virtual project names.
+// Returns empty map if file does not exist.
+func readVirtualArchive(wsRoot string) map[string]bool {
+	data, err := os.ReadFile(virtualArchivePath(wsRoot))
+	if err != nil {
+		return make(map[string]bool)
+	}
+	result := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			result[name] = true
+		}
+	}
+	return result
+}
+
+// writeVirtualArchive writes the archived set. Removes the file when empty.
+func writeVirtualArchive(wsRoot string, archived map[string]bool) error {
+	path := virtualArchivePath(wsRoot)
+	if len(archived) == 0 {
+		_ = os.Remove(path)
+		return nil
+	}
+	var names []string
+	for name := range archived {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return os.WriteFile(path, []byte(strings.Join(names, "\n")+"\n"), 0644)
+}
+
+// SetVirtualProjectArchived archives/unarchives a virtual project in the workspace archive file.
+func SetVirtualProjectArchived(wsRoot string, project *Project, archived bool) error {
+	existing := readVirtualArchive(wsRoot)
+	if archived {
+		existing[project.Name] = true
+	} else {
+		delete(existing, project.Name)
+	}
+	if err := writeVirtualArchive(wsRoot, existing); err != nil {
+		return err
+	}
+	project.Archived = archived
+	return nil
+}
+
+// RemoveFromVirtualArchive removes a name from the virtual archive file (no-op if absent).
+func RemoveFromVirtualArchive(wsRoot, name string) error {
+	existing := readVirtualArchive(wsRoot)
+	if !existing[name] {
+		return nil
+	}
+	delete(existing, name)
+	return writeVirtualArchive(wsRoot, existing)
 }
 
 // WriteProjectDates sets the project's dates and persists them to the index file frontmatter.

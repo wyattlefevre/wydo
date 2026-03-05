@@ -56,7 +56,7 @@ func TestProjectRegistry_FromDirectories(t *testing.T) {
 		t.Fatalf("scan error: %v", err)
 	}
 
-	registry := BuildProjectRegistry(scan, nil, nil)
+	registry := BuildProjectRegistry(scan, nil, nil, scan.RootDir)
 
 	alpha := registry.Get("alpha")
 	if alpha == nil {
@@ -454,6 +454,120 @@ func TestMergeProject_CardDedup(t *testing.T) {
 	cardStr := string(cardContent)
 	if strings.Contains(cardStr, "alpha") {
 		t.Errorf("card file still references alpha:\n%s", cardStr)
+	}
+}
+
+func TestSetVirtualProjectArchived(t *testing.T) {
+	tmp := t.TempDir()
+
+	p := &Project{Name: "myproject"}
+
+	// Archive — file should be created
+	if err := SetVirtualProjectArchived(tmp, p, true); err != nil {
+		t.Fatalf("archive error: %v", err)
+	}
+	if !p.Archived {
+		t.Error("expected p.Archived to be true")
+	}
+	archived := readVirtualArchive(tmp)
+	if !archived["myproject"] {
+		t.Error("expected myproject in virtual archive")
+	}
+
+	// Unarchive — file should be removed (no more entries)
+	if err := SetVirtualProjectArchived(tmp, p, false); err != nil {
+		t.Fatalf("unarchive error: %v", err)
+	}
+	if p.Archived {
+		t.Error("expected p.Archived to be false")
+	}
+	if _, err := os.Stat(virtualArchivePath(tmp)); !os.IsNotExist(err) {
+		t.Error("expected archive file to be removed when empty")
+	}
+}
+
+func TestBuildProjectRegistry_LoadsVirtualArchive(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create a task referencing "virtualproj"
+	tasksDir := filepath.Join(tmp, "tasks")
+	os.MkdirAll(tasksDir, 0755)
+	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Do something +virtualproj\n"), 0644)
+
+	// Create a physical project "physicalproj"
+	projDir := filepath.Join(tmp, "projects", "physicalproj")
+	os.MkdirAll(projDir, 0755)
+	os.WriteFile(filepath.Join(projDir, "physicalproj.md"), []byte("# physicalproj\n"), 0644)
+
+	// Write archive file listing both — physical project entry should be ignored
+	archiveContent := "physicalproj\nvirtualproj\n"
+	os.WriteFile(virtualArchivePath(tmp), []byte(archiveContent), 0644)
+
+	scan, err := scanner.ScanWorkspace(tmp)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	ws, err := Load(scan)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	vp := ws.Projects.Get("virtualproj")
+	if vp == nil {
+		t.Fatal("expected virtualproj in registry")
+	}
+	if !vp.Archived {
+		t.Error("expected virtualproj to be marked archived")
+	}
+
+	// Physical project should NOT be affected by virtual archive
+	pp := ws.Projects.Get("physicalproj")
+	if pp == nil {
+		t.Fatal("expected physicalproj in registry")
+	}
+	if pp.Archived {
+		t.Error("physical project should not be archived via virtual archive file")
+	}
+}
+
+func TestDeleteVirtualProject(t *testing.T) {
+	tmp := t.TempDir()
+
+	tasksDir := filepath.Join(tmp, "tasks")
+	os.MkdirAll(tasksDir, 0755)
+	todoFile := filepath.Join(tasksDir, "todo.txt")
+	os.WriteFile(todoFile, []byte("Buy milk +foo +bar\nDo stuff +foo\nOther task +bar\n"), 0644)
+
+	scan, err := scanner.ScanWorkspace(tmp)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	ws, err := Load(scan)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// Verify foo is virtual
+	foo := ws.Projects.Get("foo")
+	if foo == nil {
+		t.Fatal("expected foo in registry")
+	}
+	if foo.DirPath != "" {
+		t.Errorf("expected foo to be virtual")
+	}
+
+	if err := DeleteVirtualProject(ws, "foo"); err != nil {
+		t.Fatalf("delete error: %v", err)
+	}
+
+	// +foo should be gone from tasks
+	content, _ := os.ReadFile(todoFile)
+	if strings.Contains(string(content), "+foo") {
+		t.Errorf("todo.txt still contains +foo:\n%s", content)
+	}
+	// +bar should be preserved
+	if !strings.Contains(string(content), "+bar") {
+		t.Errorf("todo.txt should still contain +bar:\n%s", content)
 	}
 }
 
