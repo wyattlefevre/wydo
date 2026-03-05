@@ -27,7 +27,8 @@ const (
 	modeRename
 	modeScaffoldSelect  // choose which items to scaffold
 	modeScaffoldConfirm
-	modeSetParent // selecting new parent for a project
+	modeSetParent       // selecting new parent for a project
+	modeDeleteVirtual   // confirm-delete a virtual project
 )
 
 // parentOption is a candidate parent in the reparent selector.
@@ -85,6 +86,11 @@ type ProjectsModel struct {
 	reparentEntry   *projectEntry  // project being reparented
 	parentOptions   []parentOption // candidates
 	parentOptCursor int
+
+	// Delete virtual project flow state
+	deleteEntry     *projectEntry
+	deleteTaskCount int
+	deleteCardCount int
 
 	width        int
 	height       int
@@ -147,6 +153,8 @@ func (m ProjectsModel) HintText() string {
 		return "y:create  n/esc:cancel"
 	case modeSetParent:
 		return "j/k:navigate  enter:confirm  esc:cancel"
+	case modeDeleteVirtual:
+		return "y:delete  n/esc:cancel"
 	default:
 		return "j/k:navigate  enter:open  /:search  ?:help  q:quit"
 	}
@@ -269,6 +277,8 @@ func (m ProjectsModel) Update(msg tea.Msg) (ProjectsModel, tea.Cmd) {
 			return m.updateScaffoldConfirm(msg)
 		case modeSetParent:
 			return m.updateSetParent(msg)
+		case modeDeleteVirtual:
+			return m.updateDeleteVirtual(msg)
 		}
 	}
 	return m, nil
@@ -364,17 +374,33 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	case "a":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			entry := m.entries[m.filtered[m.selected]]
+			newArchived := !entry.Project.Archived
+			var err error
 			if entry.Project.DirPath == "" {
-				m.err = fmt.Errorf("cannot archive virtual project")
+				err = workspace.SetVirtualProjectArchived(entry.RootDir, entry.Project, newArchived)
 			} else {
-				newArchived := !entry.Project.Archived
-				if err := workspace.SetProjectArchived(entry.Project, newArchived); err != nil {
-					m.err = err
-				} else {
-					m.buildEntries()
-					m.applyFilter()
-				}
+				err = workspace.SetProjectArchived(entry.Project, newArchived)
 			}
+			if err != nil {
+				m.err = err
+			} else {
+				m.err = nil
+				m.buildEntries()
+				m.applyFilter()
+			}
+		}
+
+	case "D":
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			entry := m.entries[m.filtered[m.selected]]
+			if entry.Project.DirPath == "" {
+				m.deleteEntry = &entry
+				m.deleteTaskCount = countTasksForProject(entry, m.workspaces)
+				m.deleteCardCount = countCardsForProject(entry, m.workspaces)
+				m.mode = modeDeleteVirtual
+				m.err = nil
+			}
+			// D on physical project: no-op
 		}
 
 	case "ctrl+a":
@@ -560,8 +586,11 @@ func (m ProjectsModel) updateScaffoldConfirm(msg tea.KeyMsg) (ProjectsModel, tea
 			}
 		}
 
+		wsRoot := m.scaffoldEntry.RootDir
+		entryName := m.scaffoldEntry.Project.Name
 		m.scaffoldEntry = nil
 		m.mode = modeList
+		_ = workspace.RemoveFromVirtualArchive(wsRoot, entryName)
 		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 
 	case "n", "N", "esc":
@@ -684,6 +713,7 @@ func (m ProjectsModel) updateCreate(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 			return m, nil
 		}
 
+		_ = workspace.RemoveFromVirtualArchive(m.createWSDir, name)
 		m.mode = modeList
 		m.textInput.SetValue("")
 		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
@@ -778,6 +808,8 @@ func (m ProjectsModel) View() string {
 		return m.viewScaffoldConfirm()
 	case modeSetParent:
 		return m.viewSetParent()
+	case modeDeleteVirtual:
+		return m.viewDeleteVirtual()
 	default:
 		return m.viewList()
 	}
@@ -1011,6 +1043,110 @@ func (m ProjectsModel) viewScaffoldConfirm() string {
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 	}
 
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func countTasksForProject(entry projectEntry, workspaces []*workspace.Workspace) int {
+	for _, ws := range workspaces {
+		if ws.RootDir != entry.RootDir {
+			continue
+		}
+		count := 0
+		for _, t := range ws.Tasks {
+			if t.HasProject(entry.Project.Name) {
+				count++
+			}
+		}
+		return count
+	}
+	return 0
+}
+
+func countCardsForProject(entry projectEntry, workspaces []*workspace.Workspace) int {
+	for _, ws := range workspaces {
+		if ws.RootDir != entry.RootDir {
+			continue
+		}
+		count := 0
+		for _, board := range ws.Boards {
+			for _, col := range board.Columns {
+				for _, card := range col.Cards {
+					for _, p := range card.Projects {
+						if strings.EqualFold(p, entry.Project.Name) {
+							count++
+							break
+						}
+					}
+				}
+			}
+		}
+		return count
+	}
+	return 0
+}
+
+func (m ProjectsModel) updateDeleteVirtual(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		var ws *workspace.Workspace
+		for _, w := range m.workspaces {
+			if w.RootDir == m.deleteEntry.RootDir {
+				ws = w
+				break
+			}
+		}
+		if ws == nil {
+			m.err = fmt.Errorf("workspace not found")
+			m.mode = modeList
+			m.deleteEntry = nil
+			return m, nil
+		}
+		name := m.deleteEntry.Project.Name
+		if err := workspace.DeleteVirtualProject(ws, name); err != nil {
+			m.err = err
+			m.mode = modeList
+			m.deleteEntry = nil
+			return m, nil
+		}
+		m.deleteEntry = nil
+		m.mode = modeList
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+	case "n", "N", "esc":
+		m.deleteEntry = nil
+		m.mode = modeList
+	}
+	return m, nil
+}
+
+func (m ProjectsModel) viewDeleteVirtual() string {
+	name := ""
+	if m.deleteEntry != nil {
+		name = m.deleteEntry.Project.Name
+	}
+	taskWord := "task"
+	if m.deleteTaskCount != 1 {
+		taskWord = "tasks"
+	}
+	cardWord := "card"
+	if m.deleteCardCount != 1 {
+		cardWord = "cards"
+	}
+
+	var lines []string
+	lines = append(lines, titleStyle.Render("Delete Virtual Project"))
+	lines = append(lines, "")
+	lines = append(lines, listItemStyle.Render(fmt.Sprintf("Delete %q?", name)))
+	lines = append(lines, listItemStyle.Render(fmt.Sprintf(
+		"Will remove from %d %s and %d %s.",
+		m.deleteTaskCount, taskWord, m.deleteCardCount, cardWord,
+	)))
+	lines = append(lines, "")
+	lines = append(lines, listItemStyle.Render("[y] Delete   [n/esc] Cancel"))
+	if m.err != nil {
+		lines = append(lines, "")
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
