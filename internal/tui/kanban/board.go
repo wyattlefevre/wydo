@@ -1864,6 +1864,45 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	return style.Render(content)
 }
 
+// cardLineCount returns the number of rendered lines for a card without doing
+// a full lipgloss render. This mirrors the logic in renderCard() and is used
+// by adjustScrollPosition() to avoid expensive re-renders on every keypress.
+func (m *BoardModel) cardLineCount(colIndex int, card models.Card) int {
+	lines := 1 // title is always present
+	if card.Preview != "" {
+		lines++
+	}
+	isDone := m.board.IsDoneColumn(m.board.Columns[colIndex].Name)
+	if isDone {
+		if card.DateCompleted != nil {
+			lines++
+		}
+	} else {
+		if card.DueDate != nil {
+			lines++
+		}
+		if card.ScheduledDate != nil {
+			lines++
+		}
+	}
+	if len(card.Projects) > 0 {
+		lines++
+	}
+	if len(card.Tags) > 0 {
+		lines++
+	}
+	if card.JiraKey != "" {
+		lines++
+	}
+	if card.TmuxSession != "" {
+		lines++
+	}
+	if card.Archived {
+		lines++
+	}
+	return lines
+}
+
 // formatDateWithDaysUntil formats a date with days until/overdue, coloring only the offset
 func formatDateWithDaysUntil(date *time.Time, prefix string, selected bool) string {
 	if date == nil {
@@ -2092,8 +2131,7 @@ func (m *BoardModel) adjustScrollPosition() {
 
 		for i := scrollOffset; i < len(cards); i++ {
 			card := cards[i]
-			cardView := m.renderCard(m.selectedCol, i, card)
-			cardHeight := lipgloss.Height(cardView)
+			cardHeight := m.cardLineCount(m.selectedCol, card)
 
 			if visibleCards > 0 && accumulatedHeight+cardHeight > availableCardHeight {
 				break
