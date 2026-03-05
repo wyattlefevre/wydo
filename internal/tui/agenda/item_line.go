@@ -91,25 +91,11 @@ func itemTitleNoPrefix(item agendapkg.AgendaItem) string {
 }
 
 func itemTitle(item agendapkg.AgendaItem) string {
-	switch item.Source {
-	case agendapkg.SourceTask:
-		if item.Task != nil {
-			name := item.Task.Name
-			if item.Task.Priority != 0 {
-				name = "(" + string(item.Task.Priority) + ") " + name
-			}
-			return name
-		}
-	case agendapkg.SourceCard:
-		if item.Card != nil {
-			return item.Card.Title
-		}
-	case agendapkg.SourceNote:
-		if item.Note != nil {
-			return item.Note.Title
-		}
+	name := itemTitleNoPrefix(item)
+	if item.Source == agendapkg.SourceTask && item.Task != nil && item.Task.Priority != 0 {
+		name = "(" + string(item.Task.Priority) + ") " + name
 	}
-	return ""
+	return name
 }
 
 func itemContextText(item agendapkg.AgendaItem) string {

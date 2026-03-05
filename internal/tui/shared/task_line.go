@@ -90,6 +90,7 @@ func StyledTaskLine(t data.Task) string {
 }
 
 // AgendaPriorityBadge returns a styled "(A)" badge for use in the agenda view.
+// Callers must ensure p != PriorityNone before calling.
 func AgendaPriorityBadge(p data.Priority) string {
 	return taskPriorityStyle(p).Render("(" + string(p) + ")")
 }
