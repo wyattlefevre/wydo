@@ -1503,10 +1503,9 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 		pStyle := kanbanPriorityStyle(card.Priority)
 		tStyle := cardTitleStyle
 		if isMoveSelected {
-			pStyle = pStyle.Background(lipgloss.Color("54"))
+			pStyle = pStyle.Background(lipgloss.Color("54")).Foreground(lipgloss.Color("15"))
 			tStyle = tStyle.Foreground(theme.Warning).Background(lipgloss.Color("54")).Width(maxWidth - priorityPrefixWidth)
 		} else if isSelected {
-			pStyle = pStyle.Background(theme.Surface)
 			tStyle = tStyle.Background(theme.Surface)
 		}
 		lines = append(lines, pStyle.Render(priorityPrefix)+tStyle.Render(title))

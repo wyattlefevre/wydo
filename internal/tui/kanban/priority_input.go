@@ -82,21 +82,3 @@ func (m PriorityInputModel) GetPriority() int {
 	return m.priority
 }
 
-func kanbanPriorityStyle(priority int) lipgloss.Style {
-	var bg, fg lipgloss.Color
-	switch priority {
-	case 1:
-		bg, fg = lipgloss.Color("5"), lipgloss.Color("0")   // magenta
-	case 2:
-		bg, fg = lipgloss.Color("1"), lipgloss.Color("0")   // red
-	case 3:
-		bg, fg = lipgloss.Color("208"), lipgloss.Color("0") // orange
-	case 4:
-		bg, fg = lipgloss.Color("3"), lipgloss.Color("0")   // yellow
-	case 5:
-		bg, fg = lipgloss.Color("2"), lipgloss.Color("0")   // green
-	default:
-		bg, fg = lipgloss.Color("8"), lipgloss.Color("15")  // gray
-	}
-	return lipgloss.NewStyle().Bold(true).Background(bg).Foreground(fg)
-}
