@@ -719,23 +719,22 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		}
 		colName := m.cardColumn[row.card.Filename]
 		isDone := strings.EqualFold(colName, "done")
-		if isDone {
-			doneStyle := lipgloss.NewStyle().
-				Background(lipgloss.Color("2")).
-				Foreground(lipgloss.Color("12"))
-			rendered = doneStyle.Render(prefix+title) + pathStyle.Render(" "+colName)
-		} else if isSelected {
-			if colName != "" {
-				rendered = selectedDetailItemStyle.Render(prefix+title) + pathStyle.Render(" "+colName)
-			} else {
-				rendered = selectedDetailItemStyle.Render(prefix + title)
-			}
+		var titlePart string
+		if isSelected {
+			titlePart = selectedDetailItemStyle.Render(prefix + title)
 		} else {
-			if colName != "" {
-				rendered = detailItemStyle.Render(prefix+title) + pathStyle.Render(" "+colName)
+			titlePart = detailItemStyle.Render(prefix + title)
+		}
+		if colName != "" {
+			var statusPart string
+			if isDone {
+				statusPart = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(" " + colName)
 			} else {
-				rendered = detailItemStyle.Render(prefix + title)
+				statusPart = pathStyle.Render(" " + colName)
 			}
+			rendered = titlePart + statusPart
+		} else {
+			rendered = titlePart
 		}
 
 	default:
