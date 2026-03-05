@@ -100,15 +100,15 @@ func taskPriorityStyle(p data.Priority) lipgloss.Style {
 	var bg, fg lipgloss.Color
 	switch p {
 	case data.PriorityA:
-		bg, fg = lipgloss.Color("5"), lipgloss.Color("0")
+		bg, fg = lipgloss.Color("5"), lipgloss.Color("16")
 	case data.PriorityB:
-		bg, fg = lipgloss.Color("1"), lipgloss.Color("0")
+		bg, fg = lipgloss.Color("1"), lipgloss.Color("16")
 	case data.PriorityC:
-		bg, fg = lipgloss.Color("208"), lipgloss.Color("0")
+		bg, fg = lipgloss.Color("208"), lipgloss.Color("16")
 	case data.PriorityD:
-		bg, fg = lipgloss.Color("3"), lipgloss.Color("0")
+		bg, fg = lipgloss.Color("3"), lipgloss.Color("16")
 	case data.PriorityE:
-		bg, fg = lipgloss.Color("2"), lipgloss.Color("0")
+		bg, fg = lipgloss.Color("2"), lipgloss.Color("16")
 	default: // F and beyond
 		bg, fg = lipgloss.Color("8"), lipgloss.Color("15")
 	}
