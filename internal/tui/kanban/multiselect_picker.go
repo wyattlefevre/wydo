@@ -16,6 +16,7 @@ type MultiSelectPickerConfig struct {
 	SanitizeFunc     func(string) string // sanitizeTag or sanitizeProject
 	AllItems         []string
 	SelectedItems    map[string]bool
+	ItemDepths       map[string]int // optional; nil = no indentation
 }
 
 // MultiSelectPickerModel is a generic fuzzy-searchable multi-select picker
@@ -263,6 +264,14 @@ func (m MultiSelectPickerModel) View() string {
 
 // renderItem renders a single item
 func (m MultiSelectPickerModel) renderItem(index int, item string) string {
+	// Indentation based on depth
+	indent := ""
+	if m.config.ItemDepths != nil {
+		if depth, ok := m.config.ItemDepths[item]; ok {
+			indent = strings.Repeat("  ", depth)
+		}
+	}
+
 	// Checkbox
 	checkbox := "[ ]"
 	if m.config.SelectedItems[item] {
@@ -270,7 +279,7 @@ func (m MultiSelectPickerModel) renderItem(index int, item string) string {
 	}
 
 	// Item with checkbox
-	text := checkbox + " " + item
+	text := indent + checkbox + " " + item
 
 	// Highlight if selected item
 	if m.config.SelectedItems[item] {

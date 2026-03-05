@@ -6,25 +6,40 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// ProjectPickerItem represents a project with its nesting depth for display
+type ProjectPickerItem struct {
+	Name  string
+	Depth int
+}
+
 // ProjectPickerModel is a fuzzy-searchable multi-select project picker
 type ProjectPickerModel struct {
 	picker MultiSelectPickerModel
 }
 
 // NewProjectPickerModel creates a new project picker with current card projects and all available projects
-func NewProjectPickerModel(currentProjects []string, allProjects []string) ProjectPickerModel {
+func NewProjectPickerModel(currentProjects []string, allProjects []ProjectPickerItem) ProjectPickerModel {
 	// Build selected projects set
 	selected := make(map[string]bool)
 	for _, project := range currentProjects {
 		selected[project] = true
 	}
 
+	// Build flat name list and depth map
+	names := make([]string, len(allProjects))
+	depths := make(map[string]int, len(allProjects))
+	for i, item := range allProjects {
+		names[i] = item.Name
+		depths[item.Name] = item.Depth
+	}
+
 	config := MultiSelectPickerConfig{
 		Title:            "Edit Projects",
 		ItemTypeSingular: "project",
 		SanitizeFunc:     sanitizeProject,
-		AllItems:         allProjects,
+		AllItems:         names,
 		SelectedItems:    selected,
+		ItemDepths:       depths,
 	}
 
 	return ProjectPickerModel{

@@ -105,7 +105,7 @@ func (m boardMode) modeColor() lipgloss.Color {
 
 type BoardModel struct {
 	board                  models.Board
-	allProjects            []string
+	allProjects            []ProjectPickerItem
 	selectedCol            int
 	selectedCard           int
 	mode                   boardMode
@@ -140,7 +140,7 @@ type BoardModel struct {
 	jiraIssueInput         *JiraIssueInputModel
 }
 
-func NewBoardModel(board models.Board, allProjects []string, allBoards []models.Board, boardProjects []string) BoardModel {
+func NewBoardModel(board models.Board, allProjects []ProjectPickerItem, allBoards []models.Board, boardProjects []string) BoardModel {
 	return BoardModel{
 		board:                  board,
 		allProjects:            allProjects,
@@ -1494,7 +1494,7 @@ func (m BoardModel) View() string {
 
 	// Show project picker if in project edit mode
 	if m.mode == boardModeProjectEdit && m.projectPicker != nil {
-		return m.projectPicker.View()
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.projectPicker.View())
 	}
 
 	// Show column editor if in column edit mode
