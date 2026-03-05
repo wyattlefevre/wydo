@@ -447,13 +447,10 @@ func (m DetailModel) View() string {
 
 	if m.project != nil && len(m.project.URLs) > 0 {
 		for _, u := range m.project.URLs {
-			label := u.Label
-			if label == "" {
-				label = u.URL
-				lines = append(lines, pathStyle.Render("  🔗 "+label))
+			if u.Label == "" {
+				lines = append(lines, pathStyle.Render("  "+u.URL))
 			} else {
-				lines = append(lines, pathStyle.Render("  🔗 ")+
-					sectionHeaderStyle.Render(label)+
+				lines = append(lines, sectionHeaderStyle.Render("  "+u.Label)+
 					pathStyle.Render("  "+u.URL))
 			}
 		}
