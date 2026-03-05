@@ -43,7 +43,8 @@ var (
 	Project  = lipgloss.NewStyle().Foreground(Secondary)
 	Context  = lipgloss.NewStyle().Foreground(Accent)
 	Tag      = lipgloss.NewStyle().Foreground(Warning)
-	Done     = lipgloss.NewStyle().Foreground(TextMuted)
+	Priority = lipgloss.NewStyle().Bold(true).Foreground(Danger)
+	Done     = lipgloss.NewStyle().Foreground(Success)
 )
 
 // ---------------------------------------------------------------------------

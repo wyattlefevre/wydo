@@ -688,7 +688,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		count := m.subtreeCount(row.projectName, col)
 		content := fmt.Sprintf("%s%s%s %s (%d)", indent, prefix, marker, row.projectName, count)
 		if isSelected {
-			rendered = selectedDetailItemStyle.Render(content)
+			rendered = colItemSelectedStyle.Render(content)
 		} else {
 			rendered = sectionHeaderStyle.Render(content)
 		}
@@ -699,17 +699,17 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 			display = filepath.Base(row.note.FilePath)
 		}
 		if isSelected {
-			rendered = selectedDetailItemStyle.Render(prefix + display)
+			rendered = colItemSelectedStyle.Render(prefix + display)
 		} else {
-			rendered = detailItemStyle.Render(prefix + display)
+			rendered = colItemStyle.Render(prefix + display)
 		}
 
 	case rowKindTask:
 		taskLine := shared.StyledTaskLine(row.task)
 		if isSelected {
-			rendered = selectedDetailItemStyle.Render(prefix) + taskLine
+			rendered = colItemSelectedStyle.Render(prefix) + taskLine
 		} else {
-			rendered = detailItemStyle.Render(prefix) + taskLine
+			rendered = colItemStyle.Render(prefix) + taskLine
 		}
 
 	case rowKindCard:
@@ -721,9 +721,9 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		isDone := strings.EqualFold(colName, "done")
 		var titlePart string
 		if isSelected {
-			titlePart = selectedDetailItemStyle.Render(prefix + title)
+			titlePart = colItemSelectedStyle.Render(prefix + title)
 		} else {
-			titlePart = detailItemStyle.Render(prefix + title)
+			titlePart = colItemStyle.Render(prefix + title)
 		}
 		if colName != "" {
 			var statusPart string
