@@ -935,6 +935,7 @@ func (m AppModel) renderHelpOverlay() string {
 				{"j / k", "Navigate"},
 				{"enter", "Open note in editor"},
 				{"p", "Pin a new note"},
+				{"d", "Unpin selected note"},
 				{"esc", "Back"},
 			},
 		})
