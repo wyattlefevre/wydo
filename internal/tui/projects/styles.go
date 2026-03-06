@@ -34,7 +34,7 @@ var (
 
 	sectionActiveStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("12")).
+				Foreground(lipgloss.Color("16")).
 				Background(theme.Warning)
 
 	// Detail item
