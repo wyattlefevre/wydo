@@ -719,22 +719,54 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		}
 		colName := m.cardColumn[row.card.Filename]
 		isDone := strings.EqualFold(colName, "done")
-		var titlePart string
-		if isSelected {
-			titlePart = colItemSelectedStyle.Render(prefix + title)
-		} else {
-			titlePart = colItemStyle.Render(prefix + title)
-		}
 		if colName != "" {
-			var statusPart string
-			if isDone {
-				statusPart = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(" " + colName)
-			} else {
-				statusPart = pathStyle.Render(" " + colName)
+			// Reserve space for " colName" at the right edge.
+			statusStr := " " + colName
+			statusWidth := len(statusStr)
+			prefixWidth := len(prefix)
+			maxTitleWidth := colWidth - prefixWidth - statusWidth
+			if maxTitleWidth < 1 {
+				maxTitleWidth = 1
 			}
+			// Truncate title if it won't fit.
+			if len(title) > maxTitleWidth {
+				if maxTitleWidth > 3 {
+					title = title[:maxTitleWidth-3] + "..."
+				} else {
+					title = title[:maxTitleWidth]
+				}
+			}
+			// Padding between title and right-aligned status.
+			padding := maxTitleWidth - len(title)
+			if padding < 0 {
+				padding = 0
+			}
+			var titlePart string
+			if isSelected {
+				titlePart = colItemSelectedStyle.Render(prefix + title)
+			} else {
+				titlePart = colItemStyle.Render(prefix + title)
+			}
+			var statusColor lipgloss.Color
+			if isDone {
+				statusColor = lipgloss.Color("2")
+			} else {
+				statusColor = lipgloss.Color("4")
+			}
+			statusPart := lipgloss.NewStyle().Foreground(statusColor).Render(strings.Repeat(" ", padding) + statusStr)
 			rendered = titlePart + statusPart
 		} else {
-			rendered = titlePart
+			// No status — just render title.
+			prefixWidth := len(prefix)
+			maxTitleWidth := colWidth - prefixWidth
+			if len(title) > maxTitleWidth && maxTitleWidth > 3 {
+				title = title[:maxTitleWidth-3] + "..."
+			}
+			if isSelected {
+				rendered = colItemSelectedStyle.Render(prefix + title)
+			} else {
+				rendered = colItemStyle.Render(prefix + title)
+			}
 		}
 
 	default:
