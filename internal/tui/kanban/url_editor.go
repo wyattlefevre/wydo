@@ -21,9 +21,16 @@ const (
 	urlEditorSelectProject
 )
 
+// urlItem is a single URL entry with its owning project name.
+// When projectNames is empty (card URL editor), projectName is always "".
+type urlItem struct {
+	projectName string
+	url         models.CardURL
+}
+
 // URLEditorModel is a list editor modal for managing a card's URLs.
 type URLEditorModel struct {
-	urls      []models.CardURL
+	items     []urlItem
 	cursor    int
 	mode      urlEditorMode
 	textInput textinput.Model
@@ -31,36 +38,49 @@ type URLEditorModel struct {
 	height    int
 
 	// Sub-project support
-	pendingURL      string
-	pendingLabel    string
-	projectNames    []string // root first, then sub-projects; empty = no selection step
-	projectCursor   int
-	subProjectURLs  map[string][]models.CardURL
+	pendingURL    string
+	pendingLabel  string
+	projectNames  []string // root first, then sub-projects; empty = no selection step
+	projectCursor int
 }
 
-// NewURLEditorModel creates a new URL editor with the given URLs.
+// NewURLEditorModel creates a new URL editor with the given URLs (card/single-project use).
 func NewURLEditorModel(urls []models.CardURL) URLEditorModel {
-	// Copy URLs to avoid mutating the original
-	copied := make([]models.CardURL, len(urls))
-	copy(copied, urls)
-
+	items := make([]urlItem, len(urls))
+	for i, u := range urls {
+		items[i] = urlItem{url: u}
+	}
 	return URLEditorModel{
-		urls: copied,
-		mode: urlEditorNav,
+		items: items,
+		mode:  urlEditorNav,
 	}
 }
 
-// NewURLEditorModelWithProjects creates a URL editor that can assign new URLs to sub-projects.
-// projectNames should have the root project first followed by any sub-projects.
-func NewURLEditorModelWithProjects(urls []models.CardURL, projectNames []string) URLEditorModel {
-	m := NewURLEditorModel(urls)
+// NewURLEditorModelWithProjects creates a URL editor showing URLs across root and sub-projects.
+// projectNames has the root project first; existingSubURLs maps sub-project name → current URLs.
+func NewURLEditorModelWithProjects(rootURLs []models.CardURL, projectNames []string, existingSubURLs map[string][]models.CardURL) URLEditorModel {
+	var items []urlItem
+	rootName := ""
 	if len(projectNames) > 0 {
-		names := make([]string, len(projectNames))
-		copy(names, projectNames)
-		m.projectNames = names
-		m.subProjectURLs = make(map[string][]models.CardURL)
+		rootName = projectNames[0]
 	}
-	return m
+	for _, u := range rootURLs {
+		items = append(items, urlItem{projectName: rootName, url: u})
+	}
+	// Append sub-project URLs in projectNames order so display is deterministic.
+	for _, name := range projectNames[1:] {
+		for _, u := range existingSubURLs[name] {
+			items = append(items, urlItem{projectName: name, url: u})
+		}
+	}
+
+	names := make([]string, len(projectNames))
+	copy(names, projectNames)
+	return URLEditorModel{
+		items:        items,
+		mode:         urlEditorNav,
+		projectNames: names,
+	}
 }
 
 func (m URLEditorModel) Init() tea.Cmd {
@@ -100,7 +120,7 @@ func (m URLEditorModel) Update(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, b
 func (m URLEditorModel) updateNav(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, bool) {
 	switch msg.String() {
 	case "j", "down":
-		if m.cursor < len(m.urls)-1 {
+		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
 	case "k", "up":
@@ -112,22 +132,22 @@ func (m URLEditorModel) updateNav(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool
 		cmd := m.initTextInput("https://example.com", "")
 		return m, cmd, false, false
 	case "d":
-		if len(m.urls) > 0 && m.cursor < len(m.urls) {
-			m.urls = append(m.urls[:m.cursor], m.urls[m.cursor+1:]...)
-			if m.cursor >= len(m.urls) && m.cursor > 0 {
+		if len(m.items) > 0 && m.cursor < len(m.items) {
+			m.items = append(m.items[:m.cursor], m.items[m.cursor+1:]...)
+			if m.cursor >= len(m.items) && m.cursor > 0 {
 				m.cursor--
 			}
 		}
 	case "e":
-		if len(m.urls) > 0 && m.cursor < len(m.urls) {
+		if len(m.items) > 0 && m.cursor < len(m.items) {
 			m.mode = urlEditorEditURL
-			cmd := m.initTextInput("https://example.com", m.urls[m.cursor].URL)
+			cmd := m.initTextInput("https://example.com", m.items[m.cursor].url.URL)
 			return m, cmd, false, false
 		}
 	case "l":
-		if len(m.urls) > 0 && m.cursor < len(m.urls) {
+		if len(m.items) > 0 && m.cursor < len(m.items) {
 			m.mode = urlEditorEditLabel
-			cmd := m.initTextInput("Label (optional)", m.urls[m.cursor].Label)
+			cmd := m.initTextInput("Label (optional)", m.items[m.cursor].url.Label)
 			return m, cmd, false, false
 		}
 	case "enter":
@@ -144,7 +164,6 @@ func (m URLEditorModel) updateAddURL(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, b
 		url := strings.TrimSpace(m.textInput.Value())
 		if url != "" {
 			m.pendingURL = url
-			m.cursor = len(m.urls) // where the URL will land if added to root
 			m.mode = urlEditorAddLabel
 			cmd := m.initTextInput("Label (optional, enter to skip)", "")
 			return m, cmd, false, false
@@ -170,9 +189,12 @@ func (m URLEditorModel) updateAddLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd,
 			m.mode = urlEditorSelectProject
 			return m, nil, false, false
 		}
-		// No sub-projects: commit directly to root
-		m.urls = append(m.urls, models.CardURL{URL: m.pendingURL, Label: m.pendingLabel})
-		m.cursor = len(m.urls) - 1
+		// No sub-projects: commit directly to root.
+		rootName := ""
+		if len(m.projectNames) > 0 {
+			rootName = m.projectNames[0]
+		}
+		m.insertIntoProject(rootName, models.CardURL{URL: m.pendingURL, Label: m.pendingLabel})
 		m.pendingURL = ""
 		m.pendingLabel = ""
 		m.mode = urlEditorNav
@@ -200,14 +222,8 @@ func (m URLEditorModel) updateSelectProject(msg tea.KeyMsg) (URLEditorModel, tea
 			m.projectCursor--
 		}
 	case "enter":
-		entry := models.CardURL{URL: m.pendingURL, Label: m.pendingLabel}
-		if m.projectCursor == 0 {
-			m.urls = append(m.urls, entry)
-			m.cursor = len(m.urls) - 1
-		} else {
-			projName := m.projectNames[m.projectCursor]
-			m.subProjectURLs[projName] = append(m.subProjectURLs[projName], entry)
-		}
+		projName := m.projectNames[m.projectCursor]
+		m.insertIntoProject(projName, models.CardURL{URL: m.pendingURL, Label: m.pendingLabel})
 		m.pendingURL = ""
 		m.pendingLabel = ""
 		m.mode = urlEditorNav
@@ -219,12 +235,29 @@ func (m URLEditorModel) updateSelectProject(msg tea.KeyMsg) (URLEditorModel, tea
 	return m, nil, false, false
 }
 
+// insertIntoProject appends a URL after the last existing item for the given project
+// (or at the end if the project has no items yet), then sets cursor to the new item.
+func (m *URLEditorModel) insertIntoProject(projectName string, url models.CardURL) {
+	item := urlItem{projectName: projectName, url: url}
+	insertIdx := len(m.items)
+	for i := len(m.items) - 1; i >= 0; i-- {
+		if m.items[i].projectName == projectName {
+			insertIdx = i + 1
+			break
+		}
+	}
+	m.items = append(m.items, urlItem{})
+	copy(m.items[insertIdx+1:], m.items[insertIdx:])
+	m.items[insertIdx] = item
+	m.cursor = insertIdx
+}
+
 func (m URLEditorModel) updateEditURL(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, bool) {
 	switch msg.String() {
 	case "enter":
 		url := strings.TrimSpace(m.textInput.Value())
-		if url != "" && m.cursor < len(m.urls) {
-			m.urls[m.cursor].URL = url
+		if url != "" && m.cursor < len(m.items) {
+			m.items[m.cursor].url.URL = url
 		}
 		m.mode = urlEditorNav
 		return m, nil, false, false
@@ -242,8 +275,8 @@ func (m URLEditorModel) updateEditLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd
 	switch msg.String() {
 	case "enter":
 		label := strings.TrimSpace(m.textInput.Value())
-		if m.cursor < len(m.urls) {
-			m.urls[m.cursor].Label = label
+		if m.cursor < len(m.items) {
+			m.items[m.cursor].url.Label = label
 		}
 		m.mode = urlEditorNav
 		return m, nil, false, false
@@ -257,14 +290,39 @@ func (m URLEditorModel) updateEditLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd
 	}
 }
 
-// GetURLs returns the current list of URLs.
+// GetURLs returns the URLs belonging to the root project (or all URLs for single-project use).
 func (m URLEditorModel) GetURLs() []models.CardURL {
-	return m.urls
+	rootName := ""
+	if len(m.projectNames) > 0 {
+		rootName = m.projectNames[0]
+	}
+	var result []models.CardURL
+	for _, it := range m.items {
+		if it.projectName == rootName {
+			result = append(result, it.url)
+		}
+	}
+	return result
 }
 
-// GetSubProjectURLs returns URLs that were added to sub-projects during this session.
+// GetSubProjectURLs returns all non-root URLs grouped by project name.
+// Includes an entry (possibly empty) for every managed sub-project so callers can
+// write back even when all URLs for a project were deleted.
 func (m URLEditorModel) GetSubProjectURLs() map[string][]models.CardURL {
-	return m.subProjectURLs
+	if len(m.projectNames) == 0 {
+		return nil
+	}
+	rootName := m.projectNames[0]
+	result := make(map[string][]models.CardURL)
+	for _, name := range m.projectNames[1:] {
+		result[name] = nil // ensure key exists even if no URLs remain
+	}
+	for _, it := range m.items {
+		if it.projectName != rootName {
+			result[it.projectName] = append(result[it.projectName], it.url)
+		}
+	}
+	return result
 }
 
 // SetSize sets the display dimensions for centering the modal.
@@ -325,12 +383,27 @@ func (m URLEditorModel) View() string {
 		s.WriteString(helpStyle.Render("enter: confirm • esc: cancel"))
 	} else {
 		// Show URL list
-		if len(m.urls) == 0 {
+		multiProject := len(m.projectNames) > 1
+		if len(m.items) == 0 {
 			s.WriteString(cardPreviewStyle.Render("  No URLs"))
 			s.WriteString("\n")
 		} else {
 			const maxWidth = 52 // usable width inside the modal box
-			for i, u := range m.urls {
+			lastProject := "\x00"  // sentinel so first header always shows
+			for i, item := range m.items {
+				u := item.url
+
+				// Project header when in multi-project mode and project changes
+				if multiProject && item.projectName != lastProject {
+					if lastProject != "\x00" {
+						s.WriteString("\n")
+					}
+					header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render("  " + item.projectName)
+					s.WriteString(header)
+					s.WriteString("\n")
+					lastProject = item.projectName
+				}
+
 				prefix := "  "
 				if i == m.cursor {
 					prefix = "> "
@@ -347,7 +420,6 @@ func (m URLEditorModel) View() string {
 						bgStyle = bgStyle.Background(theme.Surface)
 					}
 					label := u.Label
-					// Reserve space: prefix(2) + label + " " + url (at least 10 chars)
 					urlStr := u.URL
 					remaining := maxWidth - len(prefix) - len(label) - 1
 					if remaining < 10 {

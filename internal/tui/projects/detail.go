@@ -344,6 +344,20 @@ func detailProjectNames(m *DetailModel) []string {
 	return names
 }
 
+// detailExistingSubURLs returns current URLs for all physical sub-projects.
+func detailExistingSubURLs(m *DetailModel) map[string][]kanbanmodels.CardURL {
+	result := make(map[string][]kanbanmodels.CardURL)
+	for _, desc := range m.allDescendants {
+		if desc.DirPath == "" {
+			continue
+		}
+		if proj := m.registry.Get(desc.Name); proj != nil {
+			result[desc.Name] = proj.URLs
+		}
+	}
+	return result
+}
+
 // collectAllURLs returns URLs from the root project and all descendants, in depth-first order.
 func (m *DetailModel) collectAllURLs() []detailURLEntry {
 	var entries []detailURLEntry
@@ -480,7 +494,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			m.mode = detailModeURLPicker
 		} else if m.project != nil {
 			// No URLs anywhere — open editor for root project
-			editor := kanban.NewURLEditorModelWithProjects(m.project.URLs, detailProjectNames(&m))
+			editor := kanban.NewURLEditorModelWithProjects(m.project.URLs, detailProjectNames(&m), detailExistingSubURLs(&m))
 			editor.SetSize(m.width, m.height)
 			m.urlEditor = &editor
 			m.mode = detailModeURLEditor
@@ -488,7 +502,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 
 	case "U":
 		if m.project != nil {
-			editor := kanban.NewURLEditorModelWithProjects(m.project.URLs, detailProjectNames(&m))
+			editor := kanban.NewURLEditorModelWithProjects(m.project.URLs, detailProjectNames(&m), detailExistingSubURLs(&m))
 			editor.SetSize(m.width, m.height)
 			m.urlEditor = &editor
 			m.mode = detailModeURLEditor
@@ -551,7 +565,7 @@ func (m DetailModel) updateURLEditor(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			_ = workspace.WriteProjectURLs(m.project, m.urlEditor.GetURLs())
 			for projName, urls := range m.urlEditor.GetSubProjectURLs() {
 				if proj := m.registry.Get(projName); proj != nil {
-					_ = workspace.WriteProjectURLs(proj, append(proj.URLs, urls...))
+					_ = workspace.WriteProjectURLs(proj, urls)
 				}
 			}
 		}
