@@ -135,6 +135,7 @@ type BoardModel struct {
 	tmuxLaunch             *TmuxLaunchModel
 	boardProjects          []string
 	showArchived           bool
+	tmuxSessions           map[string]bool // cached set of active tmux session names
 	jiraSetup              *JiraSetupModel
 	jiraBoardPicker        *JiraBoardPickerModel
 	jiraIssueInput         *JiraIssueInputModel
@@ -208,7 +209,10 @@ func (m BoardModel) ModeText() string {
 }
 
 func (m BoardModel) Init() tea.Cmd {
-	return m.initJiraRefresh()
+	return tea.Batch(
+		m.initJiraRefresh(),
+		fetchTmuxSessionsCmd(),
+	)
 }
 
 func (m BoardModel) initJiraRefresh() tea.Cmd {
@@ -238,6 +242,14 @@ func (m BoardModel) initJiraRefresh() tea.Cmd {
 // Update handles board events as a child view
 func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tmuxSessionsMsg:
+		set := make(map[string]bool, len(msg.sessions))
+		for _, s := range msg.sessions {
+			set[s] = true
+		}
+		m.tmuxSessions = set
+		return m, scheduleTmuxRefresh()
+
 	case jiraStatusMsg:
 		if len(msg.statuses) > 0 {
 			for ci, col := range m.board.Columns {
@@ -717,6 +729,25 @@ func (m BoardModel) updateFilter(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 type editorFinishedMsg struct {
 	err error
+}
+
+// tmuxSessionsMsg is sent when the background tmux session list fetch completes.
+type tmuxSessionsMsg struct {
+	sessions []string
+}
+
+// fetchTmuxSessionsCmd fetches the tmux session list once, immediately.
+func fetchTmuxSessionsCmd() tea.Cmd {
+	return func() tea.Msg {
+		return tmuxSessionsMsg{sessions: listTmuxSessions()}
+	}
+}
+
+// scheduleTmuxRefresh waits 3 seconds then fetches the session list.
+func scheduleTmuxRefresh() tea.Cmd {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+		return tmuxSessionsMsg{sessions: listTmuxSessions()}
+	})
 }
 
 func openEditor(boardPath, filename string) tea.Cmd {
@@ -1288,7 +1319,7 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	// Check if any children exist
-	children := getChildSessions(currentCard.TmuxSession)
+	children := m.getChildSessionsFromCache(currentCard.TmuxSession)
 	hasChildren := false
 	for _, exists := range children {
 		if exists {
@@ -1304,7 +1335,7 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	// Show launch popup
-	launch := NewTmuxLaunchModel(currentCard.TmuxSession)
+	launch := NewTmuxLaunchModel(currentCard.TmuxSession, children)
 	launch.width = m.width
 	launch.height = m.height
 	m.tmuxLaunch = &launch
@@ -1322,7 +1353,7 @@ func (m BoardModel) handleClaudeLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	claudeSession := currentCard.TmuxSession + "-claude"
-	children := getChildSessions(currentCard.TmuxSession)
+	children := m.getChildSessionsFromCache(currentCard.TmuxSession)
 	if !children["-claude"] {
 		m.message = "No claude session found"
 		return m, nil
@@ -1815,7 +1846,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 
 	// Tmux session indicator
 	if card.TmuxSession != "" {
-		hasClaudeSession := getChildSessions(card.TmuxSession)["-claude"]
+		hasClaudeSession := m.getChildSessionsFromCache(card.TmuxSession)["-claude"]
 		tmuxLine := " " + card.TmuxSession + " "
 		if hasClaudeSession {
 			// Reserve 4 chars for " C " plus min gap (space + " C ")
@@ -1901,6 +1932,16 @@ func (m *BoardModel) cardLineCount(colIndex int, card models.Card) int {
 		lines++
 	}
 	return lines + 1 // +1 for MarginBottom(1) on cardStyle, matching lipgloss.Height()
+}
+
+// getChildSessionsFromCache checks which child sessions exist using the
+// cached session set, avoiding a subprocess call on every render.
+func (m BoardModel) getChildSessionsFromCache(root string) map[string]bool {
+	children := make(map[string]bool, len(childSuffixes))
+	for _, suffix := range childSuffixes {
+		children[suffix] = m.tmuxSessions[root+suffix]
+	}
+	return children
 }
 
 // formatDateWithDaysUntil formats a date with days until/overdue, coloring only the offset

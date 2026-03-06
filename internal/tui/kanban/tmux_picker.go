@@ -179,11 +179,11 @@ type TmuxLaunchModel struct {
 	height      int
 }
 
-// NewTmuxLaunchModel creates a launch popup for a root session, checking which children exist.
-func NewTmuxLaunchModel(rootSession string) TmuxLaunchModel {
+// NewTmuxLaunchModel creates a launch popup for a root session with pre-fetched child session state.
+func NewTmuxLaunchModel(rootSession string, children map[string]bool) TmuxLaunchModel {
 	return TmuxLaunchModel{
 		rootSession: rootSession,
-		children:    getChildSessions(rootSession),
+		children:    children,
 	}
 }
 
@@ -280,21 +280,6 @@ func isChildSession(name string) bool {
 		}
 	}
 	return false
-}
-
-// getChildSessions checks which child sessions exist for a root session.
-func getChildSessions(root string) map[string]bool {
-	allSessions := listTmuxSessions()
-	sessionSet := make(map[string]bool)
-	for _, s := range allSessions {
-		sessionSet[s] = true
-	}
-
-	children := make(map[string]bool)
-	for _, suffix := range childSuffixes {
-		children[suffix] = sessionSet[root+suffix]
-	}
-	return children
 }
 
 // switchTmuxSession switches the tmux client to the given session.
