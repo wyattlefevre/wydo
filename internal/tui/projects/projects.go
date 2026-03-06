@@ -892,13 +892,7 @@ func (m ProjectsModel) viewList() string {
 					dateLabel = "date"
 				}
 				datePart := upcomingDateStyle.Render(dateLabel) + " " + upcomingDateValueStyle.Render(nextDate.Date.Format("Jan 2"))
-				leftWidth := lipgloss.Width(nameLine)
-				dateWidth := lipgloss.Width(datePart)
-				padding := m.width - leftWidth - dateWidth
-				if padding < 1 {
-					padding = 1
-				}
-				lines = append(lines, nameLine+strings.Repeat(" ", padding)+datePart)
+				lines = append(lines, nameLine+"  "+datePart)
 			} else {
 				lines = append(lines, nameLine)
 			}
