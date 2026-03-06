@@ -18,6 +18,7 @@ const (
 	urlEditorAddLabel
 	urlEditorEditURL
 	urlEditorEditLabel
+	urlEditorSelectProject
 )
 
 // URLEditorModel is a list editor modal for managing a card's URLs.
@@ -28,6 +29,13 @@ type URLEditorModel struct {
 	textInput textinput.Model
 	width     int
 	height    int
+
+	// Sub-project support
+	pendingURL      string
+	pendingLabel    string
+	projectNames    []string // root first, then sub-projects; empty = no selection step
+	projectCursor   int
+	subProjectURLs  map[string][]models.CardURL
 }
 
 // NewURLEditorModel creates a new URL editor with the given URLs.
@@ -40,6 +48,19 @@ func NewURLEditorModel(urls []models.CardURL) URLEditorModel {
 		urls: copied,
 		mode: urlEditorNav,
 	}
+}
+
+// NewURLEditorModelWithProjects creates a URL editor that can assign new URLs to sub-projects.
+// projectNames should have the root project first followed by any sub-projects.
+func NewURLEditorModelWithProjects(urls []models.CardURL, projectNames []string) URLEditorModel {
+	m := NewURLEditorModel(urls)
+	if len(projectNames) > 0 {
+		names := make([]string, len(projectNames))
+		copy(names, projectNames)
+		m.projectNames = names
+		m.subProjectURLs = make(map[string][]models.CardURL)
+	}
+	return m
 }
 
 func (m URLEditorModel) Init() tea.Cmd {
@@ -70,6 +91,8 @@ func (m URLEditorModel) Update(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, b
 		return m.updateEditURL(msg)
 	case urlEditorEditLabel:
 		return m.updateEditLabel(msg)
+	case urlEditorSelectProject:
+		return m.updateSelectProject(msg)
 	}
 	return m, nil, false, false
 }
@@ -120,9 +143,8 @@ func (m URLEditorModel) updateAddURL(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, b
 	case "enter":
 		url := strings.TrimSpace(m.textInput.Value())
 		if url != "" {
-			m.urls = append(m.urls, models.CardURL{URL: url})
-			m.cursor = len(m.urls) - 1
-			// Now ask for label
+			m.pendingURL = url
+			m.cursor = len(m.urls) // where the URL will land if added to root
 			m.mode = urlEditorAddLabel
 			cmd := m.initTextInput("Label (optional, enter to skip)", "")
 			return m, cmd, false, false
@@ -142,13 +164,22 @@ func (m URLEditorModel) updateAddURL(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, b
 func (m URLEditorModel) updateAddLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, bool) {
 	switch msg.String() {
 	case "enter":
-		label := strings.TrimSpace(m.textInput.Value())
-		if label != "" && m.cursor < len(m.urls) {
-			m.urls[m.cursor].Label = label
+		m.pendingLabel = strings.TrimSpace(m.textInput.Value())
+		if len(m.projectNames) > 1 {
+			m.projectCursor = 0
+			m.mode = urlEditorSelectProject
+			return m, nil, false, false
 		}
+		// No sub-projects: commit directly to root
+		m.urls = append(m.urls, models.CardURL{URL: m.pendingURL, Label: m.pendingLabel})
+		m.cursor = len(m.urls) - 1
+		m.pendingURL = ""
+		m.pendingLabel = ""
 		m.mode = urlEditorNav
 		return m, nil, false, false
 	case "esc":
+		m.pendingURL = ""
+		m.pendingLabel = ""
 		m.mode = urlEditorNav
 		return m, nil, false, false
 	default:
@@ -156,6 +187,36 @@ func (m URLEditorModel) updateAddLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd,
 		m.textInput, cmd = m.textInput.Update(msg)
 		return m, cmd, false, false
 	}
+}
+
+func (m URLEditorModel) updateSelectProject(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, bool) {
+	switch msg.String() {
+	case "j", "down":
+		if m.projectCursor < len(m.projectNames)-1 {
+			m.projectCursor++
+		}
+	case "k", "up":
+		if m.projectCursor > 0 {
+			m.projectCursor--
+		}
+	case "enter":
+		entry := models.CardURL{URL: m.pendingURL, Label: m.pendingLabel}
+		if m.projectCursor == 0 {
+			m.urls = append(m.urls, entry)
+			m.cursor = len(m.urls) - 1
+		} else {
+			projName := m.projectNames[m.projectCursor]
+			m.subProjectURLs[projName] = append(m.subProjectURLs[projName], entry)
+		}
+		m.pendingURL = ""
+		m.pendingLabel = ""
+		m.mode = urlEditorNav
+	case "esc":
+		m.pendingURL = ""
+		m.pendingLabel = ""
+		m.mode = urlEditorNav
+	}
+	return m, nil, false, false
 }
 
 func (m URLEditorModel) updateEditURL(msg tea.KeyMsg) (URLEditorModel, tea.Cmd, bool, bool) {
@@ -201,6 +262,11 @@ func (m URLEditorModel) GetURLs() []models.CardURL {
 	return m.urls
 }
 
+// GetSubProjectURLs returns URLs that were added to sub-projects during this session.
+func (m URLEditorModel) GetSubProjectURLs() map[string][]models.CardURL {
+	return m.subProjectURLs
+}
+
 // SetSize sets the display dimensions for centering the modal.
 func (m *URLEditorModel) SetSize(w, h int) {
 	m.width = w
@@ -209,7 +275,7 @@ func (m *URLEditorModel) SetSize(w, h int) {
 
 // IsTyping returns true when a text input is active inside the editor.
 func (m URLEditorModel) IsTyping() bool {
-	return m.mode != urlEditorNav
+	return m.mode != urlEditorNav && m.mode != urlEditorSelectProject
 }
 
 // View renders the URL editor modal.
@@ -220,7 +286,26 @@ func (m URLEditorModel) View() string {
 	s.WriteString(title)
 	s.WriteString("\n\n")
 
-	if m.mode != urlEditorNav {
+	if m.mode == urlEditorSelectProject {
+		s.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render("Add to project:"))
+		s.WriteString("\n\n")
+		for i, name := range m.projectNames {
+			prefix := "  "
+			if i == m.projectCursor {
+				prefix = "> "
+			}
+			var line string
+			if i == m.projectCursor {
+				line = selectedListItemStyle.Render(prefix + name)
+			} else {
+				line = listItemStyle.Render(prefix + name)
+			}
+			s.WriteString(line)
+			s.WriteString("\n")
+		}
+		s.WriteString("\n")
+		s.WriteString(helpStyle.Render("j/k: navigate  enter: confirm  esc: cancel"))
+	} else if m.mode != urlEditorNav {
 		// Show text input
 		var prompt string
 		switch m.mode {

@@ -347,6 +347,21 @@ func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project,
 	}
 }
 
+// detailProjectNames returns the root project name followed by all physical (non-virtual)
+// descendant names in depth-first order. Only physical projects can receive URLs via WriteProjectURLs.
+func detailProjectNames(m *DetailModel) []string {
+	if m.project == nil {
+		return nil
+	}
+	names := []string{m.name}
+	for _, desc := range m.allDescendants {
+		if desc.DirPath != "" {
+			names = append(names, desc.Name)
+		}
+	}
+	return names
+}
+
 // collectAllURLs returns URLs from the root project and all descendants, in depth-first order.
 func (m *DetailModel) collectAllURLs() []detailURLEntry {
 	var entries []detailURLEntry
@@ -483,7 +498,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			m.mode = detailModeURLPicker
 		} else if m.project != nil {
 			// No URLs anywhere — open editor for root project
-			editor := kanban.NewURLEditorModel(m.project.URLs)
+			editor := kanban.NewURLEditorModelWithProjects(m.project.URLs, detailProjectNames(&m))
 			editor.SetSize(m.width, m.height)
 			m.urlEditor = &editor
 			m.mode = detailModeURLEditor
@@ -491,7 +506,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 
 	case "U":
 		if m.project != nil {
-			editor := kanban.NewURLEditorModel(m.project.URLs)
+			editor := kanban.NewURLEditorModelWithProjects(m.project.URLs, detailProjectNames(&m))
 			editor.SetSize(m.width, m.height)
 			m.urlEditor = &editor
 			m.mode = detailModeURLEditor
@@ -552,9 +567,17 @@ func (m DetailModel) updateURLEditor(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	if done {
 		if saved && m.project != nil {
 			_ = workspace.WriteProjectURLs(m.project, m.urlEditor.GetURLs())
+			for projName, urls := range m.urlEditor.GetSubProjectURLs() {
+				if proj := m.registry.Get(projName); proj != nil {
+					_ = workspace.WriteProjectURLs(proj, append(proj.URLs, urls...))
+				}
+			}
 		}
 		m.urlEditor = nil
 		m.mode = detailModeNormal
+		if saved {
+			return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+		}
 	}
 	return m, cmd
 }
