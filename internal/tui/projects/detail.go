@@ -372,6 +372,34 @@ func (m *DetailModel) collectAllURLs() []detailURLEntry {
 	return entries
 }
 
+// detailDateEntry is a ProjectDate with its owning project name.
+type detailDateEntry struct {
+	projectName string
+	date        workspace.ProjectDate
+}
+
+// collectAllDates returns dates from the root project and all descendants.
+func (m *DetailModel) collectAllDates() []detailDateEntry {
+	var entries []detailDateEntry
+	if m.project != nil {
+		for _, d := range m.project.Dates {
+			entries = append(entries, detailDateEntry{projectName: m.name, date: d})
+		}
+	}
+	for _, desc := range m.allDescendants {
+		var proj *workspace.Project
+		if m.registry != nil {
+			proj = m.registry.Get(desc.Name)
+		}
+		if proj != nil {
+			for _, d := range proj.Dates {
+				entries = append(entries, detailDateEntry{projectName: desc.Name, date: d})
+			}
+		}
+	}
+	return entries
+}
+
 func (m *DetailModel) currentRow() *detailRow {
 	if m.selectedCol < 0 || m.selectedCol >= int(colCount) {
 		return nil
@@ -512,7 +540,20 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 
 	case "d":
 		if m.project != nil {
-			editor := NewDateEditorModel(m.project.Dates)
+			projectNames := []string{m.name}
+			existingSubDates := make(map[string][]workspace.ProjectDate)
+			for _, desc := range m.allDescendants {
+				if desc.DirPath == "" {
+					continue
+				}
+				projectNames = append(projectNames, desc.Name)
+				if m.registry != nil {
+					if proj := m.registry.Get(desc.Name); proj != nil {
+						existingSubDates[desc.Name] = proj.Dates
+					}
+				}
+			}
+			editor := NewDateEditorModelWithProjects(m.project.Dates, projectNames, existingSubDates)
 			editor.SetSize(m.width, m.height)
 			m.dateEditor = &editor
 			m.mode = detailModeDateEditor
@@ -611,9 +652,19 @@ func (m DetailModel) updateDateEditor(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	if done {
 		if saved && m.project != nil {
 			_ = workspace.WriteProjectDates(m.project, m.dateEditor.GetDates())
+			for projName, dates := range m.dateEditor.GetSubProjectDates() {
+				if m.registry != nil {
+					if proj := m.registry.Get(projName); proj != nil {
+						_ = workspace.WriteProjectDates(proj, dates)
+					}
+				}
+			}
 		}
 		m.dateEditor = nil
 		m.mode = detailModeNormal
+		if saved {
+			return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+		}
 	}
 	return m, cmd
 }
@@ -663,10 +714,16 @@ func (m DetailModel) View() string {
 		lines = append(lines, "")
 	}
 
-	if m.project != nil && len(m.project.Dates) > 0 {
+	if allDates := m.collectAllDates(); len(allDates) > 0 {
 		now := time.Now()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-		for _, d := range m.project.Dates {
+		lastProject := ""
+		for _, e := range allDates {
+			if e.projectName != m.name && e.projectName != lastProject {
+				lines = append(lines, sectionHeaderStyle.Render("  "+e.projectName))
+			}
+			lastProject = e.projectName
+			d := e.date
 			dateDay := time.Date(d.Date.Year(), d.Date.Month(), d.Date.Day(), 0, 0, 0, 0, time.Local)
 			dateStr := d.Date.Format("Jan 2 2006")
 			label := d.Label
