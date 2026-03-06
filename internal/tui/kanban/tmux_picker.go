@@ -282,21 +282,6 @@ func isChildSession(name string) bool {
 	return false
 }
 
-// getChildSessions checks which child sessions exist for a root session.
-func getChildSessions(root string) map[string]bool {
-	allSessions := listTmuxSessions()
-	sessionSet := make(map[string]bool)
-	for _, s := range allSessions {
-		sessionSet[s] = true
-	}
-
-	children := make(map[string]bool)
-	for _, suffix := range childSuffixes {
-		children[suffix] = sessionSet[root+suffix]
-	}
-	return children
-}
-
 // switchTmuxSession switches the tmux client to the given session.
 func switchTmuxSession(name string) tea.Cmd {
 	return func() tea.Msg {
