@@ -2,6 +2,7 @@ package projects
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -225,22 +226,40 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 
 	if registry != nil {
 		m.allDescendants = collectAllDescendants(registry, name)
-		m.projectNotes[name] = registry.NotesForProject(name, allNotes)
+		m.projectNotes[name] = prependIndexNote(registry.Get(name), registry.NotesForProject(name, allNotes))
 		m.projectTasks[name] = registry.TasksForProject(name, allTasks)
 		m.projectCards[name] = registry.CardsForProject(name, allBoards)
 		for _, desc := range m.allDescendants {
-			m.projectNotes[desc.Name] = registry.NotesForProject(desc.Name, allNotes)
+			m.projectNotes[desc.Name] = prependIndexNote(desc, registry.NotesForProject(desc.Name, allNotes))
 			m.projectTasks[desc.Name] = registry.TasksForProject(desc.Name, allTasks)
 			m.projectCards[desc.Name] = registry.CardsForProject(desc.Name, allBoards)
 		}
 	} else {
-		m.projectNotes[name] = n
+		m.projectNotes[name] = prependIndexNote(project, n)
 		m.projectTasks[name] = tasks
 		m.projectCards[name] = cards
 	}
 
 	m.rebuildAllColumns()
 	return m
+}
+
+// prependIndexNote prepends the project's index file (name.md) to the front of the
+// notes slice if the file exists, so it always appears first in the Notes column.
+func prependIndexNote(proj *workspace.Project, rest []notes.Note) []notes.Note {
+	if proj == nil || proj.DirPath == "" {
+		return rest
+	}
+	indexPath := filepath.Join(proj.DirPath, proj.Name+".md")
+	if _, err := os.Stat(indexPath); err != nil {
+		return rest
+	}
+	idx := notes.Note{
+		Title:    proj.Name,
+		FilePath: indexPath,
+		RelPath:  proj.Name + ".md",
+	}
+	return append([]notes.Note{idx}, rest...)
 }
 
 // collectAllDescendants returns all descendants in depth-first order.
