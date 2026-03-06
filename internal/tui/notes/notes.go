@@ -23,6 +23,7 @@ const (
 	modeSelectWorkspace           // pick which workspace to pin into
 	modePickFile                  // fuzzy-pick a file from the workspace
 	modeInputLabel                // type a label for the pinned note
+	modeConfirmUnpin              // confirm before removing a pinned note
 )
 
 // wsEntry holds a workspace and its pinned notes for display.
@@ -57,6 +58,9 @@ type NotesModel struct {
 	// pin flow: label input
 	selectedRelPath string
 	labelInput      textinput.Model
+
+	// unpin confirmation
+	unpinEntry *flatEntry
 }
 
 // flatEntry maps cursor position to a pinned note.
@@ -120,6 +124,8 @@ func (m NotesModel) HintText() string {
 		return "type to filter  j/k:navigate  enter:select  esc:cancel"
 	case modeInputLabel:
 		return "enter:confirm  esc:cancel"
+	case modeConfirmUnpin:
+		return "y:confirm  n/esc:cancel"
 	default:
 		return "j/k:navigate  enter:open  p:pin  d:unpin  ?:help  q:quit"
 	}
@@ -146,6 +152,8 @@ func (m NotesModel) Update(msg tea.Msg) (NotesModel, tea.Cmd) {
 			return m.updatePickFile(msg)
 		case modeInputLabel:
 			return m.updateInputLabel(msg)
+		case modeConfirmUnpin:
+			return m.updateConfirmUnpin(msg)
 		}
 	}
 	return m, nil
@@ -171,9 +179,9 @@ func (m NotesModel) updateList(msg tea.KeyMsg) (NotesModel, tea.Cmd) {
 		}
 	case "d":
 		if m.cursor < len(m.flat) {
-			entry := m.flat[m.cursor]
-			_ = notespkg.RemovePinnedNote(entry.wsRoot, entry.note.RelPath)
-			m.SetData(m.workspaces)
+			e := m.flat[m.cursor]
+			m.unpinEntry = &e
+			m.mode = modeConfirmUnpin
 		}
 	case "p":
 		return m.startPin()
@@ -305,6 +313,22 @@ func (m NotesModel) updateInputLabel(msg tea.KeyMsg) (NotesModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m NotesModel) updateConfirmUnpin(msg tea.KeyMsg) (NotesModel, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		if m.unpinEntry != nil {
+			_ = notespkg.RemovePinnedNote(m.unpinEntry.wsRoot, m.unpinEntry.note.RelPath)
+			m.unpinEntry = nil
+			m.mode = modeList
+			m.SetData(m.workspaces)
+		}
+	case "n", "N", "esc":
+		m.unpinEntry = nil
+		m.mode = modeList
+	}
+	return m, nil
+}
+
 func (m NotesModel) View() string {
 	switch m.mode {
 	case modeSelectWorkspace:
@@ -313,6 +337,8 @@ func (m NotesModel) View() string {
 		return m.viewPickFile()
 	case modeInputLabel:
 		return m.viewInputLabel()
+	case modeConfirmUnpin:
+		return m.viewConfirmUnpin()
 	default:
 		return m.viewList()
 	}
@@ -455,6 +481,25 @@ func (m NotesModel) viewInputLabel() string {
 	lines = append(lines, "  "+m.labelInput.View())
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m NotesModel) viewConfirmUnpin() string {
+	label := ""
+	if m.unpinEntry != nil {
+		label = m.unpinEntry.note.Label
+	}
+	const maxLen = 44
+	runes := []rune(label)
+	if len(runes) > maxLen {
+		label = string(runes[:maxLen-3]) + "..."
+	}
+
+	box := confirmUnpinBoxStyle.Render(
+		confirmUnpinTitleStyle.Render("Unpin Note?") + "\n\n" +
+			listItemStyle.Render(`"`+label+`"`) + "\n\n" +
+			confirmUnpinHelpStyle.Render("y:confirm  n/esc:cancel"),
+	)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 // openFile opens the given path in $EDITOR (fallback: vim).
