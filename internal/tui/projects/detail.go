@@ -731,9 +731,21 @@ func (m DetailModel) View() string {
 				label = "date"
 			}
 			if dateDay.Before(today) {
-				lines = append(lines, pathStyle.Render("    "+label+"  "+dateStr))
+				leftPart := pathStyle.Render("    " + label)
+				rightPart := pathStyle.Render(dateStr)
+				pad := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+				if pad < 2 {
+					pad = 2
+				}
+				lines = append(lines, leftPart+strings.Repeat(" ", pad)+rightPart)
 			} else {
-				lines = append(lines, upcomingDateStyle.Render("    "+label)+"  "+upcomingDateValueStyle.Render(dateStr))
+				leftPart := upcomingDateStyle.Render("    " + label)
+				rightPart := upcomingDateValueStyle.Render(dateStr)
+				pad := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+				if pad < 2 {
+					pad = 2
+				}
+				lines = append(lines, leftPart+strings.Repeat(" ", pad)+rightPart)
 			}
 		}
 		lines = append(lines, "")
