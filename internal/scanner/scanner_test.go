@@ -3,7 +3,6 @@ package scanner
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 )
 
@@ -18,8 +17,8 @@ func TestScanWorkspace_FindsBoards(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(scan.Boards) < 2 {
-		t.Fatalf("expected at least 2 boards (dev-work, home-reno), got %d", len(scan.Boards))
+	if len(scan.Boards) < 3 {
+		t.Fatalf("expected at least 3 boards (dev-work, home-reno, sprint), got %d", len(scan.Boards))
 	}
 
 	boardNames := make(map[string]bool)
@@ -27,13 +26,10 @@ func TestScanWorkspace_FindsBoards(t *testing.T) {
 		boardNames[filepath.Base(b.Path)] = true
 	}
 
-	for _, expected := range []string{"dev-work", "home-reno"} {
+	for _, expected := range []string{"dev-work", "home-reno", "sprint"} {
 		if !boardNames[expected] {
 			t.Errorf("expected board %q not found", expected)
 		}
-	}
-	if boardNames["sprint"] {
-		t.Error("sprint board (inside project) should not be discovered at workspace root")
 	}
 }
 
@@ -43,14 +39,27 @@ func TestScanWorkspace_FindsTaskDirs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should find only tasks/ at root (project-level tasks/ are no longer discovered)
+	// Should find only the root tasks/ directory
 	if len(scan.TaskDirs) != 1 {
 		t.Fatalf("expected exactly 1 task dir (root only), got %d", len(scan.TaskDirs))
 	}
 
 	td := scan.TaskDirs[0]
-	if len(td.Files) < 2 {
-		t.Errorf("expected root tasks dir to have at least 2 files, got %d", len(td.Files))
+	foundTodo := false
+	foundDone := false
+	for _, f := range td.Files {
+		if f == "todo.txt" {
+			foundTodo = true
+		}
+		if f == "done.txt" {
+			foundDone = true
+		}
+	}
+	if !foundTodo {
+		t.Error("root tasks dir missing todo.txt")
+	}
+	if !foundDone {
+		t.Error("root tasks dir missing done.txt")
 	}
 }
 
@@ -99,24 +108,6 @@ func TestScanWorkspace_FindsNotes(t *testing.T) {
 	}
 }
 
-func TestScanWorkspace_ProjectContext(t *testing.T) {
-	scan, err := ScanWorkspace(filepath.Join(testdataDir(), "workspace1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Sprint board is inside a project directory and should NOT be discovered
-	for _, b := range scan.Boards {
-		if filepath.Base(b.Path) == "sprint" {
-			t.Error("sprint board (inside project) should not be discovered")
-			return
-		}
-	}
-	// Projects are still discovered
-	if len(scan.Projects) < 2 {
-		t.Errorf("expected at least 2 projects, got %d", len(scan.Projects))
-	}
-}
 
 func TestScanWorkspace_SkipsHiddenDirs(t *testing.T) {
 	// Create a temp workspace with a hidden directory
@@ -182,35 +173,6 @@ func TestScanWorkspace_Workspace2(t *testing.T) {
 	}
 }
 
-func TestScanWorkspace_TaskDirFiles(t *testing.T) {
-	scan, err := ScanWorkspace(filepath.Join(testdataDir(), "workspace1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Find root tasks dir and verify it has both todo.txt and done.txt
-	if len(scan.TaskDirs) == 0 {
-		t.Fatal("root tasks dir not found")
-	}
-	td := scan.TaskDirs[0]
-	sort.Strings(td.Files)
-	foundTodo := false
-	foundDone := false
-	for _, f := range td.Files {
-		if f == "todo.txt" {
-			foundTodo = true
-		}
-		if f == "done.txt" {
-			foundDone = true
-		}
-	}
-	if !foundTodo {
-		t.Error("root tasks dir missing todo.txt")
-	}
-	if !foundDone {
-		t.Error("root tasks dir missing done.txt")
-	}
-}
 
 func TestScanWorkspace_BoardsOnlyAtRoot(t *testing.T) {
 	tmp := t.TempDir()

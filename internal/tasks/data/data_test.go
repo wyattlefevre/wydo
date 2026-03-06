@@ -130,11 +130,14 @@ func TestTaskFileTracking(t *testing.T) {
 }
 
 func TestLoadTasksFromDir_MultipleProjects(t *testing.T) {
-	wd, _ := os.Getwd()
+	// Verify that tasks with project tags are loaded correctly from any directory.
+	tmpDir := t.TempDir()
+	todoFile := filepath.Join(tmpDir, "todo.txt")
+	if err := os.WriteFile(todoFile, []byte("Fix bug +alpha\nWrite tests +alpha\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	// Load alpha project tasks
-	alphaDir := filepath.Join(wd, "..", "..", "..", "testdata", "workspace1", "projects", "alpha", "tasks")
-	tasks, err := LoadTasksFromDir(alphaDir, []string{"todo.txt"}, true)
+	tasks, err := LoadTasksFromDir(tmpDir, []string{"todo.txt"}, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

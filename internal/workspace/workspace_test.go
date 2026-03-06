@@ -29,8 +29,8 @@ func TestLoad_IntegrationWithFixtures(t *testing.T) {
 		t.Error("expected non-empty RootDir")
 	}
 
-	if len(ws.Boards) < 2 {
-		t.Errorf("expected at least 2 boards (root-level only), got %d", len(ws.Boards))
+	if len(ws.Boards) < 3 {
+		t.Errorf("expected at least 3 boards (dev-work, home-reno, sprint), got %d", len(ws.Boards))
 	}
 
 	if len(ws.Tasks) == 0 {
@@ -141,8 +141,8 @@ func TestCardsForProject(t *testing.T) {
 		t.Error("expected alpha cards")
 	}
 
-	// auth-service and db-migration should be linked to alpha (root-level boards only)
-	// rate-limiting is inside projects/alpha/boards/sprint/ which is no longer discovered
+	// auth-service and db-migration are in root-level dev-work board
+	// rate-limiting is in root-level sprint board (sprint moved from projects/alpha/boards/ to boards/)
 	cardNames := make(map[string]bool)
 	for _, c := range alphaCards {
 		cardNames[c.Title] = true
@@ -153,6 +153,9 @@ func TestCardsForProject(t *testing.T) {
 	}
 	if !cardNames["DB Migration"] {
 		t.Error("expected DB Migration card for alpha")
+	}
+	if !cardNames["Rate Limiting"] {
+		t.Error("expected Rate Limiting card for alpha")
 	}
 }
 
