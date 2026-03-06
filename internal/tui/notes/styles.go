@@ -22,4 +22,12 @@ var (
 	sectionHeaderStyle = lipgloss.NewStyle().
 				Foreground(theme.Accent).
 				Bold(true)
+
+	confirmUnpinBoxStyle = theme.ModalBox.Padding(1, 2)
+
+	confirmUnpinTitleStyle = lipgloss.NewStyle().
+				Foreground(theme.Danger).
+				Bold(true)
+
+	confirmUnpinHelpStyle = theme.ModalHelp
 )
