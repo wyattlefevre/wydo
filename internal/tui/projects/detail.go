@@ -2,6 +2,8 @@ package projects
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -104,6 +106,19 @@ type DetailModel struct {
 type detailURLEntry struct {
 	projectName string
 	url         kanbanmodels.CardURL
+}
+
+type noteEditorFinishedMsg struct{ err error }
+
+func openNoteInEditor(filePath string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+	c := exec.Command(editor, filePath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return noteEditorFinishedMsg{err: err}
+	})
 }
 
 // projectURLPicker is a grouped URL picker for the project detail view.
@@ -390,6 +405,8 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 			return m.updateURLPicker(msg)
 		}
 		return m.handleKey(msg)
+	case noteEditorFinishedMsg:
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 	}
 	return m, nil
 }
@@ -476,6 +493,8 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			return m, nil
 		}
 		switch row.kind {
+		case rowKindNote:
+			return m, openNoteInEditor(row.note.FilePath)
 		case rowKindTask:
 			task := row.task
 			return m, func() tea.Msg {
