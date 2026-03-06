@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	xansi "github.com/charmbracelet/x/ansi"
 	kanbanmodels "wydo/internal/kanban/models"
@@ -61,6 +62,7 @@ const (
 	detailModeNormal    detailMode = iota
 	detailModeURLEditor            // editing project URLs
 	detailModeURLPicker            // picking a URL to open
+	detailModeDateEditor           // editing project dates
 )
 
 // DetailModel shows project details with notes, tasks, and cards in a
@@ -96,10 +98,11 @@ type DetailModel struct {
 	// Collapse state: per-column, project name → collapsed
 	collapsedGroups [colCount]map[string]bool
 
-	// URL modal state
-	mode      detailMode
-	urlEditor *kanban.URLEditorModel
-	urlPicker *projectURLPicker
+	// Modal state
+	mode       detailMode
+	urlEditor  *kanban.URLEditorModel
+	urlPicker  *projectURLPicker
+	dateEditor *DateEditorModel
 }
 
 // detailURLEntry is a URL with its owning project name.
@@ -421,14 +424,20 @@ func (m DetailModel) OpenInfo() (name, wsDir string) {
 	return m.name, m.wsDir
 }
 
-// IsModal returns true when a URL modal is active.
+// IsModal returns true when a modal is active.
 func (m DetailModel) IsModal() bool {
 	return m.mode != detailModeNormal
 }
 
-// IsTyping returns true when the URL editor has a text input focused.
+// IsTyping returns true when a text input is focused in an active modal.
 func (m DetailModel) IsTyping() bool {
-	return m.mode == detailModeURLEditor && m.urlEditor != nil && m.urlEditor.IsTyping()
+	if m.mode == detailModeURLEditor && m.urlEditor != nil && m.urlEditor.IsTyping() {
+		return true
+	}
+	if m.mode == detailModeDateEditor && m.dateEditor != nil && m.dateEditor.IsTyping() {
+		return true
+	}
+	return false
 }
 
 // HintText returns the hint string for the detail view.
@@ -438,8 +447,10 @@ func (m DetailModel) HintText() string {
 		return "n:add  d:delete  e:edit url  l:edit label  enter:save  esc:cancel"
 	case detailModeURLPicker:
 		return "j/k:navigate  /: search  enter:open  esc:cancel"
+	case detailModeDateEditor:
+		return "n:add  d:delete  e:edit label  D:edit date  enter:save  esc:cancel"
 	}
-	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  u:urls  esc:back"
+	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  u:urls  d:dates  esc:back"
 }
 
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
@@ -450,6 +461,8 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 			return m.updateURLEditor(msg)
 		case detailModeURLPicker:
 			return m.updateURLPicker(msg)
+		case detailModeDateEditor:
+			return m.updateDateEditor(msg)
 		}
 		return m.handleKey(msg)
 	case noteEditorFinishedMsg:
@@ -524,6 +537,14 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			editor.SetSize(m.width, m.height)
 			m.urlEditor = &editor
 			m.mode = detailModeURLEditor
+		}
+
+	case "d":
+		if m.project != nil {
+			editor := NewDateEditorModel(m.project.Dates)
+			editor.SetSize(m.width, m.height)
+			m.dateEditor = &editor
+			m.mode = detailModeDateEditor
 		}
 
 	case "enter":
@@ -617,12 +638,32 @@ func (m DetailModel) updateURLPicker(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	return m, nil // no cmd needed, projectURLPicker is synchronous
 }
 
+func (m DetailModel) updateDateEditor(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	if m.dateEditor == nil {
+		m.mode = detailModeNormal
+		return m, nil
+	}
+	editor, cmd, saved, done := m.dateEditor.Update(msg)
+	m.dateEditor = &editor
+	if done {
+		if saved && m.project != nil {
+			_ = workspace.WriteProjectDates(m.project, m.dateEditor.GetDates())
+		}
+		m.dateEditor = nil
+		m.mode = detailModeNormal
+	}
+	return m, cmd
+}
+
 func (m DetailModel) View() string {
 	if m.mode == detailModeURLEditor && m.urlEditor != nil {
 		return m.urlEditor.View()
 	}
 	if m.mode == detailModeURLPicker && m.urlPicker != nil {
 		return m.urlPicker.View()
+	}
+	if m.mode == detailModeDateEditor && m.dateEditor != nil {
+		return m.dateEditor.View()
 	}
 
 	var lines []string
@@ -654,6 +695,25 @@ func (m DetailModel) View() string {
 				lines = append(lines, pathStyle.Render("    "+urlStr))
 			} else {
 				lines = append(lines, urlLabelStyle.Render("    "+u.Label)+pathStyle.Render("  "+urlStr))
+			}
+		}
+		lines = append(lines, "")
+	}
+
+	if m.project != nil && len(m.project.Dates) > 0 {
+		now := time.Now()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		for _, d := range m.project.Dates {
+			dateDay := time.Date(d.Date.Year(), d.Date.Month(), d.Date.Day(), 0, 0, 0, 0, time.Local)
+			dateStr := d.Date.Format("Jan 2 2006")
+			label := d.Label
+			if label == "" {
+				label = "date"
+			}
+			if dateDay.Before(today) {
+				lines = append(lines, pathStyle.Render("    "+label+"  "+dateStr))
+			} else {
+				lines = append(lines, upcomingDateStyle.Render("    "+label)+"  "+upcomingDateValueStyle.Render(dateStr))
 			}
 		}
 		lines = append(lines, "")

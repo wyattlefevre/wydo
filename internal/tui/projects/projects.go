@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"wydo/internal/workspace"
 	"wydo/internal/tui/messages"
@@ -882,6 +883,14 @@ func (m ProjectsModel) viewList() string {
 			if m.multiWorkspace {
 				suffix += " " + pathStyle.Render(abbreviatePath(entry.RootDir))
 			}
+			if nextDate := nextUpcomingDate(entry.Project.Dates); nextDate != nil {
+				dateStr := nextDate.Date.Format("Jan 2")
+				label := nextDate.Label
+				if label == "" {
+					label = "date"
+				}
+				suffix += "  " + upcomingDateStyle.Render(label) + " " + upcomingDateValueStyle.Render(dateStr)
+			}
 
 			lines = append(lines, style.Render(cursorPrefix+indent+treePrefix+name)+suffix)
 		}
@@ -1149,6 +1158,23 @@ func (m ProjectsModel) viewDeleteVirtual() string {
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+// nextUpcomingDate returns the nearest upcoming (today or future) date from a project's dates.
+func nextUpcomingDate(dates []workspace.ProjectDate) *workspace.ProjectDate {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	var result *workspace.ProjectDate
+	for i := range dates {
+		d := &dates[i]
+		dateDay := time.Date(d.Date.Year(), d.Date.Month(), d.Date.Day(), 0, 0, 0, 0, time.Local)
+		if !dateDay.Before(today) {
+			if result == nil || d.Date.Before(result.Date) {
+				result = d
+			}
+		}
+	}
+	return result
 }
 
 // collectDescendants returns a set of all transitive descendant project names.

@@ -290,12 +290,13 @@ func (m DayModel) View() string {
 			sb.WriteString("\n")
 		}
 	} else {
-		// Separate tasks, cards, notes, and completed items from buckets
-		var allTasks, allCards, allNotes, allCompleted []agendapkg.AgendaItem
+		// Separate tasks, cards, notes, project dates, and completed items from buckets
+		var allTasks, allCards, allNotes, allProjectDates, allCompleted []agendapkg.AgendaItem
 		for _, bucket := range m.buckets {
 			allTasks = append(allTasks, bucket.Tasks...)
 			allCards = append(allCards, bucket.Cards...)
 			allNotes = append(allNotes, bucket.Notes...)
+			allProjectDates = append(allProjectDates, bucket.ProjectDates...)
 			allCompleted = append(allCompleted, bucket.AllCompletedItems()...)
 		}
 
@@ -351,6 +352,21 @@ func (m DayModel) View() string {
 			sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Notes (%d)", len(allNotes))))
 			sb.WriteString("\n")
 			for _, item := range allNotes {
+				selected := cursorIdx == m.cursor
+				line := RenderItemLine(item, selected, m.width-4)
+				sb.WriteString("   ")
+				sb.WriteString(line)
+				sb.WriteString("\n")
+				cursorIdx++
+			}
+			sb.WriteString("\n")
+		}
+
+		// Milestones section
+		if len(allProjectDates) > 0 {
+			sb.WriteString(sectionStyle.Render(fmt.Sprintf(" Milestones (%d)", len(allProjectDates))))
+			sb.WriteString("\n")
+			for _, item := range allProjectDates {
 				selected := cursorIdx == m.cursor
 				line := RenderItemLine(item, selected, m.width-4)
 				sb.WriteString("   ")
