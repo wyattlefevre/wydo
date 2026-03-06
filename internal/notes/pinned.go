@@ -55,6 +55,25 @@ func ReadPinnedNotes(wsRoot string) ([]PinnedNote, error) {
 	return result, sc.Err()
 }
 
+// RemovePinnedNote removes the entry with the given relPath from wsRoot/pinned.md.
+func RemovePinnedNote(wsRoot, relPath string) error {
+	existing, err := ReadPinnedNotes(wsRoot)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(wsRoot, PinnedFilename)
+	var lines []string
+	for _, n := range existing {
+		if n.RelPath != relPath {
+			lines = append(lines, fmt.Sprintf("[%s](%s)\n", n.Label, n.RelPath))
+		}
+	}
+	if len(lines) == 0 {
+		return os.Remove(path)
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "")), 0644)
+}
+
 // AddPinnedNote appends a new pinned note to wsRoot/pinned.md.
 func AddPinnedNote(wsRoot, label, relPath string) error {
 	path := filepath.Join(wsRoot, PinnedFilename)

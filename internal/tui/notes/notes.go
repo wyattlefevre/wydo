@@ -121,7 +121,7 @@ func (m NotesModel) HintText() string {
 	case modeInputLabel:
 		return "enter:confirm  esc:cancel"
 	default:
-		return "j/k:navigate  enter:open  p:pin note  ?:help  q:quit"
+		return "j/k:navigate  enter:open  p:pin  d:unpin  ?:help  q:quit"
 	}
 }
 
@@ -168,6 +168,12 @@ func (m NotesModel) updateList(msg tea.KeyMsg) (NotesModel, tea.Cmd) {
 	case "enter":
 		if m.cursor < len(m.flat) {
 			return m, openFile(m.flat[m.cursor].note.AbsPath)
+		}
+	case "d":
+		if m.cursor < len(m.flat) {
+			entry := m.flat[m.cursor]
+			_ = notespkg.RemovePinnedNote(entry.wsRoot, entry.note.RelPath)
+			m.SetData(m.workspaces)
 		}
 	case "p":
 		return m.startPin()
