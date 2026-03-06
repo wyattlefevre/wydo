@@ -11,9 +11,10 @@ const (
 	ViewAgendaMonth  = messages.ViewAgendaMonth
 	ViewKanbanPicker = messages.ViewKanbanPicker
 	ViewKanbanBoard  = messages.ViewKanbanBoard
-	ViewTaskManager    = messages.ViewTaskManager
-	ViewProjects       = messages.ViewProjects
-	ViewProjectDetail  = messages.ViewProjectDetail
+	ViewTaskManager   = messages.ViewTaskManager
+	ViewProjects      = messages.ViewProjects
+	ViewProjectDetail = messages.ViewProjectDetail
+	ViewNotes         = messages.ViewNotes
 )
 
 type SwitchViewMsg = messages.SwitchViewMsg
