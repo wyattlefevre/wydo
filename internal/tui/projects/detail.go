@@ -571,10 +571,15 @@ func (m DetailModel) View() string {
 			}
 			lastProject = e.projectName
 			u := e.url
+			urlStr := u.URL
+			const maxURLLen = 60
+			if len(urlStr) > maxURLLen {
+				urlStr = urlStr[:maxURLLen-3] + "..."
+			}
 			if u.Label == "" {
-				lines = append(lines, pathStyle.Render("    "+u.URL))
+				lines = append(lines, pathStyle.Render("    "+urlStr))
 			} else {
-				lines = append(lines, detailItemStyle.Render("    "+u.Label)+pathStyle.Render("  "+u.URL))
+				lines = append(lines, urlLabelStyle.Render("    "+u.Label)+pathStyle.Render("  "+urlStr))
 			}
 		}
 		lines = append(lines, "")

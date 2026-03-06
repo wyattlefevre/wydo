@@ -52,6 +52,11 @@ var (
 				Foreground(theme.Warning).
 				Bold(true)
 
+	// URL label (magenta)
+	urlLabelStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("205")).
+				Bold(true)
+
 	// Search
 	searchLabelStyle = lipgloss.NewStyle().
 				Foreground(theme.Secondary).
