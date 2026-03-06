@@ -135,7 +135,8 @@ type BoardModel struct {
 	tmuxLaunch             *TmuxLaunchModel
 	boardProjects          []string
 	showArchived           bool
-	tmuxSessions           map[string]bool // cached set of active tmux session names
+	tmuxSessions           map[string]bool   // cached set of active tmux session names
+	claudeStatus           map[string]string // session name -> "waiting" | "running"
 	jiraSetup              *JiraSetupModel
 	jiraBoardPicker        *JiraBoardPickerModel
 	jiraIssueInput         *JiraIssueInputModel
@@ -248,6 +249,7 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			set[s] = true
 		}
 		m.tmuxSessions = set
+		m.claudeStatus = msg.claudeStatus
 		return m, scheduleTmuxRefresh()
 
 	case jiraStatusMsg:
@@ -733,20 +735,27 @@ type editorFinishedMsg struct {
 
 // tmuxSessionsMsg is sent when the background tmux session list fetch completes.
 type tmuxSessionsMsg struct {
-	sessions []string
+	sessions     []string
+	claudeStatus map[string]string // session name -> "waiting" | "running"
 }
 
 // fetchTmuxSessionsCmd fetches the tmux session list once, immediately.
 func fetchTmuxSessionsCmd() tea.Cmd {
 	return func() tea.Msg {
-		return tmuxSessionsMsg{sessions: listTmuxSessions()}
+		return tmuxSessionsMsg{
+			sessions:     listTmuxSessions(),
+			claudeStatus: readClaudeStatus(),
+		}
 	}
 }
 
 // scheduleTmuxRefresh waits 3 seconds then fetches the session list.
 func scheduleTmuxRefresh() tea.Cmd {
 	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
-		return tmuxSessionsMsg{sessions: listTmuxSessions()}
+		return tmuxSessionsMsg{
+			sessions:     listTmuxSessions(),
+			claudeStatus: readClaudeStatus(),
+		}
 	})
 }
 
@@ -1866,7 +1875,12 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 			} else {
 				gapStyle = lipgloss.NewStyle()
 			}
-			lines = append(lines, cardTmuxStyle.Render(tmuxLine)+gapStyle.Render(strings.Repeat(" ", padding))+cardClaudeStyle.Render(" C "))
+			claudeSession := card.TmuxSession + "-claude"
+			claudeBadgeStyle := cardClaudeStyle
+			if m.claudeStatus[claudeSession] == "waiting" {
+				claudeBadgeStyle = cardClaudeWaitingStyle
+			}
+			lines = append(lines, cardTmuxStyle.Render(tmuxLine)+gapStyle.Render(strings.Repeat(" ", padding))+claudeBadgeStyle.Render(" C "))
 		} else {
 			if len(tmuxLine) > maxWidth {
 				tmuxLine = tmuxLine[:maxWidth-3] + "..."
