@@ -91,8 +91,8 @@ type DetailModel struct {
 	colCursorPos   [colCount]int
 	colHorizOffset int // first visible column index (horizontal scroll)
 
-	// Collapse state: project name → collapsed
-	collapsedGroups map[string]bool
+	// Collapse state: per-column, project name → collapsed
+	collapsedGroups [colCount]map[string]bool
 
 	// URL modal state
 	mode      detailMode
@@ -204,17 +204,19 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 	}
 
 	m := DetailModel{
-		name:            name,
-		wsDir:           wsDir,
-		project:         project,
-		registry:        registry,
-		indexPreview:    indexPreview,
-		allBoards:       allBoards,
-		allTasks:        allTasks,
-		allNotes:        allNotes,
-		cardBoard:       cardBoard,
-		cardColumn:      cardColumn,
-		collapsedGroups: make(map[string]bool),
+		name:         name,
+		wsDir:        wsDir,
+		project:      project,
+		registry:     registry,
+		indexPreview: indexPreview,
+		allBoards:    allBoards,
+		allTasks:     allTasks,
+		allNotes:     allNotes,
+		cardBoard:    cardBoard,
+		cardColumn:   cardColumn,
+	}
+	for i := range m.collapsedGroups {
+		m.collapsedGroups[i] = make(map[string]bool)
 	}
 
 	m.projectNotes = make(map[string][]notes.Note)
@@ -280,7 +282,7 @@ func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project,
 			depth:       depth - 1,
 			projectName: p.Name,
 		})
-		if m.collapsedGroups[p.Name] {
+		if m.collapsedGroups[col][p.Name] {
 			return
 		}
 	}
@@ -426,8 +428,9 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 		row := m.currentRow()
 		if row != nil && row.kind == rowKindGroup {
 			projName := row.projectName
-			m.collapsedGroups[projName] = !m.collapsedGroups[projName]
-			m.rebuildAllColumns()
+			col := m.selectedCol
+			m.collapsedGroups[col][projName] = !m.collapsedGroups[col][projName]
+			m.columns[col] = m.buildColumnRows(colKind(col))
 			m.restoreCursorToGroup(projName)
 		}
 
@@ -466,8 +469,9 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 		}
 		if row.kind == rowKindGroup {
 			projName := row.projectName
-			m.collapsedGroups[projName] = !m.collapsedGroups[projName]
-			m.rebuildAllColumns()
+			col := m.selectedCol
+			m.collapsedGroups[col][projName] = !m.collapsedGroups[col][projName]
+			m.columns[col] = m.buildColumnRows(colKind(col))
 			m.restoreCursorToGroup(projName)
 			return m, nil
 		}
@@ -680,7 +684,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 
 	switch row.kind {
 	case rowKindGroup:
-		expanded := !m.collapsedGroups[row.projectName]
+		expanded := !m.collapsedGroups[col][row.projectName]
 		marker := "▶"
 		if expanded {
 			marker = "▼"
@@ -719,12 +723,17 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		}
 		colName := m.cardColumn[row.card.Filename]
 		isDone := strings.EqualFold(colName, "done")
+		jiraKey := row.card.JiraKey
 		if colName != "" {
-			// Reserve space for " colName" at the right edge.
+			// Reserve space for right-aligned jira+status.
 			statusStr := " " + colName
-			statusWidth := len(statusStr)
+			jiraStr := ""
+			if jiraKey != "" {
+				jiraStr = " " + jiraKey
+			}
+			rightWidth := len(jiraStr) + len(statusStr)
 			prefixWidth := len(prefix)
-			maxTitleWidth := colWidth - prefixWidth - statusWidth
+			maxTitleWidth := colWidth - prefixWidth - rightWidth
 			if maxTitleWidth < 1 {
 				maxTitleWidth = 1
 			}
@@ -736,7 +745,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 					title = title[:maxTitleWidth]
 				}
 			}
-			// Padding between title and right-aligned status.
+			// Padding between title and right-aligned jira+status.
 			padding := maxTitleWidth - len(title)
 			if padding < 0 {
 				padding = 0
@@ -753,12 +762,25 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 			} else {
 				statusColor = lipgloss.Color("4")
 			}
-			statusPart := lipgloss.NewStyle().Foreground(statusColor).Render(strings.Repeat(" ", padding) + statusStr)
-			rendered = titlePart + statusPart
+			if jiraStr != "" {
+				jiraPart := lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Render(strings.Repeat(" ", padding) + jiraStr)
+				statusPart := lipgloss.NewStyle().Foreground(statusColor).Render(statusStr)
+				rendered = titlePart + jiraPart + statusPart
+			} else {
+				statusPart := lipgloss.NewStyle().Foreground(statusColor).Render(strings.Repeat(" ", padding) + statusStr)
+				rendered = titlePart + statusPart
+			}
 		} else {
-			// No status — just render title.
+			// No status — just render title and optional jira key.
+			jiraStr := ""
+			if jiraKey != "" {
+				jiraStr = " " + jiraKey
+			}
 			prefixWidth := len(prefix)
-			maxTitleWidth := colWidth - prefixWidth
+			maxTitleWidth := colWidth - prefixWidth - len(jiraStr)
+			if maxTitleWidth < 1 {
+				maxTitleWidth = 1
+			}
 			if len(title) > maxTitleWidth && maxTitleWidth > 3 {
 				title = title[:maxTitleWidth-3] + "..."
 			}
@@ -766,6 +788,9 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 				rendered = colItemSelectedStyle.Render(prefix + title)
 			} else {
 				rendered = colItemStyle.Render(prefix + title)
+			}
+			if jiraStr != "" {
+				rendered += lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Render(jiraStr)
 			}
 		}
 
