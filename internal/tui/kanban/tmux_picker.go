@@ -179,11 +179,11 @@ type TmuxLaunchModel struct {
 	height      int
 }
 
-// NewTmuxLaunchModel creates a launch popup for a root session, checking which children exist.
-func NewTmuxLaunchModel(rootSession string) TmuxLaunchModel {
+// NewTmuxLaunchModel creates a launch popup for a root session with pre-fetched child session state.
+func NewTmuxLaunchModel(rootSession string, children map[string]bool) TmuxLaunchModel {
 	return TmuxLaunchModel{
 		rootSession: rootSession,
-		children:    getChildSessions(rootSession),
+		children:    children,
 	}
 }
 

@@ -1319,7 +1319,7 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	// Check if any children exist
-	children := getChildSessions(currentCard.TmuxSession)
+	children := m.getChildSessionsFromCache(currentCard.TmuxSession)
 	hasChildren := false
 	for _, exists := range children {
 		if exists {
@@ -1335,7 +1335,7 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	// Show launch popup
-	launch := NewTmuxLaunchModel(currentCard.TmuxSession)
+	launch := NewTmuxLaunchModel(currentCard.TmuxSession, children)
 	launch.width = m.width
 	launch.height = m.height
 	m.tmuxLaunch = &launch
@@ -1353,7 +1353,7 @@ func (m BoardModel) handleClaudeLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	claudeSession := currentCard.TmuxSession + "-claude"
-	children := getChildSessions(currentCard.TmuxSession)
+	children := m.getChildSessionsFromCache(currentCard.TmuxSession)
 	if !children["-claude"] {
 		m.message = "No claude session found"
 		return m, nil
