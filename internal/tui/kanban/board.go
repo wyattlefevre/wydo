@@ -1846,7 +1846,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 
 	// Tmux session indicator
 	if card.TmuxSession != "" {
-		hasClaudeSession := getChildSessions(card.TmuxSession)["-claude"]
+		hasClaudeSession := m.getChildSessionsFromCache(card.TmuxSession)["-claude"]
 		tmuxLine := " " + card.TmuxSession + " "
 		if hasClaudeSession {
 			// Reserve 4 chars for " C " plus min gap (space + " C ")
@@ -1932,6 +1932,16 @@ func (m *BoardModel) cardLineCount(colIndex int, card models.Card) int {
 		lines++
 	}
 	return lines + 1 // +1 for MarginBottom(1) on cardStyle, matching lipgloss.Height()
+}
+
+// getChildSessionsFromCache checks which child sessions exist using the
+// cached session set, avoiding a subprocess call on every render.
+func (m BoardModel) getChildSessionsFromCache(root string) map[string]bool {
+	children := make(map[string]bool, len(childSuffixes))
+	for _, suffix := range childSuffixes {
+		children[suffix] = m.tmuxSessions[root+suffix]
+	}
+	return children
 }
 
 // formatDateWithDaysUntil formats a date with days until/overdue, coloring only the offset
