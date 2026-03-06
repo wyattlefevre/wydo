@@ -9,6 +9,7 @@ type Board struct {
 	Columns     []Column // List of columns
 	Archived    bool     // From YAML frontmatter in board.md
 	JiraBoardID int      // From YAML frontmatter in board.md (optional)
+	Project     string   // relative path from board.md to the linked project index file, or ""
 }
 
 // GetColumn returns a pointer to the column with the given name

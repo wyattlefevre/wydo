@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"wydo/internal/kanban/models"
+
+	"gopkg.in/yaml.v3"
 )
 
 // WriteBoard writes a Board struct to board.md
@@ -14,13 +17,18 @@ func WriteBoard(board models.Board) error {
 
 	var buf bytes.Buffer
 
-	if board.Archived || board.JiraBoardID != 0 {
+	if board.Archived || board.JiraBoardID != 0 || board.Project != "" {
 		buf.WriteString("---\n")
 		if board.Archived {
 			buf.WriteString("archived: true\n")
 		}
 		if board.JiraBoardID != 0 {
 			buf.WriteString(fmt.Sprintf("jira_board_id: %d\n", board.JiraBoardID))
+		}
+		if board.Project != "" {
+			if projectYAML, err := yaml.Marshal(board.Project); err == nil {
+				buf.WriteString("project: " + strings.TrimRight(string(projectYAML), "\n") + "\n")
+			}
 		}
 		buf.WriteString("---\n\n")
 	}
