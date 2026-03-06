@@ -69,4 +69,13 @@ var (
 	searchLabelStyle = lipgloss.NewStyle().
 				Foreground(theme.Secondary).
 				Bold(true)
+
+	// Date editor modal styles
+	dateEditorBoxStyle   = theme.ModalBox.Width(60)
+	dateEditorTitleStyle = theme.ModalTitle.Align(lipgloss.Center)
+	dateEditorHelpStyle  = theme.ModalHelp.Padding(1, 2)
+
+	// Upcoming project date styles (used in detail and list views)
+	upcomingDateStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	upcomingDateValueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("51"))
 )

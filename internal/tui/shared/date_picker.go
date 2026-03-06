@@ -330,3 +330,8 @@ func (m *DatePickerModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 }
+
+// IsTextInputActive returns true when the text input is focused in the date picker.
+func (m DatePickerModel) IsTextInputActive() bool {
+	return m.mode == textInputMode
+}
