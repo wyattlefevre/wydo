@@ -18,6 +18,7 @@ import (
 	"wydo/internal/tasks/service"
 	agendaview "wydo/internal/tui/agenda"
 	kanbanview "wydo/internal/tui/kanban"
+	notesview "wydo/internal/tui/notes"
 	projectsview "wydo/internal/tui/projects"
 	"wydo/internal/tui/shared"
 	taskview "wydo/internal/tui/tasks"
@@ -44,10 +45,11 @@ type AppModel struct {
 	pickerView  kanbanview.PickerModel
 	boardView   kanbanview.BoardModel
 	boardLoaded bool // true when boardView has a valid board
-	taskManagerView    taskview.TaskManagerModel
-	projectsView      projectsview.ProjectsModel
-	projectDetailView projectsview.DetailModel
+	taskManagerView     taskview.TaskManagerModel
+	projectsView        projectsview.ProjectsModel
+	projectDetailView   projectsview.DetailModel
 	projectDetailLoaded bool
+	notesView           notesview.NotesModel
 	showHelp    bool
 	width       int
 	height      int
@@ -134,6 +136,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
 		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards),
 		projectsView:    projectsview.NewProjectsModel(workspaces),
+		notesView:       notesview.NewNotesModel(workspaces),
 	}
 
 	// If a specific board was requested, find and open it directly
@@ -175,6 +178,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.projectDetailLoaded {
 			m.projectDetailView.SetSize(msg.Width, contentHeight)
 		}
+		m.notesView.SetSize(msg.Width, contentHeight)
 		return m, nil
 
 	case OpenBoardMsg:
@@ -239,6 +243,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewProjects:
 			m.refreshData()
 			m.projectsView.SetData(m.workspaces)
+		case ViewNotes:
+			m.refreshData()
+			m.notesView.SetData(m.workspaces)
 		}
 		return m, nil
 
@@ -378,6 +385,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global view-switching (uppercase) — works in all views when not in modal/typing state
 		if !m.isChildInputActive() {
 			switch msg.String() {
+			case "N":
+				m.currentView = ViewNotes
+				m.refreshData()
+				m.notesView.SetData(m.workspaces)
+				return m, nil
 			case "P":
 				m.currentView = ViewProjects
 				m.refreshData()
@@ -418,6 +430,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Let it handle all keys
 		} else if m.currentView == ViewProjects && m.projectsView.IsTyping() {
 			// Projects view has active text input (search, create, rename)
+			// Let it handle all keys
+		} else if m.currentView == ViewNotes && m.notesView.IsTyping() {
+			// Notes view has active text input (file picker, label input)
 			// Let it handle all keys
 		} else if m.currentView == ViewAgendaDay && m.dayView.IsSearching() {
 			// Day agenda search is active — let it handle all keys
@@ -478,6 +493,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.projectDetailView, cmd = m.projectDetailView.Update(msg)
 			return m, cmd
 		}
+	case ViewNotes:
+		m.notesView, cmd = m.notesView.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -530,6 +548,8 @@ func (m *AppModel) isChildInputActive() bool {
 		return m.projectsView.IsTyping()
 	case ViewProjectDetail:
 		return m.projectDetailView.IsModal()
+	case ViewNotes:
+		return m.notesView.IsTyping()
 	case ViewAgendaDay:
 		return m.dayView.IsSearching()
 	case ViewAgendaWeek:
@@ -687,6 +707,8 @@ func (m AppModel) View() string {
 		} else {
 			content = m.renderPlaceholder("Project Detail", "No project loaded")
 		}
+	case ViewNotes:
+		content = m.notesView.View()
 	}
 
 	if centerContent && m.width > maxContentWidth {
@@ -715,6 +737,7 @@ func (m AppModel) renderTabBar() string {
 		{"A", "genda"},
 		{"T", "asks"},
 		{"P", "rojects"},
+		{"N", "otes"},
 	}
 
 	// Map current view to active tab index
@@ -728,6 +751,8 @@ func (m AppModel) renderTabBar() string {
 		activeIdx = 2
 	case ViewProjects, ViewProjectDetail:
 		activeIdx = 3
+	case ViewNotes:
+		activeIdx = 4
 	}
 
 	var parts []string
@@ -774,6 +799,8 @@ func (m AppModel) renderHintBar() string {
 		}
 	case ViewProjects:
 		hintText = m.projectsView.HintText()
+	case ViewNotes:
+		hintText = m.notesView.HintText()
 	case ViewProjectDetail:
 		if m.projectDetailLoaded {
 			hintText = m.projectDetailView.HintText()
@@ -797,6 +824,7 @@ func (m AppModel) renderHelpOverlay() string {
 	globalNav := shared.HelpSection{
 		Title: "Global Navigation",
 		Binds: []shared.HelpBind{
+			{"N", "Notes"},
 			{"P", "Projects"},
 			{"B", "Board picker"},
 			{"A", "Agenda (day view)"},
@@ -898,6 +926,16 @@ func (m AppModel) renderHelpOverlay() string {
 				{"t", "Jump to today"},
 				{"enter", "Enter detail panel"},
 				{"esc", "Back to calendar"},
+			},
+		})
+	case ViewNotes:
+		sections = append(sections, shared.HelpSection{
+			Title: "Notes",
+			Binds: []shared.HelpBind{
+				{"j / k", "Navigate"},
+				{"enter", "Open note in editor"},
+				{"p", "Pin a new note"},
+				{"esc", "Back"},
 			},
 		})
 	case ViewProjects:
