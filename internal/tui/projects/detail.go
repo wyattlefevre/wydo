@@ -645,8 +645,14 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 	var s strings.Builder
 
 	// Title line — truncate to column width
-	count := m.totalColCount(col)
-	title := fmt.Sprintf("%s (%d)", colNames[col], count)
+	var title string
+	if col == colTasks || col == colCards {
+		done := m.totalColDoneCount(col)
+		total := m.totalColCount(col)
+		title = fmt.Sprintf("%s (%d/%d)", colNames[col], done, total)
+	} else {
+		title = fmt.Sprintf("%s (%d)", colNames[col], m.totalColCount(col))
+	}
 	title = xansi.Truncate(title, colWidth, "")
 	if focused {
 		s.WriteString(sectionActiveStyle.Render(title))
@@ -713,8 +719,15 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		if expanded {
 			marker = "▼"
 		}
-		count := m.subtreeCount(row.projectName, col)
-		content := fmt.Sprintf("%s%s%s %s (%d)", indent, prefix, marker, row.projectName, count)
+		var countStr string
+		if col == colTasks || col == colCards {
+			done := m.subtreeDoneCount(row.projectName, col)
+			total := m.subtreeCount(row.projectName, col)
+			countStr = fmt.Sprintf("%d/%d", done, total)
+		} else {
+			countStr = fmt.Sprintf("%d", m.subtreeCount(row.projectName, col))
+		}
+		content := fmt.Sprintf("%s%s%s %s (%s)", indent, prefix, marker, row.projectName, countStr)
 		if isSelected {
 			rendered = colItemSelectedStyle.Render(content)
 		} else {
@@ -875,6 +888,59 @@ func (m *DetailModel) totalColCount(col colKind) int {
 		}
 	}
 	return total
+}
+
+// totalColDoneCount returns done items across all projects for a column.
+func (m *DetailModel) totalColDoneCount(col colKind) int {
+	total := 0
+	switch col {
+	case colTasks:
+		for _, tasks := range m.projectTasks {
+			for _, t := range tasks {
+				if t.Done {
+					total++
+				}
+			}
+		}
+	case colCards:
+		for _, cards := range m.projectCards {
+			for _, c := range cards {
+				if strings.EqualFold(m.cardColumn[c.Filename], "done") {
+					total++
+				}
+			}
+		}
+	}
+	return total
+}
+
+// subtreeDoneCount counts done items in the subtree of projName for the given column kind.
+func (m *DetailModel) subtreeDoneCount(projName string, col colKind) int {
+	var count func(name string) int
+	count = func(name string) int {
+		var n int
+		switch col {
+		case colTasks:
+			for _, t := range m.projectTasks[name] {
+				if t.Done {
+					n++
+				}
+			}
+		case colCards:
+			for _, c := range m.projectCards[name] {
+				if strings.EqualFold(m.cardColumn[c.Filename], "done") {
+					n++
+				}
+			}
+		}
+		if m.registry != nil {
+			for _, child := range m.registry.ChildrenOf(name) {
+				n += count(child.Name)
+			}
+		}
+		return n
+	}
+	return count(projName)
 }
 
 func (m DetailModel) renderHorizIndicator(symbol string, height int) string {
