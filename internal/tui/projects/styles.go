@@ -32,7 +32,10 @@ var (
 	// Section header for detail view
 	sectionHeaderStyle = theme.Subtitle
 
-	sectionActiveStyle = theme.Selected
+	sectionActiveStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("12")).
+				Background(theme.Warning)
 
 	// Detail item
 	detailItemStyle = lipgloss.NewStyle().
