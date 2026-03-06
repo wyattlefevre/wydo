@@ -135,7 +135,7 @@ type BoardModel struct {
 	tmuxLaunch             *TmuxLaunchModel
 	boardProjects          []string
 	showArchived           bool
-	tmuxSessions          map[string]bool // cached set of active tmux session names
+	tmuxSessions           map[string]bool // cached set of active tmux session names
 	jiraSetup              *JiraSetupModel
 	jiraBoardPicker        *JiraBoardPickerModel
 	jiraIssueInput         *JiraIssueInputModel
@@ -209,7 +209,10 @@ func (m BoardModel) ModeText() string {
 }
 
 func (m BoardModel) Init() tea.Cmd {
-	return m.initJiraRefresh()
+	return tea.Batch(
+		m.initJiraRefresh(),
+		fetchTmuxSessionsCmd(),
+	)
 }
 
 func (m BoardModel) initJiraRefresh() tea.Cmd {
@@ -239,6 +242,14 @@ func (m BoardModel) initJiraRefresh() tea.Cmd {
 // Update handles board events as a child view
 func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tmuxSessionsMsg:
+		set := make(map[string]bool, len(msg.sessions))
+		for _, s := range msg.sessions {
+			set[s] = true
+		}
+		m.tmuxSessions = set
+		return m, scheduleTmuxRefresh()
+
 	case jiraStatusMsg:
 		if len(msg.statuses) > 0 {
 			for ci, col := range m.board.Columns {
