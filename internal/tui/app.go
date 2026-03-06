@@ -38,8 +38,9 @@ type AppModel struct {
 	taskSvc     service.TaskService // combined task service across all workspaces
 	boards      []kanbanmodels.Board
 	allNotes    []notes.Note
-	currentView ViewType
-	dayView     agendaview.DayModel
+	currentView    ViewType
+	lastAgendaView ViewType
+	dayView        agendaview.DayModel
 	weekView    agendaview.WeekModel
 	monthView   agendaview.MonthModel
 	pickerView  kanbanview.PickerModel
@@ -130,6 +131,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		boards:          allBoards,
 		allNotes:        allNotes,
 		currentView:     view,
+		lastAgendaView:  ViewAgendaDay,
 		dayView:         agendaview.NewDayModel(taskSvc, allBoards, allNotes, projDates),
 		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes, projDates),
 		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes, projDates),
@@ -232,12 +234,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh data when switching to certain views
 		switch msg.View {
 		case ViewAgendaDay:
+			m.lastAgendaView = ViewAgendaDay
 			m.refreshData()
 			m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewAgendaWeek:
+			m.lastAgendaView = ViewAgendaWeek
 			m.refreshData()
 			m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewAgendaMonth:
+			m.lastAgendaView = ViewAgendaMonth
 			m.refreshData()
 			m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewKanbanPicker:
@@ -394,19 +399,36 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.notesView.SetData(m.workspaces)
 				return m, nil
 			case "P":
-				m.currentView = ViewProjects
 				m.refreshData()
-				m.projectsView.SetData(m.workspaces)
+				if m.projectDetailLoaded {
+					m.currentView = ViewProjectDetail
+					m.projectDetailView.SetSize(m.width, m.height-4)
+				} else {
+					m.currentView = ViewProjects
+					m.projectsView.SetData(m.workspaces)
+				}
 				return m, nil
 			case "B":
-				m.currentView = ViewKanbanPicker
 				m.refreshData()
-				m.pickerView.SetBoards(m.boards)
+				if m.boardLoaded {
+					m.currentView = ViewKanbanBoard
+					m.boardView.SetSize(m.width, m.height-4)
+				} else {
+					m.currentView = ViewKanbanPicker
+					m.pickerView.SetBoards(m.boards)
+				}
 				return m, nil
 			case "A":
-				m.currentView = ViewAgendaDay
 				m.refreshData()
-				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+				m.currentView = m.lastAgendaView
+				switch m.lastAgendaView {
+				case ViewAgendaWeek:
+					m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+				case ViewAgendaMonth:
+					m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+				default:
+					m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+				}
 				return m, nil
 			case "T":
 				if m.currentView != ViewTaskManager {
@@ -448,16 +470,19 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "1":
 				m.currentView = ViewAgendaDay
+				m.lastAgendaView = ViewAgendaDay
 				m.refreshData()
 				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
 			case "2":
 				m.currentView = ViewAgendaWeek
+				m.lastAgendaView = ViewAgendaWeek
 				m.refreshData()
 				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
 			case "3":
 				m.currentView = ViewAgendaMonth
+				m.lastAgendaView = ViewAgendaMonth
 				m.refreshData()
 				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
