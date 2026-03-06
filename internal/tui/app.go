@@ -155,6 +155,9 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 }
 
 func (m AppModel) Init() tea.Cmd {
+	if m.boardLoaded {
+		return m.boardView.Init()
+	}
 	return nil
 }
 
@@ -195,7 +198,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.boardLoaded = true
 		m.currentView = ViewKanbanBoard
-		return m, nil
+		return m, m.boardView.Init()
 
 	case OpenProjectMsg:
 		// Find workspace by RootDir
