@@ -874,25 +874,34 @@ func (m ProjectsModel) viewList() string {
 			}
 
 			name := entry.Project.Name
-			var suffix string
+			var badgeSuffix string
 			if entry.Project.Archived {
-				suffix = " " + virtualBadgeStyle.Render("[archived]")
+				badgeSuffix = " " + virtualBadgeStyle.Render("[archived]")
 			} else if entry.Project.DirPath == "" {
-				suffix = " " + virtualBadgeStyle.Render("(virtual)")
+				badgeSuffix = " " + virtualBadgeStyle.Render("(virtual)")
 			}
 			if m.multiWorkspace {
-				suffix += " " + pathStyle.Render(abbreviatePath(entry.RootDir))
-			}
-			if nextDate := nextUpcomingDate(entry.Project.Dates); nextDate != nil {
-				dateStr := nextDate.Date.Format("Jan 2")
-				label := nextDate.Label
-				if label == "" {
-					label = "date"
-				}
-				suffix += "  " + upcomingDateStyle.Render(label) + " " + upcomingDateValueStyle.Render(dateStr)
+				badgeSuffix += " " + pathStyle.Render(abbreviatePath(entry.RootDir))
 			}
 
-			lines = append(lines, style.Render(cursorPrefix+indent+treePrefix+name)+suffix)
+			nameLine := style.Render(cursorPrefix+indent+treePrefix+name) + badgeSuffix
+
+			if nextDate := nextUpcomingDateInSubtree(entry.Project.Name, entry.Registry); nextDate != nil {
+				dateLabel := nextDate.Label
+				if dateLabel == "" {
+					dateLabel = "date"
+				}
+				datePart := upcomingDateStyle.Render(dateLabel) + " " + upcomingDateValueStyle.Render(nextDate.Date.Format("Jan 2"))
+				leftWidth := lipgloss.Width(nameLine)
+				dateWidth := lipgloss.Width(datePart)
+				padding := m.width - leftWidth - dateWidth
+				if padding < 1 {
+					padding = 1
+				}
+				lines = append(lines, nameLine+strings.Repeat(" ", padding)+datePart)
+			} else {
+				lines = append(lines, nameLine)
+			}
 		}
 
 		if startIdx > 0 {
@@ -1160,21 +1169,46 @@ func (m ProjectsModel) viewDeleteVirtual() string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
-// nextUpcomingDate returns the nearest upcoming (today or future) date from a project's dates.
-func nextUpcomingDate(dates []workspace.ProjectDate) *workspace.ProjectDate {
+// nextUpcomingDateInSubtree returns the nearest upcoming date from a project and all its descendants.
+func nextUpcomingDateInSubtree(rootName string, reg *workspace.ProjectRegistry) *workspace.ProjectDate {
+	if reg == nil {
+		return nil
+	}
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	var result *workspace.ProjectDate
-	for i := range dates {
-		d := &dates[i]
-		dateDay := time.Date(d.Date.Year(), d.Date.Month(), d.Date.Day(), 0, 0, 0, 0, time.Local)
-		if !dateDay.Before(today) {
-			if result == nil || d.Date.Before(result.Date) {
-				result = d
+	var best *workspace.ProjectDate
+	visited := make(map[string]bool)
+	var search func(name string)
+	search = func(name string) {
+		if visited[name] {
+			return
+		}
+		visited[name] = true
+		proj := reg.Get(name)
+		if proj == nil {
+			return
+		}
+		for i := range proj.Dates {
+			d := &proj.Dates[i]
+			dateDay := time.Date(d.Date.Year(), d.Date.Month(), d.Date.Day(), 0, 0, 0, 0, time.Local)
+			if dateDay.Before(today) {
+				continue
+			}
+			if best == nil {
+				best = d
+			} else {
+				bestDay := time.Date(best.Date.Year(), best.Date.Month(), best.Date.Day(), 0, 0, 0, 0, time.Local)
+				if dateDay.Before(bestDay) {
+					best = d
+				}
 			}
 		}
+		for _, child := range reg.ChildrenOf(name) {
+			search(child.Name)
+		}
 	}
-	return result
+	search(rootName)
+	return best
 }
 
 // collectDescendants returns a set of all transitive descendant project names.
