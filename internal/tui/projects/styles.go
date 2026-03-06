@@ -52,6 +52,11 @@ var (
 				Foreground(theme.Warning).
 				Bold(true)
 
+	// Child project group headers in the detail view
+	childProjectStyle = lipgloss.NewStyle().
+				Foreground(theme.Accent).
+				Bold(true)
+
 	// URL label (magenta)
 	urlLabelStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("205")).
