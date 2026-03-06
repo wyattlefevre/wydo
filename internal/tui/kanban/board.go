@@ -135,6 +135,7 @@ type BoardModel struct {
 	tmuxLaunch             *TmuxLaunchModel
 	boardProjects          []string
 	showArchived           bool
+	tmuxSessions          map[string]bool // cached set of active tmux session names
 	jiraSetup              *JiraSetupModel
 	jiraBoardPicker        *JiraBoardPickerModel
 	jiraIssueInput         *JiraIssueInputModel
@@ -717,6 +718,25 @@ func (m BoardModel) updateFilter(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 type editorFinishedMsg struct {
 	err error
+}
+
+// tmuxSessionsMsg is sent when the background tmux session list fetch completes.
+type tmuxSessionsMsg struct {
+	sessions []string
+}
+
+// fetchTmuxSessionsCmd fetches the tmux session list once, immediately.
+func fetchTmuxSessionsCmd() tea.Cmd {
+	return func() tea.Msg {
+		return tmuxSessionsMsg{sessions: listTmuxSessions()}
+	}
+}
+
+// scheduleTmuxRefresh waits 3 seconds then fetches the session list.
+func scheduleTmuxRefresh() tea.Cmd {
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+		return tmuxSessionsMsg{sessions: listTmuxSessions()}
+	})
 }
 
 func openEditor(boardPath, filename string) tea.Cmd {
