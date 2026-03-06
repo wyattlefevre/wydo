@@ -699,7 +699,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		if isSelected {
 			rendered = colItemSelectedStyle.Render(content)
 		} else {
-			rendered = sectionHeaderStyle.Render(content)
+			rendered = childProjectStyle.Render(content)
 		}
 
 	case rowKindNote:
