@@ -22,6 +22,7 @@ const (
 	modeSearch
 	modeSelectDir
 	modeCreate
+	modeRename
 )
 
 type PickerModel struct {
@@ -34,6 +35,7 @@ type PickerModel struct {
 	defaultDir     string
 	availableDirs  []string
 	selectedDirIdx int
+	renameIdx      int
 	width          int
 	height         int
 	err            error
@@ -69,9 +71,9 @@ func (m *PickerModel) SetSize(width, height int) {
 	m.height = height
 }
 
-// IsTyping returns true when the picker is in create or search mode with active text input
+// IsTyping returns true when the picker is in create, search, or rename mode with active text input
 func (m PickerModel) IsTyping() bool {
-	return m.mode == modeCreate || m.mode == modeSearch
+	return m.mode == modeCreate || m.mode == modeSearch || m.mode == modeRename
 }
 
 // HintText returns the raw hint string for the current picker mode.
@@ -83,8 +85,10 @@ func (m PickerModel) HintText() string {
 		return "j/k:navigate  enter:select  esc:cancel"
 	case modeCreate:
 		return "enter:create  esc:cancel"
+	case modeRename:
+		return "enter:rename  esc:cancel"
 	default:
-		return "j/k:navigate  /:search  enter:select  n:new board  ?:help  q:quit"
+		return "j/k:navigate  /:search  enter:select  n:new board  r:rename  ?:help  q:quit"
 	}
 }
 
@@ -151,6 +155,8 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 			return m.updateSelectDir(msg)
 		case modeCreate:
 			return m.updateCreate(msg)
+		case modeRename:
+			return m.updateRename(msg)
 		}
 	}
 
@@ -217,6 +223,17 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 					BoardPath: board.Path,
 				}
 			}
+		}
+
+	case "r":
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			m.renameIdx = m.filtered[m.selected]
+			m.mode = modeRename
+			m.textInput.Placeholder = "New board name..."
+			m.textInput.SetValue(m.boards[m.renameIdx].Name)
+			m.textInput.CursorEnd()
+			m.textInput.Focus()
+			return m, textinput.Blink
 		}
 
 	case "a":
@@ -295,6 +312,30 @@ func (m PickerModel) updateCreate(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m PickerModel) updateRename(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeList
+		m.textInput.SetValue("")
+		return m, nil
+	case "enter":
+		newName := strings.TrimSpace(m.textInput.Value())
+		if newName != "" {
+			if err := operations.RenameBoard(&m.boards[m.renameIdx], newName); err != nil {
+				m.err = err
+			} else {
+				m.applyFilter()
+			}
+		}
+		m.mode = modeList
+		m.textInput.SetValue("")
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
 func (m PickerModel) updateSelectDir(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -331,6 +372,8 @@ func (m PickerModel) View() string {
 		return m.viewSelectDir()
 	case modeCreate:
 		return m.viewCreate()
+	case modeRename:
+		return m.viewRename()
 	default:
 		return m.viewList()
 	}
@@ -445,6 +488,20 @@ func (m PickerModel) viewSelectDir() string {
 	}
 	lines = append(lines, "")
 
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m PickerModel) viewRename() string {
+	var lines []string
+	lines = append(lines, titleStyle.Render("Rename Board"))
+	lines = append(lines, "")
+	lines = append(lines, m.textInput.View())
+	lines = append(lines, "")
+	if m.err != nil {
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+		lines = append(lines, "")
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }

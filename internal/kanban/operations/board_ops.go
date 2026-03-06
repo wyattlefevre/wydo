@@ -56,6 +56,34 @@ func ToggleBoardArchive(board *models.Board) error {
 	return fs.WriteBoard(*board)
 }
 
+// RenameBoard renames a board's display name and directory on disk
+func RenameBoard(board *models.Board, newName string) error {
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return fmt.Errorf("board name cannot be empty")
+	}
+	if newName == board.Name {
+		return nil
+	}
+
+	oldPath := board.Path
+	newDirName := sanitizeName(newName)
+	newPath := filepath.Join(filepath.Dir(oldPath), newDirName)
+
+	if oldPath != newPath {
+		if _, err := os.Stat(newPath); err == nil {
+			return fmt.Errorf("a board already exists at %s", newDirName)
+		}
+		if err := os.Rename(oldPath, newPath); err != nil {
+			return err
+		}
+		board.Path = newPath
+	}
+
+	board.Name = newName
+	return fs.WriteBoard(*board)
+}
+
 func sanitizeName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, " ", "-")
