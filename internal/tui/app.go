@@ -621,14 +621,14 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 	return result
 }
 
-// projectsForBoard returns the project names (immediate + ancestors) that own
-// the board at boardPath, or nil if the board is not inside any project directory.
+// projectsForBoard returns the project names (immediate + ancestors) linked to
+// the board at boardPath via the board's project frontmatter field, or nil if none.
 func projectsForBoard(workspaces []*workspace.Workspace, boardPath string) []string {
 	for _, ws := range workspaces {
 		if ws.Projects == nil {
 			continue
 		}
-		if names := ws.Projects.ProjectsForBoard(boardPath); len(names) > 0 {
+		if names := ws.Projects.ProjectsForBoard(boardPath, ws.Boards); len(names) > 0 {
 			return names
 		}
 	}

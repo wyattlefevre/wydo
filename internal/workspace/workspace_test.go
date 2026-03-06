@@ -572,6 +572,100 @@ func TestDeleteVirtualProject(t *testing.T) {
 	}
 }
 
+func TestBoardsForProject_UsesProjectFrontmatter(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create project dir with index file
+	projDir := filepath.Join(tmp, "projects", "alpha")
+	os.MkdirAll(projDir, 0755)
+	os.WriteFile(filepath.Join(projDir, "alpha.md"), []byte("# alpha\n"), 0644)
+
+	// Create board with project frontmatter pointing at alpha
+	boardDir := filepath.Join(tmp, "boards", "sprint")
+	os.MkdirAll(filepath.Join(boardDir, "cards"), 0755)
+	// path from board.md: ../../projects/alpha/alpha.md
+	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte(
+		"---\nproject: ../../projects/alpha/alpha.md\n---\n\n# sprint\n\n## Backlog\n\n## Done\n",
+	), 0644)
+
+	// Create board WITHOUT project frontmatter
+	boardDir2 := filepath.Join(tmp, "boards", "personal")
+	os.MkdirAll(filepath.Join(boardDir2, "cards"), 0755)
+	os.WriteFile(filepath.Join(boardDir2, "board.md"), []byte("# personal\n\n## Backlog\n\n## Done\n"), 0644)
+
+	scan, err := scanner.ScanWorkspace(tmp)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	ws, err := Load(scan)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	alphaBoards := ws.Projects.BoardsForProject("alpha", ws.Boards)
+	if len(alphaBoards) != 1 {
+		t.Fatalf("expected 1 board for alpha, got %d", len(alphaBoards))
+	}
+	if filepath.Base(alphaBoards[0].Path) != "sprint" {
+		t.Errorf("expected sprint board, got %q", filepath.Base(alphaBoards[0].Path))
+	}
+}
+
+func TestProjectsForBoard_UsesProjectFrontmatter(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create project dir
+	projDir := filepath.Join(tmp, "projects", "alpha")
+	os.MkdirAll(projDir, 0755)
+	os.WriteFile(filepath.Join(projDir, "alpha.md"), []byte("# alpha\n"), 0644)
+
+	// Board with project frontmatter
+	boardDir := filepath.Join(tmp, "boards", "sprint")
+	os.MkdirAll(filepath.Join(boardDir, "cards"), 0755)
+	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte(
+		"---\nproject: ../../projects/alpha/alpha.md\n---\n\n# sprint\n\n## Backlog\n\n## Done\n",
+	), 0644)
+
+	scan, err := scanner.ScanWorkspace(tmp)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	ws, err := Load(scan)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	names := ws.Projects.ProjectsForBoard(boardDir, ws.Boards)
+	if len(names) == 0 {
+		t.Fatal("expected project names for sprint board, got none")
+	}
+	if names[0] != "alpha" {
+		t.Errorf("expected 'alpha', got %q", names[0])
+	}
+}
+
+func TestProjectsForBoard_NoFrontmatter(t *testing.T) {
+	tmp := t.TempDir()
+
+	boardDir := filepath.Join(tmp, "boards", "personal")
+	os.MkdirAll(filepath.Join(boardDir, "cards"), 0755)
+	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte("# personal\n\n## Backlog\n\n## Done\n"), 0644)
+
+	scan, err := scanner.ScanWorkspace(tmp)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	ws, err := Load(scan)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	names := ws.Projects.ProjectsForBoard(boardDir, ws.Boards)
+	if names != nil {
+		t.Errorf("expected nil for board with no project frontmatter, got %v", names)
+	}
+}
+
 func TestMergeDirs_RecursiveSubdirs(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "src")
