@@ -17,15 +17,13 @@ type WorkspaceScan struct {
 
 // BoardInfo describes a discovered board directory
 type BoardInfo struct {
-	Path    string // absolute path to board dir (containing board.md)
-	Project string // project name if under projects/ subtree, "" otherwise
+	Path string // absolute path to board dir (containing board.md)
 }
 
 // TaskDirInfo describes a discovered tasks/ directory
 type TaskDirInfo struct {
 	DirPath string   // absolute path to the tasks/ directory
 	Files   []string // .txt filenames found within
-	Project string   // project name if under projects/ subtree
 }
 
 // ProjectInfo describes a discovered project directory
@@ -76,12 +74,16 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 		if entry.IsDir() {
 			switch name {
 			case "boards":
-				if err := scanBoardsDir(absPath, projectContext, scan); err != nil {
-					return err
+				if dir == rootDir {
+					if err := scanBoardsDir(absPath, scan); err != nil {
+						return err
+					}
 				}
 			case "tasks":
-				if err := scanTasksDir(absPath, projectContext, scan); err != nil {
-					return err
+				if dir == rootDir {
+					if err := scanTasksDir(absPath, scan); err != nil {
+						return err
+					}
 				}
 			case "projects":
 				if err := scanProjectsDir(absPath, rootDir, projectContext, scan); err != nil {
@@ -105,7 +107,7 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 }
 
 // scanBoardsDir scans a boards/ directory for board subdirectories
-func scanBoardsDir(boardsDir, projectContext string, scan *WorkspaceScan) error {
+func scanBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	entries, err := os.ReadDir(boardsDir)
 	if err != nil {
 		return err
@@ -121,8 +123,7 @@ func scanBoardsDir(boardsDir, projectContext string, scan *WorkspaceScan) error 
 
 		if _, err := os.Stat(boardFile); err == nil {
 			scan.Boards = append(scan.Boards, BoardInfo{
-				Path:    boardPath,
-				Project: projectContext,
+				Path: boardPath,
 			})
 		}
 	}
@@ -131,7 +132,7 @@ func scanBoardsDir(boardsDir, projectContext string, scan *WorkspaceScan) error 
 }
 
 // scanTasksDir scans a tasks/ directory for .txt files
-func scanTasksDir(tasksDir, projectContext string, scan *WorkspaceScan) error {
+func scanTasksDir(tasksDir string, scan *WorkspaceScan) error {
 	entries, err := os.ReadDir(tasksDir)
 	if err != nil {
 		return err
@@ -151,7 +152,6 @@ func scanTasksDir(tasksDir, projectContext string, scan *WorkspaceScan) error {
 		scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{
 			DirPath: tasksDir,
 			Files:   files,
-			Project: projectContext,
 		})
 	}
 
