@@ -1,7 +1,9 @@
 package kanban
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -288,4 +290,33 @@ func switchTmuxSession(name string) tea.Cmd {
 		_ = exec.Command("tmux", "switch-client", "-t", name).Run()
 		return nil
 	}
+}
+
+// readClaudeStatus scans ~/.config/wydo/claude-status/ and returns
+// a map of session name -> status string ("waiting" or "running").
+func readClaudeStatus() map[string]string {
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		home, _ := os.UserHomeDir()
+		configDir = filepath.Join(home, ".config")
+	}
+	dir := filepath.Join(configDir, "wydo", "claude-status")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	result := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		result[e.Name()] = strings.TrimSpace(string(data))
+	}
+	return result
 }

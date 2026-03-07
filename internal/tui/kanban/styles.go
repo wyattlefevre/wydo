@@ -129,6 +129,12 @@ var (
 			Foreground(lipgloss.Color("16")).
 			Bold(true)
 
+	// Claude session waiting-for-input badge style
+	cardClaudeWaitingStyle = lipgloss.NewStyle().
+			Background(theme.Warning).
+			Foreground(lipgloss.Color("16")).
+			Bold(true)
+
 	// Jira issue badge style
 	jiraStatusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("69")).

@@ -903,7 +903,7 @@ func (m AppModel) renderHelpOverlay() string {
 				{"D", "Delete card"},
 				{"c", "Edit columns"},
 				{"/", "Filter"},
-				{"x", "Switch to tmux session"},
+				{"x", "Start work / switch to session"},
 				{"X", "Link tmux session"},
 				{"ctrl+j", "Link Jira board"},
 				{"J", "Link Jira issue to card"},
