@@ -39,6 +39,7 @@ const (
 	boardModeBoardMove
 	boardModeTmuxPicker
 	boardModeTmuxLaunch
+	boardModeSessionCreate
 	boardModeJiraSetup
 	boardModeJiraLink
 	boardModeJiraIssue
@@ -77,6 +78,8 @@ func (m boardMode) String() string {
 		return "TMUX"
 	case boardModeTmuxLaunch:
 		return "TMUX"
+	case boardModeSessionCreate:
+		return "SESSION"
 	case boardModeJiraSetup, boardModeJiraLink, boardModeJiraIssue, boardModeJiraLoading:
 		return "JIRA"
 	default:
@@ -94,7 +97,7 @@ func (m boardMode) modeColor() lipgloss.Color {
 		return theme.Secondary
 	case boardModeConfirmDelete:
 		return theme.Danger
-	case boardModeTmuxPicker, boardModeTmuxLaunch:
+	case boardModeTmuxPicker, boardModeTmuxLaunch, boardModeSessionCreate:
 		return theme.Success
 	case boardModeJiraSetup, boardModeJiraLink, boardModeJiraIssue, boardModeJiraLoading:
 		return lipgloss.Color("69")
@@ -133,6 +136,7 @@ type BoardModel struct {
 	boardSelector          *BoardSelectorModel
 	tmuxPicker             *TmuxPickerModel
 	tmuxLaunch             *TmuxLaunchModel
+	sessionCreate          *SessionCreateModel
 	boardProjects          []string
 	showArchived           bool
 	tmuxSessions           map[string]bool   // cached set of active tmux session names
@@ -161,6 +165,10 @@ func NewBoardModel(board models.Board, allProjects []ProjectPickerItem, allBoard
 func (m *BoardModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	if m.sessionCreate != nil {
+		m.sessionCreate.width = width
+		m.sessionCreate.height = height
+	}
 	m.adjustScrollPosition()
 	m.adjustHorizontalScrollPosition()
 }
@@ -251,6 +259,27 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 		m.tmuxSessions = set
 		m.claudeStatus = msg.claudeStatus
 		return m, scheduleTmuxRefresh()
+
+	case sessionCreatedMsg:
+		if msg.err != nil {
+			if m.sessionCreate != nil {
+				m.sessionCreate.progressDone = true
+				m.sessionCreate.progressErr = msg.err
+			}
+			return m, nil
+		}
+		// Success: save session to card, close modal, switch to -claude
+		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
+			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+			if err := operations.UpdateCardTmuxSession(&m.board, m.selectedCol, realIdx, msg.sessionName); err != nil {
+				m.err = err
+			} else {
+				m.message = "Session created: " + msg.sessionName
+			}
+		}
+		m.sessionCreate = nil
+		m.mode = boardModeNormal
+		return m, switchTmuxSession(msg.sessionName + "-claude")
 
 	case jiraStatusMsg:
 		if len(msg.statuses) > 0 {
@@ -344,6 +373,18 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			return m.updateTmuxPicker(msg)
 		case boardModeTmuxLaunch:
 			return m.updateTmuxLaunch(msg)
+		case boardModeSessionCreate:
+			if m.sessionCreate == nil {
+				m.mode = boardModeNormal
+				return m, nil
+			}
+			updated, cmd, done := m.sessionCreate.Handle(msg)
+			m.sessionCreate = &updated
+			if done {
+				m.sessionCreate = nil
+				m.mode = boardModeNormal
+			}
+			return m, cmd
 		case boardModeJiraSetup:
 			return m.updateJiraSetup(msg)
 		case boardModeJiraLink:
@@ -1319,31 +1360,22 @@ func (m BoardModel) updateTmuxPicker(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 }
 
 func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
+	if m.selectedCol >= len(m.board.Columns) || len(m.getVisibleCards(m.selectedCol)) == 0 {
+		return m, nil
+	}
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
 
+	// No session linked -> start the "create session" flow
 	if currentCard.TmuxSession == "" {
-		m.message = "No tmux session linked"
-		return m, nil
+		model := NewSessionCreateModel(currentCard.Title, m.width, m.height)
+		m.sessionCreate = &model
+		m.mode = boardModeSessionCreate
+		return m, textinput.Blink
 	}
 
-	// Check if any children exist
+	// Session linked -> existing launch popup (unchanged behavior)
 	children := m.getChildSessionsFromCache(currentCard.TmuxSession)
-	hasChildren := false
-	for _, exists := range children {
-		if exists {
-			hasChildren = true
-			break
-		}
-	}
-
-	if !hasChildren {
-		// Switch directly to root session
-		m.message = "Switching to " + currentCard.TmuxSession
-		return m, switchTmuxSession(currentCard.TmuxSession)
-	}
-
-	// Show launch popup
 	launch := NewTmuxLaunchModel(currentCard.TmuxSession, children)
 	launch.width = m.width
 	launch.height = m.height
@@ -1585,6 +1617,10 @@ func (m BoardModel) View() string {
 	// Show tmux launch popup if in tmux launch mode
 	if m.mode == boardModeTmuxLaunch && m.tmuxLaunch != nil {
 		return m.tmuxLaunch.View()
+	}
+
+	if m.mode == boardModeSessionCreate && m.sessionCreate != nil {
+		return m.sessionCreate.View()
 	}
 
 	var s strings.Builder
