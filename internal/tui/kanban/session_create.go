@@ -53,8 +53,9 @@ type SessionCreateModel struct {
 	// progressDone and progressErr are set externally by BoardModel when it
 	// receives sessionCreatedMsg (see board.go). SessionCreateModel cannot
 	// process sessionCreatedMsg itself because Handle only dispatches KeyMsg.
-	progressDone  bool
-	progressErr   error
+	progressDone    bool
+	progressErr     error
+	pendingSession  string
 
 	// Card identity captured at modal launch, used by board.go on session creation
 	// success to update the correct card regardless of cursor movement.
@@ -102,7 +103,7 @@ func (m SessionCreateModel) handleKey(msg tea.KeyMsg) (SessionCreateModel, tea.C
 	case sessionCreateStepExisting:
 		return m.handleExistingKey(msg)
 	case sessionCreateStepProgress:
-		if m.progressDone && msg.String() == "esc" {
+		if m.progressDone && (msg.String() == "esc" || msg.String() == "enter") {
 			return m, nil, true
 		}
 	}
@@ -383,7 +384,9 @@ func (m SessionCreateModel) viewProgress() string {
 			lines = append(lines, helpStyle.Render("esc: close"))
 		} else {
 			okStyle := lipgloss.NewStyle().Foreground(theme.Success)
-			lines = append(lines, okStyle.Render("Done! Switching to claude session..."))
+			lines = append(lines, okStyle.Render("Done!"))
+			lines = append(lines, "")
+			lines = append(lines, helpStyle.Render("enter/esc: switch to session"))
 		}
 	} else {
 		lines = append(lines, "")

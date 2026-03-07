@@ -265,10 +265,12 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			if m.sessionCreate != nil {
 				m.sessionCreate.progressDone = true
 				m.sessionCreate.progressErr = msg.err
+			} else {
+				m.err = fmt.Errorf("session creation failed: %w", msg.err)
 			}
 			return m, nil
 		}
-		// Success: save session to card, close modal, switch to -claude
+		// Save session to card
 		if m.sessionCreate != nil {
 			col := m.sessionCreate.launchCardCol
 			idx := m.sessionCreate.launchCardIdx
@@ -279,10 +281,11 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 					m.message = "Session created: " + msg.sessionName
 				}
 			}
+			// Show "Done!" — user dismisses with enter/esc which then switches
+			m.sessionCreate.progressDone = true
+			m.sessionCreate.pendingSession = msg.sessionName
 		}
-		m.sessionCreate = nil
-		m.mode = boardModeNormal
-		return m, switchTmuxSession(msg.sessionName + "-claude")
+		return m, nil
 
 	case jiraStatusMsg:
 		if len(msg.statuses) > 0 {
@@ -384,8 +387,12 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			updated, cmd, done := m.sessionCreate.Handle(msg)
 			m.sessionCreate = &updated
 			if done {
+				pendingSession := m.sessionCreate.pendingSession
 				m.sessionCreate = nil
 				m.mode = boardModeNormal
+				if pendingSession != "" {
+					return m, switchTmuxSession(pendingSession + "-claude")
+				}
 			}
 			return m, cmd
 		case boardModeJiraSetup:
