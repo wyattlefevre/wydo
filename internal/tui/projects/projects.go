@@ -26,7 +26,6 @@ const (
 	modeSelectDir
 	modeCreate
 	modeRename
-	modeScaffoldSelect  // choose which items to scaffold
 	modeScaffoldConfirm
 	modeSetParent       // selecting new parent for a project
 	modeDeleteVirtual   // confirm-delete a virtual project
@@ -42,7 +41,7 @@ type parentOption struct {
 // scaffoldOption is a toggleable item in the scaffold selection screen.
 type scaffoldOption struct {
 	label   string // display name
-	path    string // relative path to create (e.g. "alpha.md", "boards/", "tasks/")
+	path    string // relative path to create (e.g. "alpha.md")
 	checked bool
 }
 
@@ -81,7 +80,6 @@ type ProjectsModel struct {
 	scaffoldEntry     *projectEntry    // virtual project pending scaffold confirmation
 	scaffoldTargetDir string           // chosen projects/ dir for scaffold
 	scaffoldOptions   []scaffoldOption // items user can toggle
-	scaffoldOptCursor int              // cursor in scaffold select screen
 
 	// Reparent flow state
 	reparentEntry   *projectEntry  // project being reparented
@@ -148,8 +146,6 @@ func (m ProjectsModel) HintText() string {
 		return "enter:create  esc:cancel"
 	case modeRename:
 		return "enter:rename  esc:cancel"
-	case modeScaffoldSelect:
-		return "j/k:navigate  space:toggle  enter:confirm  esc:cancel"
 	case modeScaffoldConfirm:
 		return "y:create  n/esc:cancel"
 	case modeSetParent:
@@ -272,8 +268,6 @@ func (m ProjectsModel) Update(msg tea.Msg) (ProjectsModel, tea.Cmd) {
 			return m.updateCreate(msg)
 		case modeRename:
 			return m.updateRename(msg)
-		case modeScaffoldSelect:
-			return m.updateScaffoldSelect(msg)
 		case modeScaffoldConfirm:
 			return m.updateScaffoldConfirm(msg)
 		case modeSetParent:
@@ -497,7 +491,7 @@ func (m ProjectsModel) startScaffold(entry projectEntry) (ProjectsModel, tea.Cmd
 	if len(m.createDirs) > 1 {
 		m.mode = modeSelectDir
 		m.selectedDirIdx = 0
-		// After dir selection, scaffoldEntry is set → updateSelectDir goes to modeScaffoldSelect
+		// After dir selection, scaffoldEntry is set → updateSelectDir calls startScaffoldConfirm
 		return m, nil
 	}
 	if len(m.createDirs) > 0 {
@@ -505,44 +499,18 @@ func (m ProjectsModel) startScaffold(entry projectEntry) (ProjectsModel, tea.Cmd
 	} else {
 		m.scaffoldTargetDir = filepath.Join(entry.RootDir, "projects")
 	}
-	return m.startScaffoldSelect()
+	return m.startScaffoldConfirm()
 }
 
-func (m ProjectsModel) startScaffoldSelect() (ProjectsModel, tea.Cmd) {
+func (m ProjectsModel) startScaffoldConfirm() (ProjectsModel, tea.Cmd) {
 	name := ""
 	if m.scaffoldEntry != nil {
 		name = m.scaffoldEntry.Project.Name
 	}
 	m.scaffoldOptions = []scaffoldOption{
 		{label: name + ".md (index note)", path: name + ".md", checked: true},
-		{label: "boards/ directory", path: "boards/", checked: true},
-		{label: "tasks/ directory", path: "tasks/", checked: true},
 	}
-	m.scaffoldOptCursor = 0
-	m.mode = modeScaffoldSelect
-	return m, nil
-}
-
-func (m ProjectsModel) updateScaffoldSelect(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.scaffoldEntry = nil
-		m.mode = modeList
-	case "j", "down":
-		if m.scaffoldOptCursor < len(m.scaffoldOptions)-1 {
-			m.scaffoldOptCursor++
-		}
-	case "k", "up":
-		if m.scaffoldOptCursor > 0 {
-			m.scaffoldOptCursor--
-		}
-	case " ":
-		if m.scaffoldOptCursor < len(m.scaffoldOptions) {
-			m.scaffoldOptions[m.scaffoldOptCursor].checked = !m.scaffoldOptions[m.scaffoldOptCursor].checked
-		}
-	case "enter":
-		m.mode = modeScaffoldConfirm
-	}
+	m.mode = modeScaffoldConfirm
 	return m, nil
 }
 
@@ -663,7 +631,7 @@ func (m ProjectsModel) updateSelectDir(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) 
 			if m.scaffoldEntry != nil {
 				// We came here from scaffold flow
 				m.scaffoldTargetDir = m.createDirs[m.selectedDirIdx]
-				return m.startScaffoldSelect()
+				return m.startScaffoldConfirm()
 			}
 			m.mode = modeCreate
 			m.textInput.Placeholder = "Project name..."
@@ -803,8 +771,6 @@ func (m ProjectsModel) View() string {
 		return m.viewCreate()
 	case modeRename:
 		return m.viewRename()
-	case modeScaffoldSelect:
-		return m.viewScaffoldSelect()
 	case modeScaffoldConfirm:
 		return m.viewScaffoldConfirm()
 	case modeSetParent:
@@ -996,32 +962,6 @@ func (m ProjectsModel) viewCreate() string {
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 		lines = append(lines, "")
 	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
-}
-
-func (m ProjectsModel) viewScaffoldSelect() string {
-	var lines []string
-	name := ""
-	if m.scaffoldEntry != nil {
-		name = m.scaffoldEntry.Project.Name
-	}
-	lines = append(lines, titleStyle.Render(fmt.Sprintf("Select items to create for %q:", name)))
-	lines = append(lines, "")
-	for i, opt := range m.scaffoldOptions {
-		cursor := "  "
-		if i == m.scaffoldOptCursor {
-			cursor = "► "
-		}
-		check := "[ ]"
-		if opt.checked {
-			check = "[x]"
-		}
-		lines = append(lines, listItemStyle.Render(cursor+check+" "+opt.label))
-	}
-	lines = append(lines, "")
-	lines = append(lines, pathStyle.Render("  space:toggle  enter:confirm  esc:cancel"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)

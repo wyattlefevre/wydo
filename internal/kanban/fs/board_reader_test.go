@@ -3,7 +3,9 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"wydo/internal/kanban/models"
 )
 
 func testdataDir() string {
@@ -83,6 +85,53 @@ func TestReadBoard_CardFrontmatter(t *testing.T) {
 	}
 	if card.Priority != 1 {
 		t.Errorf("expected priority 1, got %d", card.Priority)
+	}
+}
+
+func TestReadBoard_ProjectFrontmatter(t *testing.T) {
+	tmp := t.TempDir()
+	boardPath := filepath.Join(tmp, "sprint")
+	os.MkdirAll(boardPath, 0755)
+	os.WriteFile(filepath.Join(boardPath, "board.md"), []byte(
+		"---\nproject: ../../projects/alpha/alpha.md\n---\n\n# sprint\n\n## Backlog\n\n## Done\n",
+	), 0644)
+
+	board, err := ReadBoard(boardPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if board.Project != "../../projects/alpha/alpha.md" {
+		t.Errorf("expected project path '../../projects/alpha/alpha.md', got %q", board.Project)
+	}
+}
+
+func TestWriteBoard_ProjectFrontmatter(t *testing.T) {
+	tmp := t.TempDir()
+	boardPath := filepath.Join(tmp, "sprint")
+	os.MkdirAll(boardPath, 0755)
+
+	board := models.Board{
+		Path:    boardPath,
+		Name:    "sprint",
+		Project: "../../projects/alpha/alpha.md",
+		Columns: []models.Column{{Name: "Backlog", Cards: []models.Card{}}, {Name: "Done", Cards: []models.Card{}}},
+	}
+	if err := WriteBoard(board); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(boardPath, "board.md"))
+	if !strings.Contains(string(content), "project: ../../projects/alpha/alpha.md") {
+		t.Errorf("expected project frontmatter in board.md, got:\n%s", content)
+	}
+
+	// Round-trip: read back and verify
+	loaded, err := ReadBoard(boardPath)
+	if err != nil {
+		t.Fatalf("read-back error: %v", err)
+	}
+	if loaded.Project != board.Project {
+		t.Errorf("expected project %q after round-trip, got %q", board.Project, loaded.Project)
 	}
 }
 

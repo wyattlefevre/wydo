@@ -95,24 +95,15 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 	}
 
 	// Compute available boards/ directories for the picker.
-	// Use parent dirs of discovered boards; fall back to <workspace>/boards/ for empty workspaces.
+	// Always use <workspace>/boards/ for each workspace.
 	seen := make(map[string]bool)
 	var availableDirs []string
 
 	for _, ws := range workspaces {
-		for _, board := range ws.Boards {
-			dir := filepath.Dir(board.Path)
-			if !seen[dir] {
-				seen[dir] = true
-				availableDirs = append(availableDirs, dir)
-			}
-		}
-		if len(ws.Boards) == 0 {
-			fallback := filepath.Join(ws.RootDir, "boards")
-			if !seen[fallback] {
-				seen[fallback] = true
-				availableDirs = append(availableDirs, fallback)
-			}
+		dir := filepath.Join(ws.RootDir, "boards")
+		if !seen[dir] {
+			seen[dir] = true
+			availableDirs = append(availableDirs, dir)
 		}
 	}
 	sort.Strings(availableDirs)
@@ -669,14 +660,14 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 	return result
 }
 
-// projectsForBoard returns the project names (immediate + ancestors) that own
-// the board at boardPath, or nil if the board is not inside any project directory.
+// projectsForBoard returns the project names (immediate + ancestors) linked to
+// the board at boardPath via the board's project frontmatter field, or nil if none.
 func projectsForBoard(workspaces []*workspace.Workspace, boardPath string) []string {
 	for _, ws := range workspaces {
 		if ws.Projects == nil {
 			continue
 		}
-		if names := ws.Projects.ProjectsForBoard(boardPath); len(names) > 0 {
+		if names := ws.Projects.ProjectsForBoard(boardPath, ws.Boards); len(names) > 0 {
 			return names
 		}
 	}

@@ -738,44 +738,59 @@ func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
 	return dirs
 }
 
-// BoardsForProject returns boards whose Path is under the project's directory.
+// BoardsForProject returns boards whose project frontmatter links to the given project.
 // Returns nil for virtual projects (no DirPath).
 func (r *ProjectRegistry) BoardsForProject(name string, allBoards []kanbanmodels.Board) []kanbanmodels.Board {
 	proj := r.projects[name]
 	if proj == nil || proj.DirPath == "" {
 		return nil
 	}
-	prefix := proj.DirPath + "/"
+	indexPath := filepath.Join(proj.DirPath, proj.Name+".md")
 	var result []kanbanmodels.Board
 	for _, b := range allBoards {
-		if strings.HasPrefix(b.Path, prefix) {
+		if b.Project == "" {
+			continue
+		}
+		resolved := filepath.Clean(filepath.Join(b.Path, b.Project))
+		if resolved == indexPath {
 			result = append(result, b)
 		}
 	}
 	return result
 }
 
-// ProjectsForBoard returns the project names that own the given board path,
-// walking up the parent chain to include all ancestor projects.
-// Returns nil if the board is not inside any project directory.
-func (r *ProjectRegistry) ProjectsForBoard(boardPath string) []string {
-	// Find the immediate project whose directory contains the board
+// ProjectsForBoard returns the project names (immediate + ancestors) linked to the
+// board at boardPath via the board's project frontmatter field.
+// Returns nil if the board has no project frontmatter or no matching project is found.
+func (r *ProjectRegistry) ProjectsForBoard(boardPath string, allBoards []kanbanmodels.Board) []string {
+	var board *kanbanmodels.Board
+	for i := range allBoards {
+		if allBoards[i].Path == boardPath {
+			board = &allBoards[i]
+			break
+		}
+	}
+	if board == nil || board.Project == "" {
+		return nil
+	}
+
+	resolved := filepath.Clean(filepath.Join(boardPath, board.Project))
+
 	var immediate *Project
 	for _, p := range r.projects {
 		if p.DirPath == "" {
 			continue
 		}
-		if strings.HasPrefix(boardPath, p.DirPath+"/") {
-			if immediate == nil || len(p.DirPath) > len(immediate.DirPath) {
-				immediate = p
-			}
+		indexPath := filepath.Join(p.DirPath, p.Name+".md")
+		if resolved == indexPath {
+			immediate = p
+			break
 		}
 	}
 	if immediate == nil {
 		return nil
 	}
 
-	// Walk up parent chain collecting all ancestor project names
 	var result []string
 	for cur := immediate; cur != nil; {
 		result = append(result, cur.Name)
