@@ -729,11 +729,13 @@ func (m DetailModel) View() string {
 		lines = append(lines, "")
 	}
 
+	// Build URL lines (left half of header row)
+	var urlLines []string
 	if allURLs := m.collectAllURLs(); len(allURLs) > 0 {
 		lastProject := ""
 		for _, e := range allURLs {
 			if e.projectName != m.name && e.projectName != lastProject {
-				lines = append(lines, sectionHeaderStyle.Render("  "+e.projectName))
+				urlLines = append(urlLines, sectionHeaderStyle.Render("  "+e.projectName))
 			}
 			lastProject = e.projectName
 			u := e.url
@@ -743,21 +745,22 @@ func (m DetailModel) View() string {
 				urlStr = urlStr[:maxURLLen-3] + "..."
 			}
 			if u.Label == "" {
-				lines = append(lines, pathStyle.Render("    "+urlStr))
+				urlLines = append(urlLines, pathStyle.Render("    "+urlStr))
 			} else {
-				lines = append(lines, urlLabelStyle.Render("    "+u.Label)+pathStyle.Render("  "+urlStr))
+				urlLines = append(urlLines, urlLabelStyle.Render("    "+u.Label)+pathStyle.Render("  "+urlStr))
 			}
 		}
-		lines = append(lines, "")
 	}
 
+	// Build date lines (right half of header row)
+	var dateLines []string
 	if allDates := m.collectAllDates(); len(allDates) > 0 {
 		now := time.Now()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 		lastProject := ""
 		for _, e := range allDates {
 			if e.projectName != m.name && e.projectName != lastProject {
-				lines = append(lines, sectionHeaderStyle.Render("  "+e.projectName))
+				dateLines = append(dateLines, sectionHeaderStyle.Render("  "+e.projectName))
 			}
 			lastProject = e.projectName
 			d := e.date
@@ -768,27 +771,35 @@ func (m DetailModel) View() string {
 				label = "date"
 			}
 			if dateDay.Before(today) {
-				leftPart := pathStyle.Render("    " + label)
-				rightPart := pathStyle.Render(dateStr)
-				pad := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
-				if pad < 2 {
-					pad = 2
-				}
-				lines = append(lines, leftPart+strings.Repeat(" ", pad)+rightPart)
+				dateLines = append(dateLines, pathStyle.Render("    "+label+"  "+dateStr))
 			} else {
-				leftPart := upcomingDateStyle.Render("    " + label)
-				rightPart := upcomingDateValueStyle.Render(dateStr)
-				pad := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
-				if pad < 2 {
-					pad = 2
-				}
-				lines = append(lines, leftPart+strings.Repeat(" ", pad)+rightPart)
+				dateLines = append(dateLines, upcomingDateStyle.Render("    "+label)+"  "+upcomingDateValueStyle.Render(dateStr))
 			}
 		}
-		lines = append(lines, "")
 	}
 
+	// Render URLs (left) and dates (right) as a side-by-side row
+	sideBlockHeight := 0
+	if len(urlLines) > 0 || len(dateLines) > 0 {
+		halfWidth := m.width / 2
+		leftBlock := lipgloss.NewStyle().Width(halfWidth).Render(
+			lipgloss.JoinVertical(lipgloss.Left, urlLines...))
+		rightBlock := lipgloss.NewStyle().Width(m.width - halfWidth).Render(
+			lipgloss.JoinVertical(lipgloss.Left, dateLines...))
+		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock))
+		lines = append(lines, "")
+		sideBlockHeight = len(urlLines)
+		if len(dateLines) > sideBlockHeight {
+			sideBlockHeight = len(dateLines)
+		}
+	}
+
+	// len(lines) undercounts by (sideBlockHeight - 1) because the combined block is
+	// one string in the slice but sideBlockHeight terminal rows tall.
 	headerLines := len(lines)
+	if sideBlockHeight > 0 {
+		headerLines += sideBlockHeight - 1
+	}
 	fixedColHeight := m.height - headerLines - 2
 	if fixedColHeight < 5 {
 		fixedColHeight = 5
