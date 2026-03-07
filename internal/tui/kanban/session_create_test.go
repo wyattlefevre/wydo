@@ -278,6 +278,59 @@ func TestSessionCreateReposEscGoesBack(t *testing.T) {
 	}
 }
 
+func TestSessionCreateChoiceNoOvershoot(t *testing.T) {
+	m := NewSessionCreateModel("Auth Service", 80, 24)
+	m.choiceCursor = 1
+	// j at max should not go to 2
+	m2, _, _ := m.Handle(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if m2.choiceCursor != 1 {
+		t.Errorf("j at max, choiceCursor = %d, want 1", m2.choiceCursor)
+	}
+}
+
+func TestSessionCreateReposProgressLineContent(t *testing.T) {
+	m := NewSessionCreateModel("feat-auth", 80, 24)
+	m.step = sessionCreateStepRepos
+	m.allRepos = []string{"dashboard"}
+	m.repoFiltered = m.allRepos
+	m.selectedRepos["dashboard"] = true
+	m.nameInput.SetValue("feat-auth")
+
+	m2, _, _ := m.Handle(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m2.progressLines) == 0 {
+		t.Fatal("expected progress lines")
+	}
+	want := "Creating worktree feat-auth..."
+	if m2.progressLines[0] != want {
+		t.Errorf("progressLines[0] = %q, want %q", m2.progressLines[0], want)
+	}
+}
+
+func TestSessionCreateFilterRepos(t *testing.T) {
+	m := NewSessionCreateModel("x", 80, 24)
+	m.allRepos = []string{"dashboard", "opsmuxer", "infra"}
+	m.repoFiltered = m.allRepos
+	m.repoCursor = 2
+
+	// Filter to match only "dashboard"
+	m.repoFilterText = "dash"
+	m2 := m.filterRepos()
+	if len(m2.repoFiltered) != 1 || m2.repoFiltered[0] != "dashboard" {
+		t.Errorf("filter 'dash': got %v, want [dashboard]", m2.repoFiltered)
+	}
+	// Cursor should clamp to 0 (was 2, only 1 result now)
+	if m2.repoCursor != 0 {
+		t.Errorf("cursor should clamp to 0 after filter, got %d", m2.repoCursor)
+	}
+
+	// Clear filter resets to full list
+	m2.repoFilterText = ""
+	m3 := m2.filterRepos()
+	if len(m3.repoFiltered) != 3 {
+		t.Errorf("empty filter: got %d items, want 3", len(m3.repoFiltered))
+	}
+}
+
 func TestSessionCreateReposDeselectRemovesFromMap(t *testing.T) {
 	m := NewSessionCreateModel("Auth Service", 80, 24)
 	m.step = sessionCreateStepRepos

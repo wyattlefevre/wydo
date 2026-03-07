@@ -50,6 +50,9 @@ type SessionCreateModel struct {
 	existingCursor int
 
 	progressLines []string
+	// progressDone and progressErr are set externally by BoardModel when it
+	// receives sessionCreatedMsg (see board.go). SessionCreateModel cannot
+	// process sessionCreatedMsg itself because Handle only dispatches KeyMsg.
 	progressDone  bool
 	progressErr   error
 
@@ -151,12 +154,12 @@ func (m SessionCreateModel) handleReposKey(msg tea.KeyMsg) (SessionCreateModel, 
 		case "backspace":
 			if len(m.repoFilterText) > 0 {
 				m.repoFilterText = m.repoFilterText[:len(m.repoFilterText)-1]
-				m.filterRepos()
+				m = m.filterRepos()
 			}
 		default:
 			if len(msg.String()) == 1 {
 				m.repoFilterText += msg.String()
-				m.filterRepos()
+				m = m.filterRepos()
 				m.repoCursor = 0
 			}
 		}
@@ -201,10 +204,10 @@ func (m SessionCreateModel) handleReposKey(msg tea.KeyMsg) (SessionCreateModel, 
 	return m, nil, false
 }
 
-func (m *SessionCreateModel) filterRepos() {
+func (m SessionCreateModel) filterRepos() SessionCreateModel {
 	if m.repoFilterText == "" {
 		m.repoFiltered = m.allRepos
-		return
+		return m
 	}
 	lower := strings.ToLower(m.repoFilterText)
 	var filtered []string
@@ -221,6 +224,7 @@ func (m *SessionCreateModel) filterRepos() {
 			m.repoCursor = 0
 		}
 	}
+	return m
 }
 
 func (m SessionCreateModel) handleExistingKey(msg tea.KeyMsg) (SessionCreateModel, tea.Cmd, bool) {
@@ -398,15 +402,28 @@ func createNewWorktreeSessionCmd(name string, repos []string) tea.Cmd {
 			return sessionCreatedMsg{err: fmt.Errorf("mkdir %s: %w", worktreePath, err)}
 		}
 
+		// Track successfully created worktrees for cleanup on failure
+		var created []string
+
 		for _, repo := range repos {
 			repoPath := filepath.Join(mainDir, repo)
 			targetPath := filepath.Join(worktreePath, repo)
 			_ = exec.Command("git", "-C", repoPath, "pull", "--ff-only", "origin", "main").Run()
-			if err := exec.Command("git", "-C", repoPath, "worktree", "add", targetPath, "-b", name).Run(); err != nil {
-				if err2 := exec.Command("git", "-C", repoPath, "worktree", "add", targetPath, name).Run(); err2 != nil {
-					return sessionCreatedMsg{err: fmt.Errorf("worktree add %s/%s: %w", name, repo, err2)}
-				}
+
+			err := exec.Command("git", "-C", repoPath, "worktree", "add", targetPath, "-b", name).Run()
+			if err != nil {
+				// Branch may already exist; try without -b
+				err = exec.Command("git", "-C", repoPath, "worktree", "add", targetPath, name).Run()
 			}
+			if err != nil {
+				// Clean up already-created worktrees
+				for _, doneRepo := range created {
+					_ = exec.Command("git", "-C", filepath.Join(mainDir, doneRepo), "worktree", "remove", "--force", filepath.Join(worktreePath, doneRepo)).Run()
+				}
+				_ = os.RemoveAll(worktreePath)
+				return sessionCreatedMsg{err: fmt.Errorf("worktree add %s/%s: %w", name, repo, err)}
+			}
+			created = append(created, repo)
 		}
 
 		for _, item := range claudeSettingsItems {
