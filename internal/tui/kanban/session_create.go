@@ -175,7 +175,11 @@ func (m SessionCreateModel) handleReposKey(msg tea.KeyMsg) (SessionCreateModel, 
 	case " ", "tab":
 		if m.repoCursor < len(m.repoFiltered) {
 			repo := m.repoFiltered[m.repoCursor]
-			m.selectedRepos[repo] = !m.selectedRepos[repo]
+			if m.selectedRepos[repo] {
+				delete(m.selectedRepos, repo)
+			} else {
+				m.selectedRepos[repo] = true
+			}
 		}
 	case "/":
 		m.repoFilterMode = true

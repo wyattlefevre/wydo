@@ -277,3 +277,32 @@ func TestSessionCreateReposEscGoesBack(t *testing.T) {
 		t.Errorf("after esc, step = %d, want name (%d)", m2.step, sessionCreateStepName)
 	}
 }
+
+func TestSessionCreateReposDeselectRemovesFromMap(t *testing.T) {
+	m := NewSessionCreateModel("Auth Service", 80, 24)
+	m.step = sessionCreateStepRepos
+	m.allRepos = []string{"dashboard", "opsmuxer"}
+	m.repoFiltered = m.allRepos
+	m.repoCursor = 0
+
+	// select
+	m2, _, _ := m.Handle(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	if !m2.selectedRepos["dashboard"] {
+		t.Fatal("should be selected after first space")
+	}
+
+	// deselect
+	m3, _, _ := m2.Handle(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	if _, exists := m3.selectedRepos["dashboard"]; exists {
+		t.Error("deselected repo should be removed from map, not set to false")
+	}
+	if len(m3.selectedRepos) != 0 {
+		t.Errorf("map should be empty after deselect, got len=%d", len(m3.selectedRepos))
+	}
+
+	// enter with empty selection should do nothing
+	m4, cmd, done := m3.Handle(tea.KeyMsg{Type: tea.KeyEnter})
+	if done || cmd != nil || m4.step != sessionCreateStepRepos {
+		t.Error("enter with all deselected should be a no-op")
+	}
+}
