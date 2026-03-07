@@ -269,12 +269,15 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			return m, nil
 		}
 		// Success: save session to card, close modal, switch to -claude
-		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
-			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			if err := operations.UpdateCardTmuxSession(&m.board, m.selectedCol, realIdx, msg.sessionName); err != nil {
-				m.err = err
-			} else {
-				m.message = "Session created: " + msg.sessionName
+		if m.sessionCreate != nil {
+			col := m.sessionCreate.launchCardCol
+			idx := m.sessionCreate.launchCardIdx
+			if col < len(m.board.Columns) && idx < len(m.board.Columns[col].Cards) {
+				if err := operations.UpdateCardTmuxSession(&m.board, col, idx, msg.sessionName); err != nil {
+					m.err = err
+				} else {
+					m.message = "Session created: " + msg.sessionName
+				}
 			}
 		}
 		m.sessionCreate = nil
@@ -1369,9 +1372,11 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 	// No session linked -> start the "create session" flow
 	if currentCard.TmuxSession == "" {
 		model := NewSessionCreateModel(currentCard.Title, m.width, m.height)
+		model.launchCardCol = m.selectedCol
+		model.launchCardIdx = realIdx
 		m.sessionCreate = &model
 		m.mode = boardModeSessionCreate
-		return m, textinput.Blink
+		return m, nil
 	}
 
 	// Session linked -> existing launch popup (unchanged behavior)

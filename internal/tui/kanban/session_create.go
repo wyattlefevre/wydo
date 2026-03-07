@@ -56,6 +56,11 @@ type SessionCreateModel struct {
 	progressDone  bool
 	progressErr   error
 
+	// Card identity captured at modal launch, used by board.go on session creation
+	// success to update the correct card regardless of cursor movement.
+	launchCardCol int
+	launchCardIdx int // real (not visual) card index
+
 	width, height int
 }
 
