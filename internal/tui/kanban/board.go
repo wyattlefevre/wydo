@@ -179,6 +179,16 @@ func (m *BoardModel) SetBoard(board models.Board) {
 	m.reloadBoardState()
 }
 
+// BoardPath returns the filesystem path of the loaded board directory.
+func (m BoardModel) BoardPath() string {
+	return m.board.Path
+}
+
+// SetAllProjects updates the list of available projects shown in the project picker.
+func (m *BoardModel) SetAllProjects(allProjects []ProjectPickerItem) {
+	m.allProjects = allProjects
+}
+
 // NavigateTo positions the cursor at a specific column and card
 func (m *BoardModel) NavigateTo(colIndex, cardIndex int) {
 	if colIndex >= 0 && colIndex < len(m.board.Columns) {
