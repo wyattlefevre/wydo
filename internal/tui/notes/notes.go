@@ -162,7 +162,7 @@ func (m NotesModel) Update(msg tea.Msg) (NotesModel, tea.Cmd) {
 func (m NotesModel) updateList(msg tea.KeyMsg) (NotesModel, tea.Cmd) {
 	switch msg.String() {
 	case "q":
-		return m, tea.Quit
+		return m, func() tea.Msg { return messages.RequestExitMsg{} }
 	case "esc":
 		return m, messages.SwitchView(messages.ViewAgendaDay)
 	case "j", "down":

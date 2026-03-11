@@ -282,7 +282,7 @@ func (m ProjectsModel) Update(msg tea.Msg) (ProjectsModel, tea.Cmd) {
 func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	switch msg.String() {
 	case "q":
-		return m, tea.Quit
+		return m, func() tea.Msg { return messages.RequestExitMsg{} }
 
 	case "esc":
 		if m.searchQuery != "" {

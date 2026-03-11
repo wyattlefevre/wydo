@@ -51,10 +51,11 @@ type AppModel struct {
 	projectDetailView   projectsview.DetailModel
 	projectDetailLoaded bool
 	notesView           notesview.NotesModel
-	showHelp    bool
-	width       int
-	height      int
-	ready       bool
+	showHelp       bool
+	exitConfirming bool
+	width          int
+	height         int
+	ready          bool
 }
 
 // NewAppModel creates the root application model
@@ -369,10 +370,27 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case RequestExitMsg:
+		m.exitConfirming = true
+		return m, nil
+
 	case tea.KeyMsg:
-		// Global keys: ctrl+c always quits
+		// Exit confirmation modal intercepts all keys
+		if m.exitConfirming {
+			switch msg.String() {
+			case "y", "enter", "ctrl+c":
+				return m, tea.Quit
+			case "esc", "n":
+				m.exitConfirming = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Global keys: ctrl+c triggers exit confirmation
 		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+			m.exitConfirming = true
+			return m, nil
 		}
 
 		// Dismiss help overlay on any key
@@ -458,7 +476,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Global navigation keys for agenda/task views
 			switch msg.String() {
 			case "q":
-				return m, tea.Quit
+				m.exitConfirming = true
+				return m, nil
 			case "1":
 				m.currentView = ViewAgendaDay
 				m.lastAgendaView = ViewAgendaDay
@@ -556,6 +575,9 @@ func (m *AppModel) refreshData() {
 // isChildInputActive returns true when the current child view has an active text input
 // or modal that should receive uppercase keys instead of the global view-switcher.
 func (m *AppModel) isChildInputActive() bool {
+	if m.exitConfirming {
+		return true
+	}
 	switch m.currentView {
 	case ViewKanbanBoard:
 		return m.boardView.IsModal()
@@ -692,6 +714,10 @@ func (m AppModel) View() string {
 
 	if m.showHelp {
 		return m.renderHelpOverlay()
+	}
+
+	if m.exitConfirming {
+		return m.renderExitConfirmModal()
 	}
 
 	var content string
@@ -984,4 +1010,13 @@ func (m AppModel) renderPlaceholder(title, subtitle string) string {
 	titleStr := TitleStyle.Render(title)
 	subtitleStr := HelpStyle.Render(subtitle)
 	return lipgloss.JoinVertical(lipgloss.Left, "", titleStr, subtitleStr, "")
+}
+
+func (m AppModel) renderExitConfirmModal() string {
+	content := theme.ModalTitle.Render("Quit wydo?")
+	content += "\n\n"
+	content += theme.Ok.Render("[y/enter]") + " Confirm  "
+	content += theme.Error.Render("[esc]") + " Cancel"
+	modal := theme.ModalBox.Width(30).Render(content)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 }
