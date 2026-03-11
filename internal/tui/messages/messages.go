@@ -53,6 +53,9 @@ type CreateSubProjectMsg struct {
 	WsDir         string
 }
 
+// RequestExitMsg is sent by child views when the user wants to quit
+type RequestExitMsg struct{}
+
 func SwitchView(v ViewType) tea.Cmd {
 	return func() tea.Msg {
 		return SwitchViewMsg{View: v}

@@ -166,7 +166,7 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	switch msg.String() {
 	case "q":
-		return m, tea.Quit
+		return m, func() tea.Msg { return messages.RequestExitMsg{} }
 
 	case "esc":
 		if m.searchQuery != "" {
