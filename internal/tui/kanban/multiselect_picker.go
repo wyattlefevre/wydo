@@ -283,7 +283,7 @@ func (m MultiSelectPickerModel) renderItem(index int, item string) string {
 
 	// Highlight if selected item
 	if m.config.SelectedItems[item] {
-		text += " (on card)"
+		text += " (selected)"
 	}
 
 	// Apply cursor highlight
