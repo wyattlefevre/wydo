@@ -281,10 +281,7 @@ func (m MultiSelectPickerModel) renderItem(index int, item string) string {
 	// Item with checkbox
 	text := indent + checkbox + " " + item
 
-	// Highlight if selected item
-	if m.config.SelectedItems[item] {
-		text += " (selected)"
-	}
+	// (selected state is conveyed by checkbox and color)
 
 	// Apply cursor highlight
 	style := tagItemStyle
