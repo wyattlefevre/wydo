@@ -358,10 +358,22 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DataRefreshMsg:
 		m.refreshData()
-		if m.currentView == ViewProjects {
-			m.projectsView.SetData(m.workspaces)
+		// Push fresh data into every loaded model, not just the active view.
+		projDates := collectProjectDates(m.workspaces)
+		m.pickerView.SetBoards(m.boards)
+		m.taskManagerView.SetData(m.taskSvc)
+		m.taskManagerView.SetBoards(m.boards)
+		m.projectsView.SetData(m.workspaces)
+		m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
+		m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
+		m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
+		if m.boardLoaded {
+			if board, err := fs.ReadBoard(m.boardView.BoardPath()); err == nil {
+				m.boardView.SetBoard(board)
+			}
+			m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
 		}
-		if m.currentView == ViewProjectDetail && m.projectDetailLoaded {
+		if m.projectDetailLoaded {
 			projName, wsDir := m.projectDetailView.OpenInfo()
 			return m, func() tea.Msg {
 				return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
