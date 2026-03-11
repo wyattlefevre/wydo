@@ -15,6 +15,7 @@ import (
 	"wydo/internal/tasks/service"
 	"wydo/internal/tui/shared"
 	"wydo/internal/tui/theme"
+	kanbanview "wydo/internal/tui/kanban"
 )
 
 var (
@@ -95,6 +96,7 @@ type TaskManagerModel struct {
 	taskEditor        *TaskEditorModel
 	confirmationModal *ConfirmationModal
 	datePicker        *shared.DatePickerModel // for direct date editing
+	projectPicker     *kanbanview.ProjectPickerModel
 
 	// Direct edit state
 	directEditTaskID string
@@ -111,10 +113,11 @@ type TaskManagerModel struct {
 	searchInput      textinput.Model
 
 	// Cached data for pickers
-	allProjects   []string
-	allContexts   []string
-	allFiles      []string
-	allWorkspaces []string
+	allProjects      []string
+	allProjectItems  []kanbanview.ProjectPickerItem
+	allContexts      []string
+	allFiles         []string
+	allWorkspaces    []string
 
 	// Picker context (what are we picking for)
 	pickerContext string // "filter-project", "filter-context", "filter-file", etc.
@@ -125,17 +128,18 @@ type TaskManagerModel struct {
 }
 
 // NewTaskManagerModel creates a new task manager model
-func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string, boards []kanbanmodels.Board) TaskManagerModel {
+func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string, boards []kanbanmodels.Board, allProjectItems []kanbanview.ProjectPickerItem) TaskManagerModel {
 	m := TaskManagerModel{
-		taskSvc:        taskSvc,
-		workspaceRoots: workspaceRoots,
-		boards:         boards,
-		inputContext:   NewInputModeContext(),
-		filterState:    NewFilterState(),
-		sortState:      NewSortState(),
-		groupState:     GroupState{Field: GroupByFile, Ascending: false},
-		infoBar:        NewInfoBar(),
-		fileViewMode:   FileViewAll,
+		taskSvc:         taskSvc,
+		workspaceRoots:  workspaceRoots,
+		boards:          boards,
+		allProjectItems: allProjectItems,
+		inputContext:    NewInputModeContext(),
+		filterState:     NewFilterState(),
+		sortState:       NewSortState(),
+		groupState:      GroupState{Field: GroupByFile, Ascending: false},
+		infoBar:         NewInfoBar(),
+		fileViewMode:    FileViewAll,
 	}
 	m.loadTasks()
 	return m
@@ -229,6 +233,26 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		}
 	}
 
+	// Handle project picker for direct editing
+	if m.projectPicker != nil {
+		var cmd tea.Cmd
+		var isDone bool
+		*m.projectPicker, cmd, isDone = m.projectPicker.Update(msg)
+		if isDone {
+			task := m.findTaskByID(m.directEditTaskID)
+			if task != nil {
+				task.Projects = m.projectPicker.GetSelectedProjects()
+				m.refreshDisplayTasks()
+				m.directEditTaskID = ""
+				m.projectPicker = nil
+				return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+			}
+			m.projectPicker = nil
+			m.directEditTaskID = ""
+		}
+		return m, cmd
+	}
+
 	// Handle date picker for direct editing
 	if m.datePicker != nil {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -298,6 +322,9 @@ func (m TaskManagerModel) View() string {
 	b.WriteString("\n\n")
 
 	// Sub-component overlays (except search - which is inline)
+	if m.projectPicker != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.projectPicker.View())
+	}
 	if m.datePicker != nil {
 		return m.datePicker.View()
 	}
@@ -716,7 +743,7 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 	}
 
 	// Open editor with the new task
-	m.taskEditor = NewTaskEditor(newTask, m.allProjects, m.allContexts)
+	m.taskEditor = NewTaskEditor(newTask, m.allProjectItems, m.allContexts)
 	m.taskEditor.Width = m.width
 	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
@@ -845,7 +872,7 @@ func (m TaskManagerModel) openTaskEditor() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 
-	m.taskEditor = NewTaskEditor(task, m.allProjects, m.allContexts)
+	m.taskEditor = NewTaskEditor(task, m.allProjectItems, m.allContexts)
 	m.taskEditor.Width = m.width
 	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
@@ -1270,11 +1297,9 @@ func (m TaskManagerModel) startDirectProjectEdit() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 	m.directEditTaskID = task.ID
-	m.fuzzyPicker = NewFuzzyPicker(m.allProjects, "Select Projects", true, true)
-	m.fuzzyPicker.PreSelect(task.Projects)
-	m.pickerContext = "edit-project"
-	m.inputContext.TransitionTo(ModeFuzzyPicker)
-	return m, nil
+	picker := kanbanview.NewProjectPickerModel(task.Projects, m.allProjectItems)
+	m.projectPicker = &picker
+	return m, picker.Init()
 }
 
 func (m TaskManagerModel) directCyclePriority() (TaskManagerModel, tea.Cmd) {
