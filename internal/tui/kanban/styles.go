@@ -123,11 +123,19 @@ var (
 			Background(theme.Warning).
 			Foreground(lipgloss.Color("16"))
 
+	// Tmux session indicator style for when the session is not running
+	cardTmuxInactiveStyle = lipgloss.NewStyle().
+				Foreground(theme.TextMuted)
+
 	// Claude session indicator style
 	cardClaudeStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("5")).
 			Foreground(lipgloss.Color("16")).
 			Bold(true)
+
+	// Claude session indicator style for when the session is not running
+	cardClaudeInactiveStyle = lipgloss.NewStyle().
+				Foreground(theme.TextMuted)
 
 	// Claude session waiting-for-input badge style
 	cardClaudeWaitingStyle = lipgloss.NewStyle().

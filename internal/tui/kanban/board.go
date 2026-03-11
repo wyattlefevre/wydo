@@ -1416,20 +1416,15 @@ func (m BoardModel) handleClaudeLaunch() (BoardModel, tea.Cmd) {
 	}
 
 	claudeSession := currentCard.TmuxSession + "-claude"
-	children := m.getChildSessionsFromCache(currentCard.TmuxSession)
-	if !children["-claude"] {
-		m.message = "No claude session found"
-		return m, nil
-	}
-
 	m.message = "Switching to " + claudeSession
-	return m, switchTmuxSession(claudeSession)
+	return m, ensureAndSwitchClaudeSession(currentCard.TmuxSession)
 }
 
 func (m BoardModel) updateTmuxLaunch(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var targetSession string
 	var done bool
 
+	rootSession := m.tmuxLaunch.rootSession
 	*m.tmuxLaunch, targetSession, done = m.tmuxLaunch.Update(msg)
 
 	if done {
@@ -1437,6 +1432,11 @@ func (m BoardModel) updateTmuxLaunch(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		m.tmuxLaunch = nil
 		if targetSession != "" {
 			m.message = "Switching to " + targetSession
+			if targetSession == rootSession {
+				return m, ensureAndSwitchRootSession(targetSession)
+			} else if strings.HasSuffix(targetSession, "-claude") {
+				return m, ensureAndSwitchClaudeSession(rootSession)
+			}
 			return m, switchTmuxSession(targetSession)
 		}
 	}
@@ -1913,7 +1913,12 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 
 	// Tmux session indicator
 	if card.TmuxSession != "" {
+		hasRootSession := m.tmuxSessions[card.TmuxSession]
 		hasClaudeSession := m.getChildSessionsFromCache(card.TmuxSession)["-claude"]
+		tmuxBadgeStyle := cardTmuxStyle
+		if !hasRootSession {
+			tmuxBadgeStyle = cardTmuxInactiveStyle
+		}
 		tmuxLine := " " + card.TmuxSession + " "
 		if hasClaudeSession {
 			// Reserve 4 chars for " C " plus min gap (space + " C ")
@@ -1938,12 +1943,12 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 			if m.claudeStatus[claudeSession] == "waiting" {
 				claudeBadgeStyle = cardClaudeWaitingStyle
 			}
-			lines = append(lines, cardTmuxStyle.Render(tmuxLine)+gapStyle.Render(strings.Repeat(" ", padding))+claudeBadgeStyle.Render(" C "))
+			lines = append(lines, tmuxBadgeStyle.Render(tmuxLine)+gapStyle.Render(strings.Repeat(" ", padding))+claudeBadgeStyle.Render(" C "))
 		} else {
 			if len(tmuxLine) > maxWidth {
 				tmuxLine = tmuxLine[:maxWidth-3] + "..."
 			}
-			lines = append(lines, cardTmuxStyle.Render(tmuxLine))
+			lines = append(lines, tmuxBadgeStyle.Render(tmuxLine))
 		}
 	}
 
