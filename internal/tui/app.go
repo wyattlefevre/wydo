@@ -364,12 +364,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetData(m.taskSvc)
 		m.taskManagerView.SetBoards(m.boards)
 		m.projectsView.SetData(m.workspaces)
+		m.notesView.SetData(m.workspaces)
 		m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		if m.boardLoaded {
 			if board, err := fs.ReadBoard(m.boardView.BoardPath()); err == nil {
 				m.boardView.SetBoard(board)
+			} else {
+				logs.Logger.Printf("DataRefreshMsg: failed to reload board: %v", err)
 			}
 			m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
 		}
