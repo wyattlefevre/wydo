@@ -419,6 +419,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.boardLoaded {
 					m.currentView = ViewKanbanBoard
 					m.boardView.SetSize(m.width, m.height-4)
+					if board, err := fs.ReadBoard(m.boardView.BoardPath()); err == nil {
+						m.boardView.SetBoard(board)
+					} else {
+						logs.Logger.Printf("B key: failed to reload board: %v", err)
+					}
+					m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
 				} else {
 					m.currentView = ViewKanbanPicker
 					m.pickerView.SetBoards(m.boards)
