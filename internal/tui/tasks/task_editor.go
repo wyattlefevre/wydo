@@ -10,6 +10,7 @@ import (
 	"wydo/internal/tasks/data"
 	"wydo/internal/tui/shared"
 	"wydo/internal/tui/theme"
+	kanbanview "wydo/internal/tui/kanban"
 )
 
 var (
@@ -23,16 +24,17 @@ var (
 
 // TaskEditorModel allows viewing and editing a task
 type TaskEditorModel struct {
-	task         *data.Task
-	originalTask data.Task
-	inputContext InputModeContext
-	fuzzyPicker  *FuzzyPickerModel
-	datePicker   *shared.DatePickerModel
-	urlInput     *TextInputModel
-	allProjects  []string
-	allContexts  []string
-	Width        int
-	Height       int
+	task            *data.Task
+	originalTask    data.Task
+	inputContext    InputModeContext
+	fuzzyPicker     *FuzzyPickerModel
+	datePicker      *shared.DatePickerModel
+	urlInput        *TextInputModel
+	projectPicker   *kanbanview.ProjectPickerModel
+	allProjectItems []kanbanview.ProjectPickerItem
+	allContexts     []string
+	Width           int
+	Height          int
 }
 
 // TaskEditorResultMsg is sent when the editor closes
@@ -43,7 +45,7 @@ type TaskEditorResultMsg struct {
 }
 
 // NewTaskEditor creates a new task editor for the given task
-func NewTaskEditor(task *data.Task, allProjects []string, allContexts []string) *TaskEditorModel {
+func NewTaskEditor(task *data.Task, allProjectItems []kanbanview.ProjectPickerItem, allContexts []string) *TaskEditorModel {
 	// Make a copy of the original task for comparison/cancel
 	original := *task
 	// Deep copy slices
@@ -57,12 +59,12 @@ func NewTaskEditor(task *data.Task, allProjects []string, allContexts []string) 
 	}
 
 	return &TaskEditorModel{
-		task:         task,
-		originalTask: original,
-		inputContext: InputModeContext{Mode: ModeTaskEditor},
-		allProjects:  allProjects,
-		allContexts:  allContexts,
-		Width:        60,
+		task:            task,
+		originalTask:    original,
+		inputContext:    InputModeContext{Mode: ModeTaskEditor},
+		allProjectItems: allProjectItems,
+		allContexts:     allContexts,
+		Width:           60,
 	}
 }
 
@@ -76,6 +78,10 @@ func (m *TaskEditorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle URL input first
 	if m.urlInput != nil {
 		return m.updateURLInput(msg)
+	}
+	// Handle project picker
+	if m.projectPicker != nil {
+		return m.updateProjectPicker(msg)
 	}
 	// Handle date picker
 	if m.datePicker != nil {
@@ -130,9 +136,9 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 	case "p":
 		// Edit projects
 		m.inputContext.Mode = ModeEditProject
-		m.fuzzyPicker = NewFuzzyPicker(m.allProjects, "Select Projects", true, true)
-		m.fuzzyPicker.PreSelect(m.task.Projects)
-		return m, nil
+		picker := kanbanview.NewProjectPickerModel(m.task.Projects, m.allProjectItems)
+		m.projectPicker = &picker
+		return m, picker.Init()
 
 	case "t", "c":
 		// Edit contexts
@@ -186,6 +192,19 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 	}
 
 	return m, nil
+}
+
+func (m *TaskEditorModel) updateProjectPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var isDone bool
+	*m.projectPicker, cmd, isDone = m.projectPicker.Update(msg)
+	if isDone {
+		m.task.Projects = m.projectPicker.GetSelectedProjects()
+		m.projectPicker = nil
+		m.inputContext.Mode = ModeTaskEditor
+		return m, nil
+	}
+	return m, cmd
 }
 
 func (m *TaskEditorModel) updateFuzzyPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -291,6 +310,10 @@ func (m *TaskEditorModel) View() string {
 	// If date picker is active, show it
 	if m.datePicker != nil {
 		return m.datePicker.View()
+	}
+	// If project picker is active, show it
+	if m.projectPicker != nil {
+		return lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, m.projectPicker.View())
 	}
 	// If sub-component is active, show it
 	if m.fuzzyPicker != nil {

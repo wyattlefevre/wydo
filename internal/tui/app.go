@@ -127,7 +127,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes, projDates),
 		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes, projDates),
 		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
-		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards),
+		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards, collectAllProjects(workspaces)),
 		projectsView:    projectsview.NewProjectsModel(workspaces),
 		notesView:       notesview.NewNotesModel(workspaces),
 	}
