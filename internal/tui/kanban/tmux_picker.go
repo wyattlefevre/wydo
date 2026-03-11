@@ -195,10 +195,7 @@ func (m TmuxLaunchModel) Update(msg tea.KeyMsg) (TmuxLaunchModel, string, bool) 
 	case "r":
 		return m, m.rootSession, true
 	case "c":
-		name := m.rootSession + "-claude"
-		if m.children["-claude"] {
-			return m, name, true
-		}
+		return m, m.rootSession + "-claude", true
 	case "l":
 		name := m.rootSession + "-lazygit"
 		if m.children["-lazygit"] {
@@ -282,6 +279,37 @@ func isChildSession(name string) bool {
 		}
 	}
 	return false
+}
+
+// ensureAndSwitchRootSession creates the root session if it doesn't exist, then switches.
+func ensureAndSwitchRootSession(name string) tea.Cmd {
+	return func() tea.Msg {
+		base := worktreesBaseDir()
+		workDir := filepath.Join(base, name)
+		if _, err := os.Stat(workDir); os.IsNotExist(err) {
+			home, _ := os.UserHomeDir()
+			workDir = home
+		}
+		_ = exec.Command("tmux", "new-session", "-ds", name, "-c", workDir).Run()
+		_ = exec.Command("tmux", "switch-client", "-t", name).Run()
+		return nil
+	}
+}
+
+// ensureAndSwitchClaudeSession creates the claude session if it doesn't exist, then switches.
+func ensureAndSwitchClaudeSession(rootSession string) tea.Cmd {
+	return func() tea.Msg {
+		base := worktreesBaseDir()
+		workDir := filepath.Join(base, rootSession)
+		if _, err := os.Stat(workDir); os.IsNotExist(err) {
+			home, _ := os.UserHomeDir()
+			workDir = home
+		}
+		claudeSession := rootSession + "-claude"
+		_ = exec.Command("tmux", "new-session", "-ds", claudeSession, "-c", workDir, "claude").Run()
+		_ = exec.Command("tmux", "switch-client", "-t", claudeSession).Run()
+		return nil
+	}
 }
 
 // switchTmuxSession switches the tmux client to the given session.
