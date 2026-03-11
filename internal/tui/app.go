@@ -1017,6 +1017,6 @@ func (m AppModel) renderExitConfirmModal() string {
 	content += "\n\n"
 	content += theme.Ok.Render("[y/enter]") + " Confirm  "
 	content += theme.Error.Render("[esc]") + " Cancel"
-	modal := theme.ModalBox.Width(30).Render(content)
+	modal := theme.ModalBox.Width(40).Render(content)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
 }
