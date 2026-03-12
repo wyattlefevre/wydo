@@ -953,6 +953,8 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 					m.message = "Projects updated"
 					m.reloadBoardState()
 					m.ensureCardBoardProjects(m.selectedCol, realIdx)
+					// Notify other views that project memberships changed
+					cmd = tea.Batch(cmd, func() tea.Msg { return messages.DataRefreshMsg{} })
 				}
 			}
 		}
