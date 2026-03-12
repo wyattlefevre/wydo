@@ -1496,6 +1496,10 @@ func (m BoardModel) handleBoardProjectLink() (BoardModel, tea.Cmd) {
 }
 
 func (m BoardModel) updateBoardProjectLink(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	if m.boardProjectPicker == nil {
+		m.mode = boardModeNormal
+		return m, nil
+	}
 	var cmd tea.Cmd
 	var isDone, cancelled bool
 
