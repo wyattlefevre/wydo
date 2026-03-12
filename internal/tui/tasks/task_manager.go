@@ -435,6 +435,8 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.startDirectProjectEdit()
 	case "i":
 		return m.directCyclePriority()
+	case "r":
+		return m.startDirectNameEdit()
 	case "U":
 		return m.startDirectURLEdit()
 	case "f":
@@ -955,6 +957,16 @@ func (m TaskManagerModel) handleTextInputResult(msg TextInputResultMsg) (TaskMan
 			m.inputContext.Reset()
 			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
 		}
+	} else if m.inputContext.Mode == ModeEditName {
+		// Direct name (rename) editing
+		task := m.findTaskByID(m.directEditTaskID)
+		if task != nil && strings.TrimSpace(msg.Value) != "" {
+			task.Name = strings.TrimSpace(msg.Value)
+			m.directEditTaskID = ""
+			m.inputContext.Reset()
+			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+		}
+		m.directEditTaskID = ""
 	}
 
 	m.inputContext.Reset()
@@ -1299,6 +1311,19 @@ func (m TaskManagerModel) directCyclePriority() (TaskManagerModel, tea.Cmd) {
 		task.Priority = data.PriorityNone
 	}
 	return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
+}
+
+func (m TaskManagerModel) startDirectNameEdit() (TaskManagerModel, tea.Cmd) {
+	task := m.selectedTask()
+	if task == nil {
+		return m, nil
+	}
+	m.directEditTaskID = task.ID
+	m.inputContext.TransitionTo(ModeEditName)
+	m.textInput = NewTextInput("Rename Task", "Task name...", nil)
+	m.textInput.SetWidth(m.width)
+	m.textInput.SetValue(task.Name)
+	return m, m.textInput.Focus()
 }
 
 func (m TaskManagerModel) startDirectURLEdit() (TaskManagerModel, tea.Cmd) {
