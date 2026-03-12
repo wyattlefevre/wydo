@@ -84,6 +84,14 @@ func RenameBoard(board *models.Board, newName string) error {
 	return fs.WriteBoard(*board)
 }
 
+// SetBoardProject sets the board's linked project to the given relative path
+// (relative from the board directory to the project's index .md file) and
+// persists the change to disk. Pass an empty string to clear the link.
+func SetBoardProject(board *models.Board, relPath string) error {
+	board.Project = relPath
+	return fs.WriteBoard(*board)
+}
+
 func sanitizeName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, " ", "-")

@@ -379,6 +379,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logs.Logger.Printf("DataRefreshMsg: failed to reload board: %v", err)
 			}
 			m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
+			m.boardView.SetBoardProjects(projectsForBoard(m.workspaces, m.boardView.BoardPath()))
 		}
 		if m.projectDetailLoaded && m.currentView == ViewProjectDetail {
 			projName, wsDir := m.projectDetailView.OpenInfo()
@@ -682,7 +683,12 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 			return
 		}
 		visited[name] = true
-		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: depth})
+		p := seen[name]
+		dirPath := ""
+		if p != nil {
+			dirPath = p.DirPath
+		}
+		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: depth, DirPath: dirPath})
 		for _, child := range children[name] {
 			dfs(child, depth+1)
 		}
@@ -703,7 +709,12 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 	}
 	sort.Strings(remaining)
 	for _, name := range remaining {
-		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: 0})
+		p := seen[name]
+		dirPath := ""
+		if p != nil {
+			dirPath = p.DirPath
+		}
+		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: 0, DirPath: dirPath})
 	}
 
 	return result

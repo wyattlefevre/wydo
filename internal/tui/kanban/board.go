@@ -44,6 +44,7 @@ const (
 	boardModeJiraLink
 	boardModeJiraIssue
 	boardModeJiraLoading
+	boardModeProjectLink
 )
 
 func (m boardMode) String() string {
@@ -82,6 +83,8 @@ func (m boardMode) String() string {
 		return "SESSION"
 	case boardModeJiraSetup, boardModeJiraLink, boardModeJiraIssue, boardModeJiraLoading:
 		return "JIRA"
+	case boardModeProjectLink:
+		return "LINK PROJECT"
 	default:
 		return "NORMAL"
 	}
@@ -101,6 +104,8 @@ func (m boardMode) modeColor() lipgloss.Color {
 		return theme.Success
 	case boardModeJiraSetup, boardModeJiraLink, boardModeJiraIssue, boardModeJiraLoading:
 		return lipgloss.Color("69")
+	case boardModeProjectLink:
+		return theme.Primary
 	default:
 		return theme.Accent
 	}
@@ -118,6 +123,7 @@ type BoardModel struct {
 	message                string
 	tagPicker              *TagPickerModel
 	projectPicker          *ProjectPickerModel
+	boardProjectPicker     *ProjectPickerModel
 	columnEditor           *ColumnEditorModel
 	urlPicker              *URLPickerModel
 	urlEditor              *URLEditorModel
@@ -189,6 +195,12 @@ func (m *BoardModel) SetAllProjects(allProjects []ProjectPickerItem) {
 	m.allProjects = allProjects
 }
 
+// SetBoardProjects updates the resolved list of project names linked to this board.
+// Called by app.go after a DataRefreshMsg to push the fully resolved project chain.
+func (m *BoardModel) SetBoardProjects(projects []string) {
+	m.boardProjects = projects
+}
+
 // NavigateTo positions the cursor at a specific column and card
 func (m *BoardModel) NavigateTo(colIndex, cardIndex int) {
 	if colIndex >= 0 && colIndex < len(m.board.Columns) {
@@ -218,7 +230,7 @@ func (m BoardModel) HintText() string {
 		if m.filterActive {
 			return "?:help  /:edit filter  esc:clear filter"
 		}
-		return "?:help  /:filter  space/m:move  esc:back"
+		return "?:help  /:filter  space/m:move  L:link project  esc:back"
 	}
 }
 
@@ -419,6 +431,8 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 		case boardModeJiraLoading:
 			// Ignore keypresses while loading
 			return m, nil
+		case boardModeProjectLink:
+			return m.updateBoardProjectLink(msg)
 		}
 	}
 
@@ -620,6 +634,9 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 	case "ctrl+j":
 		return m.handleJiraLink()
+
+	case "L":
+		return m.handleBoardProjectLink()
 
 	case "J":
 		if m.selectedCol < len(m.board.Columns) && m.selectedCard < len(m.getVisibleCards(m.selectedCol)) {
@@ -882,6 +899,9 @@ func (m BoardModel) handleNew() (BoardModel, tea.Cmd) {
 	m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
 	m.columnCursorPos[m.selectedCol] = m.selectedCard
 
+	// Apply board projects immediately so they appear in the editor
+	m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
+
 	// Open editor for the new card
 	return m, openEditor(m.board.Path, card.Filename)
 }
@@ -902,7 +922,9 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var isDone bool
 
-	*m.tagPicker, cmd, isDone = m.tagPicker.Update(msg)
+	var cancelled bool
+	*m.tagPicker, cmd, isDone, cancelled = m.tagPicker.Update(msg)
+	_ = cancelled // tagpicker uses key-based save detection
 
 	if isDone {
 		// Save tags if confirmed with enter
@@ -950,7 +972,9 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var isDone bool
 
-	*m.projectPicker, cmd, isDone = m.projectPicker.Update(msg)
+	var cancelled bool
+	*m.projectPicker, cmd, isDone, cancelled = m.projectPicker.Update(msg)
+	_ = cancelled // projectpicker uses key-based save detection
 
 	if isDone {
 		// Save projects if confirmed with enter
@@ -1482,6 +1506,88 @@ func (m BoardModel) handleJiraLink() (BoardModel, tea.Cmd) {
 	return m, fetchJiraBoards(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken)
 }
 
+func (m BoardModel) handleBoardProjectLink() (BoardModel, tea.Cmd) {
+	currentProject := ""
+	if len(m.boardProjects) > 0 {
+		currentProject = m.boardProjects[0]
+	}
+	picker := NewBoardProjectPickerModel(currentProject, m.allProjects)
+	m.boardProjectPicker = &picker
+	m.mode = boardModeProjectLink
+	return m, picker.Init()
+}
+
+func (m BoardModel) updateBoardProjectLink(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
+	if m.boardProjectPicker == nil {
+		m.mode = boardModeNormal
+		return m, nil
+	}
+	var cmd tea.Cmd
+	var isDone, cancelled bool
+
+	var updated ProjectPickerModel
+	updated, cmd, isDone, cancelled = m.boardProjectPicker.Update(msg)
+	*m.boardProjectPicker = updated
+
+	if !isDone {
+		return m, cmd
+	}
+
+	// Read selection before closing
+	selectedProjects := m.boardProjectPicker.GetSelectedProjects()
+
+	// Close picker
+	m.mode = boardModeNormal
+	m.boardProjectPicker = nil
+
+	if cancelled {
+		return m, cmd
+	}
+
+	if len(selectedProjects) > 0 {
+		projectName := selectedProjects[0]
+
+		// Find the project in allProjects to get its DirPath
+		var dirPath string
+		for _, item := range m.allProjects {
+			if item.Name == projectName {
+				dirPath = item.DirPath
+				break
+			}
+		}
+
+		if dirPath == "" {
+			m.err = fmt.Errorf("cannot link to virtual project %q (no directory on disk)", projectName)
+			return m, cmd
+		}
+
+		relPath, err := filepath.Rel(m.board.Path, filepath.Join(dirPath, projectName+".md"))
+		if err != nil {
+			m.err = fmt.Errorf("compute project path: %w", err)
+			return m, cmd
+		}
+
+		if err := operations.SetBoardProject(&m.board, relPath); err != nil {
+			m.err = fmt.Errorf("link board to project: %w", err)
+			return m, cmd
+		}
+
+		m.boardProjects = []string{projectName}
+		m.message = fmt.Sprintf("Board linked to project %q", projectName)
+	} else {
+		// Unlink
+		if err := operations.SetBoardProject(&m.board, ""); err != nil {
+			m.err = fmt.Errorf("unlink board from project: %w", err)
+			return m, cmd
+		}
+
+		m.boardProjects = nil
+		m.message = "Board unlinked from project"
+	}
+
+	return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+}
+
 func (m BoardModel) updateJiraSetup(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	if m.jiraSetup == nil {
 		m.mode = boardModeNormal
@@ -1608,6 +1714,11 @@ func (m BoardModel) View() string {
 	// Show project picker if in project edit mode
 	if m.mode == boardModeProjectEdit && m.projectPicker != nil {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.projectPicker.View())
+	}
+
+	// Show board project picker if in board project link mode
+	if m.mode == boardModeProjectLink && m.boardProjectPicker != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.boardProjectPicker.View())
 	}
 
 	// Show column editor if in column edit mode

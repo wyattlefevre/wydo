@@ -237,7 +237,9 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 	if m.projectPicker != nil {
 		var cmd tea.Cmd
 		var isDone bool
-		*m.projectPicker, cmd, isDone = m.projectPicker.Update(msg)
+		var cancelled bool
+		*m.projectPicker, cmd, isDone, cancelled = m.projectPicker.Update(msg)
+		_ = cancelled // projectpicker uses key-based save detection
 		if isDone {
 			task := m.findTaskByID(m.directEditTaskID)
 			if task != nil {
