@@ -40,7 +40,7 @@ func (m TagPickerModel) Init() tea.Cmd {
 // Update handles tag picker events
 // Returns (model, cmd, isDone)
 func (m TagPickerModel) Update(msg tea.Msg) (TagPickerModel, tea.Cmd, bool) {
-	picker, cmd, isDone := m.picker.Update(msg)
+	picker, cmd, isDone, _ := m.picker.Update(msg)
 	m.picker = picker
 	return m, cmd, isDone
 }

@@ -17,6 +17,7 @@ type MultiSelectPickerConfig struct {
 	AllItems         []string
 	SelectedItems    map[string]bool
 	ItemDepths       map[string]int // optional; nil = no indentation
+	SingleSelect     bool           // if true, selecting an item immediately closes the picker
 }
 
 // MultiSelectPickerModel is a generic fuzzy-searchable multi-select picker
@@ -65,8 +66,8 @@ func (m MultiSelectPickerModel) Init() tea.Cmd {
 }
 
 // Update handles picker events
-// Returns (model, cmd, isDone)
-func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea.Cmd, bool) {
+// Returns (model, cmd, isDone, cancelled)
+func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea.Cmd, bool, bool) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle keys based on current mode
@@ -81,13 +82,13 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 				m.textInput.Blur()
 				m.filterMode = false
 				m.cursorPos = 0
-				return m, nil, false
+				return m, nil, false, false
 
 			case "enter":
 				// Just exit filter mode and return to navigation
 				m.textInput.Blur()
 				m.filterMode = false
-				return m, nil, false
+				return m, nil, false, false
 
 			default:
 				// Pass all other keys to text input
@@ -96,7 +97,7 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 				m.query = m.textInput.Value()
 				m.filterItems()
 				m.cursorPos = 0
-				return m, cmd, false
+				return m, cmd, false, false
 			}
 		} else if m.createMode {
 			// CREATE MODE: handle new item input
@@ -107,7 +108,7 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 				m.textInput.Placeholder = "Press / to filter..."
 				m.textInput.Blur()
 				m.createMode = false
-				return m, nil, false
+				return m, nil, false, false
 
 			case "enter":
 				// Create new item and return to navigation mode
@@ -130,13 +131,13 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 				m.textInput.Blur()
 				m.createMode = false
 				m.filterItems() // Refresh filtered list
-				return m, nil, false
+				return m, nil, false, false
 
 			default:
 				// Pass to text input
 				var cmd tea.Cmd
 				m.textInput, cmd = m.textInput.Update(msg)
-				return m, cmd, false
+				return m, cmd, false, false
 			}
 		} else {
 			// NAVIGATION MODE: handle list navigation and mode switches
@@ -147,17 +148,30 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 				m.textInput.Placeholder = "Enter new " + m.config.ItemTypeSingular + " name..."
 				m.textInput.Focus()
 				m.createMode = true
-				return m, textinput.Blink, false
+				return m, textinput.Blink, false, false
 
 			case "/":
 				// Enter filter mode
 				m.textInput.Focus()
 				m.filterMode = true
-				return m, textinput.Blink, false
+				return m, textinput.Blink, false, false
 
 			case "enter":
-				// Save and exit picker
-				return m, nil, true
+				if m.config.SingleSelect {
+					// In single-select mode: select current item, close picker (not cancelled)
+					if len(m.filteredItems) > 0 && m.cursorPos < len(m.filteredItems) {
+						item := m.filteredItems[m.cursorPos]
+						// Toggle: if already selected, clear it (unlink path)
+						if m.config.SelectedItems[item] {
+							m.config.SelectedItems = map[string]bool{}
+						} else {
+							m.config.SelectedItems = map[string]bool{item: true}
+						}
+					}
+					return m, nil, true, false
+				}
+				// Normal multi-select: save and exit
+				return m, nil, true, false
 
 			case "esc":
 				// If filter is active, clear it; otherwise exit picker
@@ -166,15 +180,27 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 					m.query = ""
 					m.filterItems()
 					m.cursorPos = 0
-					return m, nil, false
+					return m, nil, false, false
 				}
 				// No filter active, exit picker (cancel)
-				return m, nil, true
+				return m, nil, true, true
 
 			case "tab", " ":
-				// Toggle item selection at cursor
+				if m.config.SingleSelect {
+					// Same as enter in single-select mode
+					if len(m.filteredItems) > 0 && m.cursorPos < len(m.filteredItems) {
+						item := m.filteredItems[m.cursorPos]
+						if m.config.SelectedItems[item] {
+							m.config.SelectedItems = map[string]bool{}
+						} else {
+							m.config.SelectedItems = map[string]bool{item: true}
+						}
+					}
+					return m, nil, true, false
+				}
+				// Toggle item selection at cursor (multi-select)
 				m.toggleItem()
-				return m, nil, false
+				return m, nil, false, false
 
 			case "j", "down":
 				// Move cursor down
@@ -185,24 +211,24 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 				if m.cursorPos < maxPos {
 					m.cursorPos++
 				}
-				return m, nil, false
+				return m, nil, false, false
 
 			case "k", "up":
 				// Move cursor up
 				if m.cursorPos > 0 {
 					m.cursorPos--
 				}
-				return m, nil, false
+				return m, nil, false, false
 			}
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil, false
+		return m, nil, false, false
 	}
 
-	return m, nil, false
+	return m, nil, false, false
 }
 
 // View renders the picker

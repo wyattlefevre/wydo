@@ -55,7 +55,7 @@ func (m ProjectPickerModel) Init() tea.Cmd {
 // Update handles project picker events
 // Returns (model, cmd, isDone)
 func (m ProjectPickerModel) Update(msg tea.Msg) (ProjectPickerModel, tea.Cmd, bool) {
-	picker, cmd, isDone := m.picker.Update(msg)
+	picker, cmd, isDone, _ := m.picker.Update(msg)
 	m.picker = picker
 	return m, cmd, isDone
 }
