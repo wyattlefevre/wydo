@@ -376,7 +376,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
 		}
-		if m.projectDetailLoaded {
+		if m.projectDetailLoaded && m.currentView == ViewProjectDetail {
 			projName, wsDir := m.projectDetailView.OpenInfo()
 			return m, func() tea.Msg {
 				return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
