@@ -208,10 +208,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if proj != nil && proj.DirPath != "" {
 					indexPreview = workspace.ReadIndexPreview(proj.DirPath, proj.Name)
 				}
+				allProjectItems := collectAllProjects(m.workspaces)
+				allContexts := taskview.ExtractUniqueContexts(ws.Tasks)
 				m.projectDetailView = projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
 					projNotes, projTasks, projCards, projBoards, ws.Boards,
 					proj, ws.Projects, children, indexPreview, ws.Tasks, ws.Notes,
+					allProjectItems, allContexts,
 				)
 				m.projectDetailView.SetSize(m.width, m.height-4)
 				m.projectDetailLoaded = true
