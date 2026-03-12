@@ -360,6 +360,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DataRefreshMsg:
 		m.refreshData()
 		if m.boardLoaded {
+			m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
 			m.boardView.SetBoardProjects(projectsForBoard(m.workspaces, m.boardView.BoardPath()))
 		}
 		if m.currentView == ViewProjects {
