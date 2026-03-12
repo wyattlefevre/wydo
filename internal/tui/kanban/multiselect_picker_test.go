@@ -79,6 +79,20 @@ func TestSingleSelect_EscReturnsCancelled(t *testing.T) {
 	}
 }
 
+func TestSingleSelect_NKeyIsIgnored(t *testing.T) {
+	m := newTestSingleSelectPicker("", []string{"alpha", "beta"})
+	got, _, isDone, cancelled := pressKey(m, "n")
+	if isDone {
+		t.Fatal("expected isDone=false after n in single-select mode")
+	}
+	if cancelled {
+		t.Fatal("expected cancelled=false after n in single-select mode")
+	}
+	if got.createMode {
+		t.Fatal("expected createMode=false after n in single-select mode")
+	}
+}
+
 func TestMultiSelect_CancelledFalseOnNormalEnter(t *testing.T) {
 	// Existing multi-select mode: enter returns cancelled=false
 	m := NewMultiSelectPickerModel(MultiSelectPickerConfig{

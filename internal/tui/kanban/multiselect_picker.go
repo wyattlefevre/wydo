@@ -143,6 +143,9 @@ func (m MultiSelectPickerModel) Update(msg tea.Msg) (MultiSelectPickerModel, tea
 			// NAVIGATION MODE: handle list navigation and mode switches
 			switch msg.String() {
 			case "n":
+				if m.config.SingleSelect {
+					return m, nil, false, false
+				}
 				// Enter create mode
 				m.textInput.SetValue("")
 				m.textInput.Placeholder = "Enter new " + m.config.ItemTypeSingular + " name..."
@@ -276,6 +279,8 @@ func (m MultiSelectPickerModel) View() string {
 		help = helpStyle.Render("enter: create • esc: cancel")
 	} else if m.filterMode {
 		help = helpStyle.Render("enter: apply filter • esc: cancel")
+	} else if m.config.SingleSelect {
+		help = helpStyle.Render("jk: navigate • enter: select • /: filter • esc: cancel")
 	} else if m.query != "" {
 		help = helpStyle.Render("jk: navigate • tab: toggle • n: new • /: filter • esc: clear • enter: save")
 	} else {
