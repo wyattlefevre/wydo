@@ -394,6 +394,46 @@ func TestMergeProject_OnlySourceHasDir(t *testing.T) {
 	}
 }
 
+func TestRenameProject_IndexNoteRenamed(t *testing.T) {
+	// When a project directory is renamed, its index note (oldName.md) should
+	// be renamed to newName.md inside the new directory.
+	tmp := t.TempDir()
+
+	projDir := filepath.Join(tmp, "projects")
+	alphaDir := filepath.Join(projDir, "alpha")
+	os.MkdirAll(alphaDir, 0755)
+	os.WriteFile(filepath.Join(alphaDir, "alpha.md"), []byte("# alpha\n"), 0644)
+	os.WriteFile(filepath.Join(alphaDir, "other.txt"), []byte("other\n"), 0644)
+
+	tasksDir := filepath.Join(tmp, "tasks")
+	os.MkdirAll(tasksDir, 0755)
+	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Task 1 +alpha\n"), 0644)
+
+	scan, _ := scanner.ScanWorkspace(tmp)
+	ws, _ := Load(scan)
+
+	if err := ws.RenameProject("alpha", "beta"); err != nil {
+		t.Fatalf("rename error: %v", err)
+	}
+
+	betaDir := filepath.Join(projDir, "beta")
+
+	// Old index note should not exist
+	if _, err := os.Stat(filepath.Join(betaDir, "alpha.md")); !os.IsNotExist(err) {
+		t.Error("alpha.md should have been renamed")
+	}
+
+	// New index note should exist
+	if _, err := os.Stat(filepath.Join(betaDir, "beta.md")); err != nil {
+		t.Error("beta.md should exist after rename")
+	}
+
+	// Other files should be untouched
+	if _, err := os.Stat(filepath.Join(betaDir, "other.txt")); err != nil {
+		t.Error("other.txt should still exist")
+	}
+}
+
 func TestMergeProject_CardDedup(t *testing.T) {
 	// A card with projects: [alpha, beta] should become projects: [beta] after merge
 	tmp := t.TempDir()
