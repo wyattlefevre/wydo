@@ -135,6 +135,14 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 			if err := os.Rename(project.DirPath, newPath); err != nil {
 				return fmt.Errorf("rename directory: %w", err)
 			}
+			// Rename the index note if it matches the old project name
+			oldIndex := filepath.Join(newPath, oldName+".md")
+			newIndex := filepath.Join(newPath, newName+".md")
+			if _, err := os.Stat(oldIndex); err == nil {
+				if err := os.Rename(oldIndex, newIndex); err != nil {
+					return fmt.Errorf("rename index note: %w", err)
+				}
+			}
 		} else {
 			// Both have dirs: merge source into target, then remove source
 			if err := mergeDirs(project.DirPath, targetProject.DirPath); err != nil {
