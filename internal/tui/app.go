@@ -1025,6 +1025,21 @@ func (m AppModel) renderHelpOverlay() string {
 				{"esc", "Back"},
 			},
 		})
+	case ViewProjectDetail:
+		sections = append(sections, shared.HelpSection{
+			Title: "Project Detail",
+			Binds: []shared.HelpBind{
+				{"[", "Go to parent project"},
+				{"]", "Pick child project"},
+				{"h / l", "Navigate columns"},
+				{"j / k", "Navigate items"},
+				{"space / enter", "Expand / open item"},
+				{"u", "Open URL(s)"},
+				{"U", "Edit URLs"},
+				{"d", "Edit dates"},
+				{"esc / q", "Back to projects"},
+			},
+		})
 	}
 
 	return shared.RenderHelpPopup(sections, m.width, m.height)
