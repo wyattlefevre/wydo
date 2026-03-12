@@ -231,6 +231,7 @@ func (m BoardModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.initJiraRefresh(),
 		fetchTmuxSessionsCmd(),
+		scheduleClaudeStatusRefresh(),
 	)
 }
 
@@ -269,6 +270,10 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 		m.tmuxSessions = set
 		m.claudeStatus = msg.claudeStatus
 		return m, scheduleTmuxRefresh()
+
+	case claudeStatusMsg:
+		m.claudeStatus = msg.claudeStatus
+		return m, scheduleClaudeStatusRefresh()
 
 	case sessionCreatedMsg:
 		if msg.err != nil {
@@ -800,6 +805,11 @@ type tmuxSessionsMsg struct {
 	claudeStatus map[string]string // session name -> "waiting" | "running"
 }
 
+// claudeStatusMsg is sent on the fast claude-status polling cycle.
+type claudeStatusMsg struct {
+	claudeStatus map[string]string
+}
+
 // fetchTmuxSessionsCmd fetches the tmux session list once, immediately.
 func fetchTmuxSessionsCmd() tea.Cmd {
 	return func() tea.Msg {
@@ -810,13 +820,20 @@ func fetchTmuxSessionsCmd() tea.Cmd {
 	}
 }
 
-// scheduleTmuxRefresh waits 3 seconds then fetches the session list.
+// scheduleTmuxRefresh waits 5 seconds then fetches the session list.
 func scheduleTmuxRefresh() tea.Cmd {
-	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return tmuxSessionsMsg{
 			sessions:     listTmuxSessions(),
 			claudeStatus: readClaudeStatus(),
 		}
+	})
+}
+
+// scheduleClaudeStatusRefresh waits 1 second then re-reads claude status files.
+func scheduleClaudeStatusRefresh() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return claudeStatusMsg{claudeStatus: readClaudeStatus()}
 	})
 }
 
