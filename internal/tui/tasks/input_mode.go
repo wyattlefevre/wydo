@@ -34,6 +34,9 @@ const (
 
 	// Board picker mode
 	ModeBoardPicker // 'm' pressed - picking a board to move task to
+
+	// Rename mode
+	ModeEditName // 'r' pressed - renaming task name
 )
 
 // InputModeContext holds the current mode and related context
@@ -138,6 +141,8 @@ func (c *InputModeContext) String() string {
 		return "Create"
 	case ModeBoardPicker:
 		return "Move to Board"
+	case ModeEditName:
+		return "Rename"
 	default:
 		return "Unknown"
 	}

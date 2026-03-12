@@ -78,9 +78,9 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		hint := "?:help  /:search  enter:details  space:done"
+		hint := "?:help  /:search  enter:details  space:done  r:rename"
 		if m.MultiWorkspace {
-			hint = "?:help  /:search  enter:details  space:done  W:workspace"
+			hint = "?:help  /:search  enter:details  space:done  r:rename  W:workspace"
 		}
 		return hint
 
