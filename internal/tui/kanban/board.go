@@ -1277,7 +1277,7 @@ func (m BoardModel) handleOpenURL() (BoardModel, tea.Cmd) {
 }
 
 func (m BoardModel) handleBoardMove() (BoardModel, tea.Cmd) {
-	selector := NewBoardSelectorModel(m.allBoards, m.board.Path)
+	selector := NewBoardSelectorModel(m.allBoards, m.board.Path, "Move to Board")
 	if selector.Empty() {
 		m.message = "No other boards available"
 		return m, nil

@@ -17,6 +17,7 @@ import (
 	"wydo/internal/tui/kanban"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
+	taskview "wydo/internal/tui/tasks"
 	"wydo/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -59,10 +60,15 @@ type detailRow struct {
 type detailMode int
 
 const (
-	detailModeNormal    detailMode = iota
-	detailModeURLEditor            // editing project URLs
-	detailModeURLPicker            // picking a URL to open
-	detailModeDateEditor           // editing project dates
+	detailModeNormal         detailMode = iota
+	detailModeURLEditor                 // editing project URLs
+	detailModeURLPicker                 // picking a URL to open
+	detailModeDateEditor                // editing project dates
+	detailModeSubProjectPick            // picking which sub-project to add item to
+	detailModeNewNoteName               // text input for note filename
+	detailModeNewTaskName               // text input for task name
+	detailModeNewTaskEditor             // task editor modal
+	detailModeNewBoardPick              // board selector for new card
 )
 
 // DetailModel shows project details with notes, tasks, and cards in a
@@ -103,6 +109,18 @@ type DetailModel struct {
 	urlEditor  *kanban.URLEditorModel
 	urlPicker  *projectURLPicker
 	dateEditor *DateEditorModel
+
+	// Creation flow state (all nil when not in use)
+	createSubProjectPicker *createSubProjectPickerModel
+	createNoteInput        *taskview.TextInputModel
+	createTaskInput        *taskview.TextInputModel
+	createTaskEditor       *taskview.TaskEditorModel
+	createBoardPicker      *kanban.BoardSelectorModel
+	pendingProject         *workspace.Project
+
+	// Data for task editor
+	allProjectItems []kanban.ProjectPickerItem
+	allContexts     []string
 }
 
 // detailURLEntry is a URL with its owning project name.
@@ -209,7 +227,7 @@ func (p projectURLPicker) View() string {
 	return lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Center, box)
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allContexts []string) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
 	cardColumn := make(map[string]string)
 	for _, b := range allBoards {
@@ -222,16 +240,18 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 	}
 
 	m := DetailModel{
-		name:         name,
-		wsDir:        wsDir,
-		project:      project,
-		registry:     registry,
-		indexPreview: indexPreview,
-		allBoards:    allBoards,
-		allTasks:     allTasks,
-		allNotes:     allNotes,
-		cardBoard:    cardBoard,
-		cardColumn:   cardColumn,
+		name:            name,
+		wsDir:           wsDir,
+		project:         project,
+		registry:        registry,
+		indexPreview:    indexPreview,
+		allBoards:       allBoards,
+		allTasks:        allTasks,
+		allNotes:        allNotes,
+		cardBoard:       cardBoard,
+		cardColumn:      cardColumn,
+		allProjectItems: allProjectItems,
+		allContexts:     allContexts,
 	}
 	for i := range m.collapsedGroups {
 		m.collapsedGroups[i] = make(map[string]bool)
@@ -465,6 +485,9 @@ func (m DetailModel) IsTyping() bool {
 	if m.mode == detailModeDateEditor && m.dateEditor != nil && m.dateEditor.IsTyping() {
 		return true
 	}
+	if m.mode == detailModeNewNoteName || m.mode == detailModeNewTaskName {
+		return true
+	}
 	return false
 }
 
@@ -477,8 +500,16 @@ func (m DetailModel) HintText() string {
 		return "j/k:navigate  /: search  enter:open  esc:cancel"
 	case detailModeDateEditor:
 		return "n:add  d:delete  e:edit label  D:edit date  enter:save  esc:cancel"
+	case detailModeSubProjectPick:
+		return "j/k:navigate  enter:select  esc:cancel"
+	case detailModeNewNoteName, detailModeNewTaskName:
+		return "enter:confirm  esc:cancel"
+	case detailModeNewTaskEditor:
+		return "enter:save  esc:cancel"
+	case detailModeNewBoardPick:
+		return "j/k:navigate  enter:select  esc:cancel"
 	}
-	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  u:urls  d:dates  esc:back"
+	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  n:new  u:urls  d:dates  esc:back"
 }
 
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
@@ -491,16 +522,35 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 			return m.updateURLPicker(msg)
 		case detailModeDateEditor:
 			return m.updateDateEditor(msg)
+		case detailModeSubProjectPick:
+			return m.updateSubProjectPicker(msg)
+		case detailModeNewNoteName:
+			return m.updateNewNoteInput(msg)
+		case detailModeNewTaskName:
+			return m.updateNewTaskInput(msg)
+		case detailModeNewTaskEditor:
+			return m.updateNewTaskEditor(msg)
+		case detailModeNewBoardPick:
+			return m.updateNewBoardPick(msg)
 		}
 		return m.handleKey(msg)
 	case noteEditorFinishedMsg:
 		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+	case cardEditorFinishedMsg:
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+	case taskview.TextInputResultMsg:
+		return m.handleTextInputResult(msg)
+	case taskview.TaskEditorResultMsg:
+		return m.handleTaskEditorResult(msg)
 	}
 	return m, nil
 }
 
 func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	switch msg.String() {
+	case "n":
+		return m.handleNew()
+
 	case "esc", "q":
 		return m, messages.SwitchView(messages.ViewProjects)
 
@@ -715,6 +765,21 @@ func (m DetailModel) View() string {
 	}
 	if m.mode == detailModeDateEditor && m.dateEditor != nil {
 		return m.dateEditor.View()
+	}
+	if m.mode == detailModeSubProjectPick && m.createSubProjectPicker != nil {
+		return m.createSubProjectPicker.View()
+	}
+	if m.mode == detailModeNewNoteName && m.createNoteInput != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.createNoteInput.View())
+	}
+	if m.mode == detailModeNewTaskName && m.createTaskInput != nil {
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.createTaskInput.View())
+	}
+	if m.mode == detailModeNewTaskEditor && m.createTaskEditor != nil {
+		return m.createTaskEditor.View()
+	}
+	if m.mode == detailModeNewBoardPick && m.createBoardPicker != nil {
+		return m.createBoardPicker.View()
 	}
 
 	var lines []string

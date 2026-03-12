@@ -16,17 +16,24 @@ type BoardSelectorModel struct {
 	cursor int
 	width  int
 	height int
+	title  string
 }
 
 // NewBoardSelectorModel creates a new board selector, excluding the current board.
-func NewBoardSelectorModel(allBoards []models.Board, currentBoardPath string) BoardSelectorModel {
+func NewBoardSelectorModel(allBoards []models.Board, currentBoardPath string, title string) BoardSelectorModel {
 	var filtered []models.Board
 	for _, b := range allBoards {
 		if b.Path != currentBoardPath {
 			filtered = append(filtered, b)
 		}
 	}
-	return BoardSelectorModel{boards: filtered}
+	return BoardSelectorModel{boards: filtered, title: title}
+}
+
+// SetSize sets the width and height for centered modal rendering.
+func (m *BoardSelectorModel) SetSize(w, h int) {
+	m.width = w
+	m.height = h
 }
 
 // Empty returns true when there are no boards to choose from.
@@ -61,7 +68,7 @@ func (m BoardSelectorModel) Update(msg tea.KeyMsg) (BoardSelectorModel, string, 
 func (m BoardSelectorModel) View() string {
 	var lines []string
 
-	lines = append(lines, tagPickerTitleStyle.Render("Move to Board"))
+	lines = append(lines, tagPickerTitleStyle.Render(m.title))
 	lines = append(lines, "")
 
 	for i, b := range m.boards {
