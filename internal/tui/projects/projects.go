@@ -29,6 +29,7 @@ const (
 	modeScaffoldConfirm
 	modeSetParent       // selecting new parent for a project
 	modeDeleteVirtual   // confirm-delete a virtual project
+	modeArchiveConfirm  // confirm-archive a project
 )
 
 // parentOption is a candidate parent in the reparent selector.
@@ -91,6 +92,9 @@ type ProjectsModel struct {
 	deleteTaskCount int
 	deleteCardCount int
 
+	// Archive confirm flow state
+	archiveEntry *projectEntry
+
 	width        int
 	height       int
 	err          error
@@ -130,7 +134,8 @@ func (m *ProjectsModel) SetSize(w, h int) {
 
 // IsTyping returns true when the view has an active text input.
 func (m ProjectsModel) IsTyping() bool {
-	return m.mode == modeSearch || m.mode == modeCreate || m.mode == modeRename
+	return m.mode == modeSearch || m.mode == modeCreate || m.mode == modeRename ||
+		m.mode == modeArchiveConfirm || m.mode == modeDeleteVirtual
 }
 
 // HintText returns the raw hint string for the current projects mode.
@@ -152,6 +157,8 @@ func (m ProjectsModel) HintText() string {
 		return "j/k:navigate  enter:confirm  esc:cancel"
 	case modeDeleteVirtual:
 		return "y:delete  n/esc:cancel"
+	case modeArchiveConfirm:
+		return "y:archive  n/esc:cancel"
 	default:
 		return "j/k:navigate  enter:open  /:search  ?:help  q:quit"
 	}
@@ -274,6 +281,8 @@ func (m ProjectsModel) Update(msg tea.Msg) (ProjectsModel, tea.Cmd) {
 			return m.updateSetParent(msg)
 		case modeDeleteVirtual:
 			return m.updateDeleteVirtual(msg)
+		case modeArchiveConfirm:
+			return m.updateArchiveConfirm(msg)
 		}
 	}
 	return m, nil
@@ -369,19 +378,26 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	case "a":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			entry := m.entries[m.filtered[m.selected]]
-			newArchived := !entry.Project.Archived
-			var err error
-			if entry.Project.DirPath == "" {
-				err = workspace.SetVirtualProjectArchived(entry.RootDir, entry.Project, newArchived)
+			if entry.Project.Archived {
+				// Unarchiving: execute immediately (no confirmation needed)
+				var err error
+				if entry.Project.DirPath == "" {
+					err = workspace.SetVirtualProjectArchived(entry.RootDir, entry.Project, false)
+				} else {
+					err = workspace.SetProjectArchived(entry.Project, false)
+				}
+				if err != nil {
+					m.err = err
+				} else {
+					m.err = nil
+					m.buildEntries()
+					m.applyFilter()
+				}
 			} else {
-				err = workspace.SetProjectArchived(entry.Project, newArchived)
-			}
-			if err != nil {
-				m.err = err
-			} else {
+				// Archiving: require confirmation
+				m.archiveEntry = &entry
+				m.mode = modeArchiveConfirm
 				m.err = nil
-				m.buildEntries()
-				m.applyFilter()
 			}
 		}
 
@@ -777,6 +793,8 @@ func (m ProjectsModel) View() string {
 		return m.viewSetParent()
 	case modeDeleteVirtual:
 		return m.viewDeleteVirtual()
+	case modeArchiveConfirm:
+		return m.viewArchiveConfirm()
 	default:
 		return m.viewList()
 	}
@@ -1071,6 +1089,35 @@ func (m ProjectsModel) updateDeleteVirtual(msg tea.KeyMsg) (ProjectsModel, tea.C
 	return m, nil
 }
 
+func (m ProjectsModel) updateArchiveConfirm(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		if m.archiveEntry == nil {
+			m.mode = modeList
+			return m, nil
+		}
+		var err error
+		if m.archiveEntry.Project.DirPath == "" {
+			err = workspace.SetVirtualProjectArchived(m.archiveEntry.RootDir, m.archiveEntry.Project, true)
+		} else {
+			err = workspace.SetProjectArchived(m.archiveEntry.Project, true)
+		}
+		m.archiveEntry = nil
+		m.mode = modeList
+		if err != nil {
+			m.err = err
+		} else {
+			m.err = nil
+			m.buildEntries()
+			m.applyFilter()
+		}
+	case "n", "N", "esc":
+		m.archiveEntry = nil
+		m.mode = modeList
+	}
+	return m, nil
+}
+
 func (m ProjectsModel) viewDeleteVirtual() string {
 	name := ""
 	if m.deleteEntry != nil {
@@ -1095,6 +1142,26 @@ func (m ProjectsModel) viewDeleteVirtual() string {
 	)))
 	lines = append(lines, "")
 	lines = append(lines, listItemStyle.Render("[y] Delete   [n/esc] Cancel"))
+	if m.err != nil {
+		lines = append(lines, "")
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m ProjectsModel) viewArchiveConfirm() string {
+	name := ""
+	if m.archiveEntry != nil {
+		name = m.archiveEntry.Project.Name
+	}
+
+	var lines []string
+	lines = append(lines, titleStyle.Render("Archive Project"))
+	lines = append(lines, "")
+	lines = append(lines, listItemStyle.Render(fmt.Sprintf("Archive %q?", name)))
+	lines = append(lines, "")
+	lines = append(lines, listItemStyle.Render("[y] Archive   [n/esc] Cancel"))
 	if m.err != nil {
 		lines = append(lines, "")
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
