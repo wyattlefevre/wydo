@@ -285,7 +285,7 @@ func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
 			m.sessionCreate.progressDone = true
 			m.sessionCreate.pendingSession = msg.sessionName
 		}
-		return m, nil
+		return m, fetchTmuxSessionsCmd()
 
 	case jiraStatusMsg:
 		if len(msg.statuses) > 0 {
