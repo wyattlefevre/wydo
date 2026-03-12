@@ -408,7 +408,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshData()
 				if m.projectDetailLoaded {
 					m.currentView = ViewProjectDetail
-					m.projectDetailView.SetSize(m.width, m.height-4)
+					projName, wsDir := m.projectDetailView.OpenInfo()
+					return m, func() tea.Msg {
+						return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
+					}
 				} else {
 					m.currentView = ViewProjects
 					m.projectsView.SetData(m.workspaces)
