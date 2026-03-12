@@ -168,14 +168,18 @@ func (p detailChildPicker) View() string {
 	lines = append(lines, titleStyle.Render("Switch to Child Project"))
 	lines = append(lines, "")
 
-	for i, proj := range p.entries {
-		style := listItemStyle
-		prefix := "  "
-		if i == p.cursor {
-			style = selectedDetailItemStyle
-			prefix = "> "
+	if len(p.entries) == 0 {
+		lines = append(lines, pathStyle.Render("No children"))
+	} else {
+		for i, proj := range p.entries {
+			style := listItemStyle
+			prefix := "  "
+			if i == p.cursor {
+				style = selectedDetailItemStyle
+				prefix = "> "
+			}
+			lines = append(lines, style.Render(prefix+proj.Name))
 		}
-		lines = append(lines, style.Render(prefix+proj.Name))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
