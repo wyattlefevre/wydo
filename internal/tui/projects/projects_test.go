@@ -104,11 +104,26 @@ func TestUnarchiveKeyIsImmediate(t *testing.T) {
 	}
 }
 
+// selectAlpha selects the "alpha" (unarchived) project in the filtered list.
+func selectAlpha(t *testing.T, m ProjectsModel) ProjectsModel {
+	t.Helper()
+	for i, fi := range m.filtered {
+		if m.entries[fi].Project.Name == "alpha" {
+			m.selected = i
+			return m
+		}
+	}
+	t.Fatal("could not find unarchived project 'alpha' in filtered list")
+	return m
+}
+
 // TestArchiveConfirmCancelN verifies pressing "n" in confirm mode clears state and returns to modeList.
 func TestArchiveConfirmCancelN(t *testing.T) {
-	m := makeModel()
-	m.selected = 0
+	m := selectAlpha(t, makeModel())
 	m = pressKey(m, "a") // enter confirm mode
+	if m.mode != modeArchiveConfirm {
+		t.Fatal("expected modeArchiveConfirm after pressing 'a' on unarchived project")
+	}
 
 	m = pressKey(m, "n")
 
@@ -122,9 +137,11 @@ func TestArchiveConfirmCancelN(t *testing.T) {
 
 // TestArchiveConfirmCancelEsc verifies pressing Esc in confirm mode clears state.
 func TestArchiveConfirmCancelEsc(t *testing.T) {
-	m := makeModel()
-	m.selected = 0
+	m := selectAlpha(t, makeModel())
 	m = pressKey(m, "a")
+	if m.mode != modeArchiveConfirm {
+		t.Fatal("expected modeArchiveConfirm after pressing 'a' on unarchived project")
+	}
 
 	m = pressSpecialKey(m, tea.KeyEsc)
 
@@ -133,6 +150,25 @@ func TestArchiveConfirmCancelEsc(t *testing.T) {
 	}
 	if m.archiveEntry != nil {
 		t.Error("archiveEntry is not nil after esc")
+	}
+}
+
+// TestArchiveConfirmUppercaseY verifies "Y" (uppercase) also confirms in modeArchiveConfirm.
+func TestArchiveConfirmUppercaseY(t *testing.T) {
+	m := selectAlpha(t, makeModel())
+	m = pressKey(m, "a")
+	if m.mode != modeArchiveConfirm {
+		t.Fatal("expected modeArchiveConfirm after pressing 'a' on unarchived project")
+	}
+
+	m = pressKey(m, "Y")
+
+	// The workspace call will fail with the fake path, but the mode and state must still reset.
+	if m.mode != modeList {
+		t.Errorf("mode = %v, want modeList after 'Y' confirm", m.mode)
+	}
+	if m.archiveEntry != nil {
+		t.Error("archiveEntry is not nil after 'Y' confirm")
 	}
 }
 

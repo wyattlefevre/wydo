@@ -1108,6 +1108,8 @@ func (m ProjectsModel) updateArchiveConfirm(msg tea.KeyMsg) (ProjectsModel, tea.
 			m.err = err
 		} else {
 			m.err = nil
+			// Archive only toggles a flag on the project; a local rebuild is sufficient.
+			// (updateDeleteVirtual sends DataRefreshMsg because delete removes a project entirely.)
 			m.buildEntries()
 			m.applyFilter()
 		}
