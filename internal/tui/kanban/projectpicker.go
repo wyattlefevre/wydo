@@ -8,8 +8,9 @@ import (
 
 // ProjectPickerItem represents a project with its nesting depth for display
 type ProjectPickerItem struct {
-	Name  string
-	Depth int
+	Name    string
+	Depth   int
+	DirPath string
 }
 
 // ProjectPickerModel is a fuzzy-searchable multi-select project picker
@@ -53,11 +54,11 @@ func (m ProjectPickerModel) Init() tea.Cmd {
 }
 
 // Update handles project picker events
-// Returns (model, cmd, isDone)
-func (m ProjectPickerModel) Update(msg tea.Msg) (ProjectPickerModel, tea.Cmd, bool) {
-	picker, cmd, isDone, _ := m.picker.Update(msg)
+// Returns (model, cmd, isDone, cancelled)
+func (m ProjectPickerModel) Update(msg tea.Msg) (ProjectPickerModel, tea.Cmd, bool, bool) {
+	picker, cmd, isDone, cancelled := m.picker.Update(msg)
 	m.picker = picker
-	return m, cmd, isDone
+	return m, cmd, isDone, cancelled
 }
 
 // View renders the project picker
@@ -84,4 +85,34 @@ func sanitizeProject(project string) string {
 // GetSelectedProjects returns the final list of selected projects
 func (m ProjectPickerModel) GetSelectedProjects() []string {
 	return m.picker.GetSelectedItems()
+}
+
+// NewBoardProjectPickerModel creates a single-select project picker for linking a board
+// to a project. currentProjectName is the project name currently linked, or "" if none.
+func NewBoardProjectPickerModel(currentProjectName string, allProjects []ProjectPickerItem) ProjectPickerModel {
+	selected := make(map[string]bool)
+	if currentProjectName != "" {
+		selected[currentProjectName] = true
+	}
+
+	names := make([]string, len(allProjects))
+	depths := make(map[string]int, len(allProjects))
+	for i, item := range allProjects {
+		names[i] = item.Name
+		depths[item.Name] = item.Depth
+	}
+
+	config := MultiSelectPickerConfig{
+		Title:            "Link Board to Project",
+		ItemTypeSingular: "project",
+		SanitizeFunc:     sanitizeProject,
+		AllItems:         names,
+		SelectedItems:    selected,
+		ItemDepths:       depths,
+		SingleSelect:     true,
+	}
+
+	return ProjectPickerModel{
+		picker: NewMultiSelectPickerModel(config),
+	}
 }

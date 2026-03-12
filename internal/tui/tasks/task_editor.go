@@ -197,7 +197,9 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 func (m *TaskEditorModel) updateProjectPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var isDone bool
-	*m.projectPicker, cmd, isDone = m.projectPicker.Update(msg)
+	var cancelled bool
+	*m.projectPicker, cmd, isDone, cancelled = m.projectPicker.Update(msg)
+	_ = cancelled // projectpicker uses key-based save detection
 	if isDone {
 		m.task.Projects = m.projectPicker.GetSelectedProjects()
 		m.projectPicker = nil

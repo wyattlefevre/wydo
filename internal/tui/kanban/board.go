@@ -885,7 +885,9 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var isDone bool
 
-	*m.tagPicker, cmd, isDone = m.tagPicker.Update(msg)
+	var cancelled bool
+	*m.tagPicker, cmd, isDone, cancelled = m.tagPicker.Update(msg)
+	_ = cancelled // tagpicker uses key-based save detection
 
 	if isDone {
 		// Save tags if confirmed with enter
@@ -933,7 +935,9 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var isDone bool
 
-	*m.projectPicker, cmd, isDone = m.projectPicker.Update(msg)
+	var cancelled bool
+	*m.projectPicker, cmd, isDone, cancelled = m.projectPicker.Update(msg)
+	_ = cancelled // projectpicker uses key-based save detection
 
 	if isDone {
 		// Save projects if confirmed with enter
