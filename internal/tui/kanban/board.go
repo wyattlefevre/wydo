@@ -882,6 +882,9 @@ func (m BoardModel) handleNew() (BoardModel, tea.Cmd) {
 	m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
 	m.columnCursorPos[m.selectedCol] = m.selectedCard
 
+	// Apply board projects immediately so they appear in the editor
+	m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
+
 	// Open editor for the new card
 	return m, openEditor(m.board.Path, card.Filename)
 }
