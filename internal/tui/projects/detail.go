@@ -63,6 +63,7 @@ const (
 	detailModeURLEditor            // editing project URLs
 	detailModeURLPicker            // picking a URL to open
 	detailModeDateEditor           // editing project dates
+	detailModeChildPicker          // picking a child project to open
 )
 
 // DetailModel shows project details with notes, tasks, and cards in a
@@ -99,10 +100,11 @@ type DetailModel struct {
 	collapsedGroups [colCount]map[string]bool
 
 	// Modal state
-	mode       detailMode
-	urlEditor  *kanban.URLEditorModel
-	urlPicker  *projectURLPicker
-	dateEditor *DateEditorModel
+	mode        detailMode
+	urlEditor   *kanban.URLEditorModel
+	urlPicker   *projectURLPicker
+	dateEditor  *DateEditorModel
+	childPicker *detailChildPicker
 }
 
 // detailURLEntry is a URL with its owning project name.
@@ -130,6 +132,59 @@ type projectURLPicker struct {
 	cursor  int
 	width   int
 	height  int
+}
+
+// detailChildPicker is an inline picker for selecting a child project.
+type detailChildPicker struct {
+	entries []*workspace.Project
+	cursor  int
+	width   int
+	height  int
+}
+
+func (p detailChildPicker) Update(msg tea.KeyMsg) (detailChildPicker, *workspace.Project, bool) {
+	switch msg.String() {
+	case "j", "down":
+		if p.cursor < len(p.entries)-1 {
+			p.cursor++
+		}
+	case "k", "up":
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	case "enter":
+		if len(p.entries) > 0 && p.cursor < len(p.entries) {
+			return p, p.entries[p.cursor], true
+		}
+		return p, nil, true
+	case "esc":
+		return p, nil, true
+	}
+	return p, nil, false
+}
+
+func (p detailChildPicker) View() string {
+	var lines []string
+	lines = append(lines, titleStyle.Render("Switch to Child Project"))
+	lines = append(lines, "")
+
+	for i, proj := range p.entries {
+		style := listItemStyle
+		prefix := "  "
+		if i == p.cursor {
+			style = selectedDetailItemStyle
+			prefix = "> "
+		}
+		lines = append(lines, style.Render(prefix+proj.Name))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("4")).
+		Padding(1, 2).
+		Render(content)
+	return lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Center, box)
 }
 
 func (p projectURLPicker) Update(msg tea.KeyMsg) (projectURLPicker, string, bool) {
@@ -477,8 +532,10 @@ func (m DetailModel) HintText() string {
 		return "j/k:navigate  /: search  enter:open  esc:cancel"
 	case detailModeDateEditor:
 		return "n:add  d:delete  e:edit label  D:edit date  enter:save  esc:cancel"
+	case detailModeChildPicker:
+		return "j/k:navigate  enter:open  esc:cancel"
 	}
-	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  u:urls  d:dates  esc:back"
+	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  u:urls  d:dates  [:parent  ]:children  esc:back"
 }
 
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
@@ -491,6 +548,8 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 			return m.updateURLPicker(msg)
 		case detailModeDateEditor:
 			return m.updateDateEditor(msg)
+		case detailModeChildPicker:
+			return m.updateChildPicker(msg)
 		}
 		return m.handleKey(msg)
 	case noteEditorFinishedMsg:
@@ -587,6 +646,47 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			m.dateEditor = &editor
 			m.mode = detailModeDateEditor
 		}
+
+	case "[":
+		if m.project == nil || m.project.Parent == "" {
+			return m, nil
+		}
+		if m.registry == nil {
+			return m, nil
+		}
+		parent := m.registry.Get(m.project.Parent)
+		if parent == nil {
+			return m, nil
+		}
+		wsDir := m.wsDir
+		parentName := parent.Name
+		return m, func() tea.Msg {
+			return messages.OpenProjectMsg{
+				ProjectName:      parentName,
+				WorkspaceRootDir: wsDir,
+			}
+		}
+
+	case "]":
+		if m.registry == nil {
+			return m, nil
+		}
+		children := m.registry.ChildrenOf(m.name)
+		if len(children) == 0 {
+			return m, nil
+		}
+		sort.Slice(children, func(i, j int) bool {
+			return strings.ToLower(children[i].Name) < strings.ToLower(children[j].Name)
+		})
+		picker := detailChildPicker{
+			entries: children,
+			cursor:  0,
+			width:   m.width,
+			height:  m.height,
+		}
+		m.childPicker = &picker
+		m.mode = detailModeChildPicker
+		return m, nil
 
 	case "enter":
 		row := m.currentRow()
@@ -706,6 +806,29 @@ func (m DetailModel) updateDateEditor(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m DetailModel) updateChildPicker(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
+	if m.childPicker == nil {
+		m.mode = detailModeNormal
+		return m, nil
+	}
+	picker, selected, done := m.childPicker.Update(msg)
+	m.childPicker = &picker
+	if done {
+		m.mode = detailModeNormal
+		m.childPicker = nil
+		if selected != nil {
+			wsDir := m.wsDir
+			return m, func() tea.Msg {
+				return messages.OpenProjectMsg{
+					ProjectName:      selected.Name,
+					WorkspaceRootDir: wsDir,
+				}
+			}
+		}
+	}
+	return m, nil
+}
+
 func (m DetailModel) View() string {
 	if m.mode == detailModeURLEditor && m.urlEditor != nil {
 		return m.urlEditor.View()
@@ -715,6 +838,9 @@ func (m DetailModel) View() string {
 	}
 	if m.mode == detailModeDateEditor && m.dateEditor != nil {
 		return m.dateEditor.View()
+	}
+	if m.mode == detailModeChildPicker && m.childPicker != nil {
+		return m.childPicker.View()
 	}
 
 	var lines []string
