@@ -50,6 +50,58 @@ wydo -w ~/projects          # scan specific workspace directories
 | `?` | Help overlay |
 | `q` | Quit |
 
+## Claude Code Integration
+
+wydo can show a badge on kanban cards indicating whether a linked Claude Code session is running or waiting for input.
+
+### Hook Setup
+
+Add the following hooks to `~/.claude/settings.json` (create the file if it doesn't exist), replacing `/path/to/wydo` with the absolute path to your wydo install:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/wydo/scripts/claude-status.sh waiting"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/wydo/scripts/claude-status.sh running"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/wydo/scripts/claude-status.sh end"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook script requires tmux. It exits silently when `$TMUX` is not set, so it is safe to leave configured even when running Claude Code outside of tmux.
+
+Status files are written to `~/.config/wydo/claude-status/<tmux-session-name>` and cleaned up automatically on session end.
+
 ## CLI
 
 ```
