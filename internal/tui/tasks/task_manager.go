@@ -203,6 +203,11 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		}
 		return m.handlePickerResult(msg)
 	case TextInputResultMsg:
+		// If task editor has its own URL input, forward to it
+		if m.taskEditor != nil && m.taskEditor.urlInput != nil {
+			_, cmd := m.taskEditor.Update(msg)
+			return m, cmd
+		}
 		return m.handleTextInputResult(msg)
 	case TaskEditorResultMsg:
 		return m.handleEditorResult(msg)
