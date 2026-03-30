@@ -157,6 +157,8 @@ func renderDateTag(key, value string, done bool) string {
 		style = lipgloss.NewStyle().Foreground(theme.Success)
 	} else if daysUntil > 0 {
 		style = lipgloss.NewStyle().Foreground(theme.Warning)
+	} else if daysUntil == 0 {
+		style = lipgloss.NewStyle().Foreground(theme.Primary)
 	} else {
 		style = lipgloss.NewStyle().Foreground(theme.Danger)
 	}
