@@ -4,29 +4,28 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"wydo/internal/tui/shared"
 )
 
-// ProjectPickerItem represents a project with its nesting depth for display
+// ProjectPickerItem represents a project with its nesting depth for display.
 type ProjectPickerItem struct {
 	Name    string
 	Depth   int
 	DirPath string
 }
 
-// ProjectPickerModel is a fuzzy-searchable multi-select project picker
+// ProjectPickerModel is a fuzzy-searchable multi-select project picker.
 type ProjectPickerModel struct {
-	picker MultiSelectPickerModel
+	picker shared.ListPickerModel
 }
 
-// NewProjectPickerModel creates a new project picker with current card projects and all available projects
+// NewProjectPickerModel creates a new project picker with current card projects and all available projects.
 func NewProjectPickerModel(currentProjects []string, allProjects []ProjectPickerItem) ProjectPickerModel {
-	// Build selected projects set
-	selected := make(map[string]bool)
+	selected := make(map[string]bool, len(currentProjects))
 	for _, project := range currentProjects {
 		selected[project] = true
 	}
 
-	// Build flat name list and depth map
 	names := make([]string, len(allProjects))
 	depths := make(map[string]int, len(allProjects))
 	for i, item := range allProjects {
@@ -34,61 +33,44 @@ func NewProjectPickerModel(currentProjects []string, allProjects []ProjectPicker
 		depths[item.Name] = item.Depth
 	}
 
-	config := MultiSelectPickerConfig{
-		Title:            "Edit Projects",
-		ItemTypeSingular: "project",
-		SanitizeFunc:     sanitizeProject,
-		AllItems:         names,
-		SelectedItems:    selected,
-		ItemDepths:       depths,
-	}
-
 	return ProjectPickerModel{
-		picker: NewMultiSelectPickerModel(config),
+		picker: shared.NewListPickerModel(shared.ListPickerConfig{
+			Title:            "Edit Projects",
+			ItemTypeSingular: "project",
+			AllItems:         names,
+			PreSelectedItems: selected,
+			ItemDepths:       depths,
+			MultiSelect:      true,
+			AllowCreate:      false,
+		}),
 	}
 }
 
-// Init initializes the project picker
+// Init initializes the project picker.
 func (m ProjectPickerModel) Init() tea.Cmd {
 	return m.picker.Init()
 }
 
-// Update handles project picker events
-// Returns (model, cmd, isDone, cancelled)
+// Update handles project picker events.
+// Returns (model, cmd, isDone, cancelled).
 func (m ProjectPickerModel) Update(msg tea.Msg) (ProjectPickerModel, tea.Cmd, bool, bool) {
 	picker, cmd, isDone, cancelled := m.picker.Update(msg)
 	m.picker = picker
 	return m, cmd, isDone, cancelled
 }
 
-// View renders the project picker
+// View renders the project picker.
 func (m ProjectPickerModel) View() string {
 	return m.picker.View()
 }
 
-// sanitizeProject cleans and normalizes a project string
-func sanitizeProject(project string) string {
-	// Trim spaces and convert to lowercase
-	cleaned := strings.ToLower(strings.TrimSpace(project))
-
-	// Remove special characters except hyphens and underscores
-	var result strings.Builder
-	for _, r := range cleaned {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			result.WriteRune(r)
-		}
-	}
-
-	return result.String()
-}
-
-// GetSelectedProjects returns the final list of selected projects
+// GetSelectedProjects returns the final list of selected projects.
 func (m ProjectPickerModel) GetSelectedProjects() []string {
 	return m.picker.GetSelectedItems()
 }
 
-// NewBoardProjectPickerModel creates a single-select project picker for linking a board
-// to a project. currentProjectName is the project name currently linked, or "" if none.
+// NewBoardProjectPickerModel creates a single-select project picker for linking a board to a project.
+// currentProjectName is the project currently linked, or "" if none.
 func NewBoardProjectPickerModel(currentProjectName string, allProjects []ProjectPickerItem) ProjectPickerModel {
 	selected := make(map[string]bool)
 	if currentProjectName != "" {
@@ -102,17 +84,27 @@ func NewBoardProjectPickerModel(currentProjectName string, allProjects []Project
 		depths[item.Name] = item.Depth
 	}
 
-	config := MultiSelectPickerConfig{
-		Title:            "Link Board to Project",
-		ItemTypeSingular: "project",
-		SanitizeFunc:     sanitizeProject,
-		AllItems:         names,
-		SelectedItems:    selected,
-		ItemDepths:       depths,
-		SingleSelect:     true,
-	}
-
 	return ProjectPickerModel{
-		picker: NewMultiSelectPickerModel(config),
+		picker: shared.NewListPickerModel(shared.ListPickerConfig{
+			Title:            "Link Board to Project",
+			ItemTypeSingular: "project",
+			AllItems:         names,
+			PreSelectedItems: selected,
+			ItemDepths:       depths,
+			MultiSelect:      false,
+			AllowCreate:      false,
+		}),
 	}
+}
+
+// sanitizeProject cleans and normalizes a project string.
+func sanitizeProject(project string) string {
+	cleaned := strings.ToLower(strings.TrimSpace(project))
+	var result strings.Builder
+	for _, r := range cleaned {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
 }

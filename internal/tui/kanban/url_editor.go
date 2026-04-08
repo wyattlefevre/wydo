@@ -354,9 +354,9 @@ func (m URLEditorModel) View() string {
 			}
 			var line string
 			if i == m.projectCursor {
-				line = selectedListItemStyle.Render(prefix + name)
+				line = theme.ListItemSelected.Render(prefix + name)
 			} else {
-				line = listItemStyle.Render(prefix + name)
+				line = theme.ListItem.Render(prefix + name)
 			}
 			s.WriteString(line)
 			s.WriteString("\n")
@@ -430,9 +430,9 @@ func (m URLEditorModel) View() string {
 					}
 					line = bgStyle.Render(prefix) + labelStyle.Render(label) + bgStyle.Render(" ") + urlStyle.Render(urlStr)
 				} else {
-					style := listItemStyle
+					style := theme.ListItem
 					if i == m.cursor {
-						style = selectedListItemStyle
+						style = theme.ListItemSelected
 					}
 					urlStr := u.URL
 					remaining := maxWidth - len(prefix)

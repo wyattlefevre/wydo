@@ -9,16 +9,6 @@ var (
 	// Title
 	titleStyle = theme.Title.Padding(0, 1)
 
-	// List items
-	listItemStyle = lipgloss.NewStyle().
-			Foreground(theme.Text).
-			Padding(0, 2)
-
-	selectedListItemStyle = lipgloss.NewStyle().
-				Foreground(theme.Warning).
-				Bold(true).
-				Padding(0, 2)
-
 	// Muted / path
 	pathStyle = theme.Muted
 

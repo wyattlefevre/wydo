@@ -8,6 +8,8 @@ import (
 	"wydo/internal/kanban/models"
 	"wydo/internal/kanban/operations"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -90,6 +92,109 @@ func (m PickerModel) HintText() string {
 	default:
 		return "j/k:navigate  /:search  enter:select  n:new board  r:rename  ?:help  q:quit"
 	}
+}
+
+// ShouldFocusBoard returns true when pressing esc would return focus to the board
+// (i.e. we are in list mode with no pending search query to clear).
+func (m PickerModel) ShouldFocusBoard() bool {
+	return m.mode == modeList && m.searchQuery == ""
+}
+
+// viewSidebar renders a compact fixed-width sidebar for use inside CombinedModel.
+func (m PickerModel) viewSidebar(height int, activeBoardPath string, focused bool) string {
+	nameWidth := sidebarWidth
+
+	var lines []string
+
+	switch m.mode {
+	case modeSearch:
+		query := m.textInput.Value()
+		searchLine := "/ " + query
+		searchLine = shared.TruncateString(searchLine, sidebarWidth)
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.Warning).Width(sidebarWidth).Render(searchLine))
+		lines = append(lines, "")
+
+	case modeCreate:
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(sidebarWidth).Render("Boards"))
+		lines = append(lines, "")
+		inputLine := "New: " + m.textInput.Value()
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.Success).Width(sidebarWidth).Render(inputLine))
+		lines = append(lines, "")
+
+	case modeRename:
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(sidebarWidth).Render("Boards"))
+		lines = append(lines, "")
+		inputLine := "Rename: " + m.textInput.Value()
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.Warning).Width(sidebarWidth).Render(inputLine))
+		lines = append(lines, "")
+
+	case modeSelectDir:
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(sidebarWidth).Render("Select Dir"))
+		lines = append(lines, "")
+		for i, dir := range m.availableDirs {
+			displayDir := shared.TruncateString(abbreviatePath(dir), nameWidth)
+			var style lipgloss.Style
+			if i == m.selectedDirIdx && focused {
+				style = lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)
+			} else {
+				style = lipgloss.NewStyle().Foreground(theme.Text)
+			}
+			lines = append(lines, lipgloss.NewStyle().Width(sidebarWidth).Render(style.Render(displayDir)))
+		}
+
+	default: // modeList
+		var titleSty lipgloss.Style
+		if focused {
+			titleSty = lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(sidebarWidth)
+		} else {
+			titleSty = lipgloss.NewStyle().Foreground(theme.TextMuted).Width(sidebarWidth)
+		}
+		lines = append(lines, titleSty.Render("Boards"))
+
+		if m.searchQuery != "" {
+			filterLine := "/ " + m.searchQuery
+			lines = append(lines, lipgloss.NewStyle().Foreground(theme.Warning).Width(sidebarWidth).Render(filterLine))
+		}
+		lines = append(lines, "")
+	}
+
+	// Board list (shown in modeList and modeSearch)
+	if m.mode == modeList || m.mode == modeSearch {
+		for i, idx := range m.filtered {
+			board := m.boards[idx]
+			isSelected := i == m.selected && focused
+			isActive := board.Path == activeBoardPath
+
+			name := shared.TruncateString(board.Name, nameWidth)
+
+			var nameSty lipgloss.Style
+			switch {
+			case isSelected:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)
+			case isActive && focused:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+			case isActive:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Primary)
+			case !focused:
+				nameSty = lipgloss.NewStyle().Foreground(theme.TextMuted)
+			default:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Text)
+			}
+
+			lines = append(lines, lipgloss.NewStyle().Width(sidebarWidth).Render(nameSty.Render(name)))
+		}
+	}
+
+	// Constrain to height, padding with blank lines as needed
+	blankLine := lipgloss.NewStyle().Width(sidebarWidth).Render("")
+	for len(lines) < height {
+		lines = append(lines, blankLine)
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // SetBoards updates the boards list
@@ -391,17 +496,17 @@ func (m PickerModel) viewSearch() string {
 		show := min(8, len(m.filtered))
 		for i := 0; i < show; i++ {
 			board := m.boards[m.filtered[i]]
-			prefix := "  "
+			style := theme.ListItem
 			if i == m.selected {
-				prefix = "► "
+				style = theme.ListItemSelected
 			}
-			lines = append(lines, listItemStyle.Render(prefix+board.Name))
+			lines = append(lines, style.Render(board.Name))
 		}
 		if len(m.filtered) > show {
 			lines = append(lines, pathStyle.Render(fmt.Sprintf("  ... %d more", len(m.filtered)-show)))
 		}
 	} else {
-		lines = append(lines, listItemStyle.Render("  No matches"))
+		lines = append(lines, theme.ListItem.Render("  No matches"))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -422,9 +527,9 @@ func (m PickerModel) viewList() string {
 
 	if len(m.filtered) == 0 {
 		if len(m.boards) == 0 {
-			lines = append(lines, listItemStyle.Render("No boards found. Press 'n' to create one."))
+			lines = append(lines, theme.ListItem.Render("No boards found. Press 'n' to create one."))
 		} else {
-			lines = append(lines, listItemStyle.Render("No matching boards."))
+			lines = append(lines, theme.ListItem.Render("No matching boards."))
 		}
 		lines = append(lines, "")
 	} else {
@@ -432,7 +537,7 @@ func (m PickerModel) viewList() string {
 		maxNameWidth := 0
 		for _, idx := range m.filtered {
 			board := m.boards[idx]
-			width := lipgloss.Width(listItemStyle.Render("► " + board.Name))
+			width := lipgloss.Width(theme.ListItem.Render(board.Name))
 			if width > maxNameWidth {
 				maxNameWidth = width
 			}
@@ -441,13 +546,11 @@ func (m PickerModel) viewList() string {
 		// List filtered boards
 		for i, idx := range m.filtered {
 			board := m.boards[idx]
-			style := listItemStyle
-			prefix := "  "
+			style := theme.ListItem
 			if i == m.selected {
-				style = selectedListItemStyle
-				prefix = "► "
+				style = theme.ListItemSelected
 			}
-			nameCol := style.Width(maxNameWidth).Render(prefix + board.Name)
+			nameCol := style.Width(maxNameWidth).Render(board.Name)
 			parentDir := filepath.Dir(board.Path)
 			displayPath := abbreviatePath(parentDir)
 			var suffix string
@@ -477,14 +580,12 @@ func (m PickerModel) viewSelectDir() string {
 	lines = append(lines, "")
 
 	for i, dir := range m.availableDirs {
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.selectedDirIdx {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
 		displayPath := abbreviatePath(dir)
-		lines = append(lines, style.Render(prefix+displayPath))
+		lines = append(lines, style.Render(displayPath))
 	}
 	lines = append(lines, "")
 

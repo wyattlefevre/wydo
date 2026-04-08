@@ -10,6 +10,8 @@ import (
 
 	"wydo/internal/workspace"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -136,6 +138,112 @@ func (m *ProjectsModel) SetSize(w, h int) {
 func (m ProjectsModel) IsTyping() bool {
 	return m.mode == modeSearch || m.mode == modeCreate || m.mode == modeRename ||
 		m.mode == modeArchiveConfirm || m.mode == modeDeleteVirtual
+}
+
+// ShouldFocusDetail returns true when pressing esc should return focus to the
+// detail panel (i.e. we are in list mode with no pending search to clear).
+func (m ProjectsModel) ShouldFocusDetail() bool {
+	return m.mode == modeList && m.searchQuery == ""
+}
+
+// viewSidebar renders a compact fixed-width sidebar for use inside CombinedModel.
+func (m ProjectsModel) viewSidebar(height int, activeProjectName string, focused bool) string {
+	const nameWidth = projectSidebarWidth
+
+	var lines []string
+
+	switch m.mode {
+	case modeSearch:
+		query := m.textInput.Value()
+		searchLine := shared.TruncateString("/ "+query, projectSidebarWidth)
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.Warning).Width(projectSidebarWidth).Render(searchLine))
+		lines = append(lines, "")
+
+	case modeCreate:
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(projectSidebarWidth).Render("Projects"))
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.Success).Width(projectSidebarWidth).Render("New: "+m.textInput.Value()))
+		lines = append(lines, "")
+
+	case modeRename:
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(projectSidebarWidth).Render("Projects"))
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.Warning).Width(projectSidebarWidth).Render("Rename: "+m.textInput.Value()))
+		lines = append(lines, "")
+
+	default: // modeList and others
+		var titleSty lipgloss.Style
+		if focused {
+			titleSty = lipgloss.NewStyle().Bold(true).Foreground(theme.Primary).Width(projectSidebarWidth)
+		} else {
+			titleSty = lipgloss.NewStyle().Foreground(theme.TextMuted).Width(projectSidebarWidth)
+		}
+		lines = append(lines, titleSty.Render("Projects"))
+
+		if m.searchQuery != "" {
+			lines = append(lines, lipgloss.NewStyle().Foreground(theme.Warning).Width(projectSidebarWidth).Render(shared.TruncateString("/ "+m.searchQuery, projectSidebarWidth)))
+		}
+		lines = append(lines, "")
+	}
+
+	// Project list (shown in modeList and modeSearch)
+	if m.mode == modeList || m.mode == modeSearch {
+		for i, idx := range m.filtered {
+			entry := m.entries[idx]
+			if entry.Project == nil {
+				continue
+			}
+
+			isSelected := i == m.selected && focused
+			isActive := entry.Project.Name == activeProjectName
+
+			// Indent depth, consuming from available name width
+			indent := strings.Repeat(" ", entry.Depth*2)
+
+			// Children indicator: ▼ expanded, ▶ collapsed, empty for leaves
+			var childIndicator string
+			if m.hasChildren(entry) {
+				if m.isExpanded(entry.Project.Name) {
+					childIndicator = "▼ "
+				} else {
+					childIndicator = "▶ "
+				}
+			}
+
+			availWidth := nameWidth - entry.Depth*2 - len([]rune(childIndicator))
+			if availWidth < 4 {
+				availWidth = 4
+			}
+			name := shared.TruncateString(entry.Project.Name, availWidth)
+
+			var nameSty lipgloss.Style
+			switch {
+			case isSelected:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)
+			case isActive && focused:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+			case isActive:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Primary)
+			case !focused:
+				nameSty = lipgloss.NewStyle().Foreground(theme.TextMuted)
+			default:
+				nameSty = lipgloss.NewStyle().Foreground(theme.Text)
+			}
+
+			lines = append(lines, lipgloss.NewStyle().Width(projectSidebarWidth).Render(indent+childIndicator+nameSty.Render(name)))
+		}
+	}
+
+	// Pad / clamp to height
+	blankLine := lipgloss.NewStyle().Width(projectSidebarWidth).Render("")
+	for len(lines) < height {
+		lines = append(lines, blankLine)
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // HintText returns the raw hint string for the current projects mode.
@@ -760,7 +868,7 @@ func (m ProjectsModel) viewRename() string {
 	lines = append(lines, titleStyle.Render("Rename Project"))
 	lines = append(lines, "")
 	if m.renameEntry != nil {
-		lines = append(lines, listItemStyle.Render("Current: "+m.renameEntry.Project.Name))
+		lines = append(lines, theme.ListItem.Render("Current: "+m.renameEntry.Project.Name))
 		lines = append(lines, "")
 	}
 	lines = append(lines, "  "+m.textInput.View())
@@ -813,9 +921,9 @@ func (m ProjectsModel) viewList() string {
 
 	if len(m.filtered) == 0 {
 		if len(m.entries) == 0 {
-			lines = append(lines, listItemStyle.Render("No projects found. Press 'n' to create one."))
+			lines = append(lines, theme.ListItem.Render("No projects found. Press 'n' to create one."))
 		} else {
-			lines = append(lines, listItemStyle.Render("No matching projects."))
+			lines = append(lines, theme.ListItem.Render("No matching projects."))
 		}
 		lines = append(lines, "")
 	} else {
@@ -835,11 +943,9 @@ func (m ProjectsModel) viewList() string {
 
 		for i := startIdx; i < endIdx; i++ {
 			entry := m.entries[m.filtered[i]]
-			style := listItemStyle
-			cursorPrefix := "  "
+			style := theme.ListItem
 			if i == m.selected {
-				style = selectedListItemStyle
-				cursorPrefix = "► "
+				style = theme.ListItemSelected
 			}
 
 			// Tree indentation
@@ -868,7 +974,7 @@ func (m ProjectsModel) viewList() string {
 				badgeSuffix += " " + pathStyle.Render(abbreviatePath(entry.RootDir))
 			}
 
-			nameLine := style.Render(cursorPrefix+indent+treePrefix+name) + badgeSuffix
+			nameLine := style.Render(indent+treePrefix+name) + badgeSuffix
 
 			if nextDate := nextUpcomingDateInSubtree(entry.Project.Name, entry.Registry); nextDate != nil {
 				dateLabel := nextDate.Label
@@ -912,21 +1018,21 @@ func (m ProjectsModel) viewSearch() string {
 		show := min(8, len(m.filtered))
 		for i := 0; i < show; i++ {
 			entry := m.entries[m.filtered[i]]
-			prefix := "  "
+			style := theme.ListItem
 			if i == m.selected {
-				prefix = "► "
+				style = theme.ListItemSelected
 			}
 			name := entry.Project.Name
 			if entry.Project.DirPath == "" {
 				name += " " + virtualBadgeStyle.Render("(virtual)")
 			}
-			lines = append(lines, listItemStyle.Render(prefix+name))
+			lines = append(lines, style.Render(name))
 		}
 		if len(m.filtered) > show {
 			lines = append(lines, pathStyle.Render(fmt.Sprintf("  ... %d more", len(m.filtered)-show)))
 		}
 	} else {
-		lines = append(lines, listItemStyle.Render("  No matches"))
+		lines = append(lines, theme.ListItem.Render("  No matches"))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -939,13 +1045,11 @@ func (m ProjectsModel) viewSelectWorkspace() string {
 	lines = append(lines, "")
 
 	for i, ws := range m.workspaces {
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.selectedWSIdx {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
-		lines = append(lines, style.Render(prefix+abbreviatePath(ws.RootDir)))
+		lines = append(lines, style.Render(abbreviatePath(ws.RootDir)))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
@@ -957,13 +1061,11 @@ func (m ProjectsModel) viewSelectDir() string {
 	lines = append(lines, "")
 
 	for i, dir := range m.createDirs {
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.selectedDirIdx {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
-		lines = append(lines, style.Render(prefix+abbreviatePath(dir)))
+		lines = append(lines, style.Render(abbreviatePath(dir)))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
@@ -993,7 +1095,7 @@ func (m ProjectsModel) viewScaffoldConfirm() string {
 	}
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("Scaffold project directory for %q?", name)))
 	lines = append(lines, "")
-	lines = append(lines, listItemStyle.Render("Will create:"))
+	lines = append(lines, theme.ListItem.Render("Will create:"))
 	targetDir := m.scaffoldTargetDir
 	if targetDir == "" {
 		targetDir = "~/projects"
@@ -1006,7 +1108,7 @@ func (m ProjectsModel) viewScaffoldConfirm() string {
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, listItemStyle.Render("[y] Create   [n/esc] Cancel"))
+	lines = append(lines, theme.ListItem.Render("[y] Create   [n/esc] Cancel"))
 
 	if m.err != nil {
 		lines = append(lines, "")
@@ -1137,13 +1239,13 @@ func (m ProjectsModel) viewDeleteVirtual() string {
 	var lines []string
 	lines = append(lines, titleStyle.Render("Delete Virtual Project"))
 	lines = append(lines, "")
-	lines = append(lines, listItemStyle.Render(fmt.Sprintf("Delete %q?", name)))
-	lines = append(lines, listItemStyle.Render(fmt.Sprintf(
+	lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Delete %q?", name)))
+	lines = append(lines, theme.ListItem.Render(fmt.Sprintf(
 		"Will remove from %d %s and %d %s.",
 		m.deleteTaskCount, taskWord, m.deleteCardCount, cardWord,
 	)))
 	lines = append(lines, "")
-	lines = append(lines, listItemStyle.Render("[y] Delete   [n/esc] Cancel"))
+	lines = append(lines, theme.ListItem.Render("[y] Delete   [n/esc] Cancel"))
 	if m.err != nil {
 		lines = append(lines, "")
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
@@ -1161,9 +1263,9 @@ func (m ProjectsModel) viewArchiveConfirm() string {
 	var lines []string
 	lines = append(lines, titleStyle.Render("Archive Project"))
 	lines = append(lines, "")
-	lines = append(lines, listItemStyle.Render(fmt.Sprintf("Archive %q?", name)))
+	lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Archive %q?", name)))
 	lines = append(lines, "")
-	lines = append(lines, listItemStyle.Render("[y] Archive   [n/esc] Cancel"))
+	lines = append(lines, theme.ListItem.Render("[y] Archive   [n/esc] Cancel"))
 	if m.err != nil {
 		lines = append(lines, "")
 		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
@@ -1340,13 +1442,11 @@ func (m ProjectsModel) viewSetParent() string {
 
 	for i := startIdx; i < endIdx; i++ {
 		opt := m.parentOptions[i]
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.parentOptCursor {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
-		lines = append(lines, style.Render(prefix+opt.label))
+		lines = append(lines, style.Render(opt.label))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)

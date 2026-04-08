@@ -167,9 +167,9 @@ func (m URLPickerModel) View() string {
 				}
 				line = bgStyle.Render(prefix) + labelStyle.Render(u.Label) + bgStyle.Render(" ") + urlStyle.Render(urlStr)
 			} else {
-				style := listItemStyle
+				style := theme.ListItem
 				if i == m.cursor {
-					style = selectedListItemStyle
+					style = theme.ListItemSelected
 				}
 				urlStr := u.URL
 				remaining := maxWidth - len(prefix)

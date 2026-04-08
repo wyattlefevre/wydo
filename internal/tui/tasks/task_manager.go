@@ -13,6 +13,7 @@ import (
 	"wydo/internal/logs"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tasks/service"
+	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
 	"wydo/internal/tui/theme"
 	kanbanview "wydo/internal/tui/kanban"
@@ -222,7 +223,7 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 	case ArchiveCompleteMsg:
 		m.confirmationModal = nil
 		m.loadTasks()
-		return m, tea.Printf("Archived %d tasks to done.txt", msg.Count)
+		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks to done.txt", msg.Count), messages.LevelSuccess)
 	}
 
 	// Handle inline search mode (before other sub-components)
@@ -1116,7 +1117,7 @@ func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
 	}
 
 	if count == 0 {
-		return m, tea.Printf("No completed tasks to archive")
+		return m, messages.StatusCmd("No completed tasks to archive", messages.LevelWarning)
 	}
 
 	// Show confirmation modal
@@ -1153,10 +1154,10 @@ func (m TaskManagerModel) startMoveToBoard() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 	if task.Done {
-		return m, tea.Printf("Cannot move completed tasks to a board")
+		return m, messages.StatusCmd("Cannot move completed tasks to a board", messages.LevelWarning)
 	}
 	if len(m.boards) == 0 {
-		return m, tea.Printf("No boards available")
+		return m, messages.StatusCmd("No boards available", messages.LevelWarning)
 	}
 
 	// Single board — skip picker

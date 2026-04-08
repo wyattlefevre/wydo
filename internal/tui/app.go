@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"wydo/internal/tasks/service"
 	agendaview "wydo/internal/tui/agenda"
 	kanbanview "wydo/internal/tui/kanban"
+	"wydo/internal/tui/messages"
 	notesview "wydo/internal/tui/notes"
 	projectsview "wydo/internal/tui/projects"
 	"wydo/internal/tui/shared"
@@ -43,19 +45,18 @@ type AppModel struct {
 	dayView        agendaview.DayModel
 	weekView    agendaview.WeekModel
 	monthView   agendaview.MonthModel
-	pickerView  kanbanview.PickerModel
-	boardView   kanbanview.BoardModel
-	boardLoaded bool // true when boardView has a valid board
+	kanbanView kanbanview.CombinedModel
 	taskManagerView     taskview.TaskManagerModel
-	projectsView        projectsview.ProjectsModel
-	projectDetailView   projectsview.DetailModel
-	projectDetailLoaded bool
+	projectsView projectsview.CombinedModel
 	notesView           notesview.NotesModel
 	showHelp       bool
 	exitConfirming bool
 	width          int
 	height         int
 	ready          bool
+	statusMessage string
+	statusLevel   StatusLevel
+	statusExpiry  time.Time
 }
 
 // NewAppModel creates the root application model
@@ -127,20 +128,18 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		dayView:         agendaview.NewDayModel(taskSvc, allBoards, allNotes, projDates),
 		weekView:        agendaview.NewWeekModel(taskSvc, allBoards, allNotes, projDates),
 		monthView:       agendaview.NewMonthModel(taskSvc, allBoards, allNotes, projDates),
-		pickerView:      kanbanview.NewPickerModel(allBoards, defaultDir, availableDirs),
+		kanbanView:      kanbanview.NewCombinedModel(allBoards, defaultDir, availableDirs),
 		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards, collectAllProjects(workspaces)),
-		projectsView:    projectsview.NewProjectsModel(workspaces),
+		projectsView:    projectsview.NewCombinedModel(workspaces),
 		notesView:       notesview.NewNotesModel(workspaces),
 	}
 
 	// If a specific board was requested, find and open it directly
 	if cfg.DefaultBoard != "" {
 		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
-			loaded, err := fs.ReadBoard(board.Path)
-			if err == nil {
-				app.boardView = kanbanview.NewBoardModel(loaded, collectAllProjects(workspaces), allBoards, projectsForBoard(workspaces, board.Path))
-				app.boardLoaded = true
-				app.currentView = ViewKanbanBoard
+			if loaded, err := fs.ReadBoard(board.Path); err == nil {
+				app.kanbanView.LoadBoard(loaded, collectAllProjects(workspaces), allBoards, projectsForBoard(workspaces, board.Path))
+				app.currentView = ViewKanbanPicker
 			}
 		}
 	}
@@ -149,53 +148,58 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 }
 
 func (m AppModel) Init() tea.Cmd {
-	if m.boardLoaded {
-		return m.boardView.Init()
-	}
-	return nil
+	return m.kanbanView.Init()
+}
+
+// setStatus sets a transient status message in the tab bar and returns an auto-clear timer.
+func (m *AppModel) setStatus(text string, level StatusLevel) tea.Cmd {
+	m.statusMessage = text
+	m.statusLevel = level
+	m.statusExpiry = time.Now().Add(4 * time.Second)
+	return messages.ClearStatusAfter(4 * time.Second)
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case StatusMsg:
+		return m, m.setStatus(msg.Text, msg.Level)
+
+	case ClearStatusMsg:
+		if time.Now().After(m.statusExpiry) {
+			m.statusMessage = ""
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		contentHeight := msg.Height - 4 // 2 for tab bar + 2 for hint bar
+		contentHeight := msg.Height - 2 // 2 for tab bar
 		contentWidth := min(msg.Width, maxContentWidth)
 		m.dayView.SetSize(contentWidth, contentHeight)
 		m.weekView.SetSize(contentWidth, contentHeight)
 		m.monthView.SetSize(contentWidth, contentHeight)
-		m.pickerView.SetSize(msg.Width, contentHeight)
-		if m.boardLoaded {
-			m.boardView.SetSize(msg.Width, contentHeight)
-		}
+		m.kanbanView.SetSize(msg.Width, contentHeight)
 		m.taskManagerView.SetSize(contentWidth, contentHeight)
 		m.projectsView.SetSize(msg.Width, contentHeight)
-		if m.projectDetailLoaded {
-			m.projectDetailView.SetSize(msg.Width, contentHeight)
-		}
 		m.notesView.SetSize(msg.Width, contentHeight)
 		return m, nil
 
 	case OpenBoardMsg:
-		// Load the board and switch to board view
+		// Load the board into the combined view
 		board, err := fs.ReadBoard(msg.BoardPath)
 		if err != nil {
-			// Stay on current view if board can't be loaded
 			return m, nil
 		}
-		m.boardView = kanbanview.NewBoardModel(board, collectAllProjects(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
-		m.boardView.SetSize(m.width, m.height-4)
+		m.kanbanView.LoadBoard(board, collectAllProjects(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
-			m.boardView.NavigateTo(msg.ColIndex, msg.CardIndex)
+			m.kanbanView.NavigateTo(msg.ColIndex, msg.CardIndex)
 		}
-		m.boardLoaded = true
-		m.currentView = ViewKanbanBoard
-		return m, m.boardView.Init()
+		m.currentView = ViewKanbanPicker
+		return m, m.kanbanView.Init()
 
 	case OpenProjectMsg:
-		// Find workspace by RootDir
+		// Find workspace by RootDir, build detail model, load into combined view
 		for _, ws := range m.workspaces {
 			if ws.RootDir == msg.WorkspaceRootDir {
 				proj := ws.Projects.Get(msg.ProjectName)
@@ -210,15 +214,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				allProjectItems := collectAllProjects(m.workspaces)
 				allContexts := taskview.ExtractUniqueContexts(ws.Tasks)
-				m.projectDetailView = projectsview.NewDetailModel(
+				detail := projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
 					projNotes, projTasks, projCards, projBoards, ws.Boards,
 					proj, ws.Projects, children, indexPreview, ws.Tasks, ws.Notes,
 					allProjectItems, allContexts,
 				)
-				m.projectDetailView.SetSize(m.width, m.height-4)
-				m.projectDetailLoaded = true
-				m.currentView = ViewProjectDetail
+				m.projectsView.LoadDetail(detail)
+				m.currentView = ViewProjects
 				break
 			}
 		}
@@ -242,7 +245,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 		case ViewKanbanPicker:
 			m.refreshData()
-			m.pickerView.SetBoards(m.boards)
+			m.kanbanView.SetBoards(m.boards)
 		case ViewProjects:
 			m.refreshData()
 			m.projectsView.SetData(m.workspaces)
@@ -283,7 +286,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Load the board fresh from disk
 		board, err := fs.ReadBoard(msg.BoardPath)
 		if err != nil {
-			return m, tea.Printf("Error loading board: %v", err)
+			return m, m.setStatus(fmt.Sprintf("Error loading board: %v", err), LevelError)
 		}
 
 		// Parse dates from task tags
@@ -319,18 +322,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Create the card
 		_, err = operations.CreateCardFromTask(&board, msg.Task.Name, projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
 		if err != nil {
-			return m, tea.Printf("Error creating card: %v", err)
+			return m, m.setStatus(fmt.Sprintf("Error creating card: %v", err), LevelError)
 		}
 
 		// Delete the task (prefer duplication over data loss — card already created)
 		if err := m.taskSvc.Delete(msg.Task.ID); err != nil {
 			logs.Logger.Printf("Warning: card created but task deletion failed: %v", err)
 			m.taskManagerView.SetData(m.taskSvc)
-			return m, tea.Printf("Card created but could not delete task: %v", err)
+			return m, m.setStatus(fmt.Sprintf("Card created but could not delete task: %v", err), LevelWarning)
 		}
 
 		m.taskManagerView.SetData(m.taskSvc)
-		return m, tea.Printf("Moved \"%s\" to board \"%s\"", msg.Task.Name, board.Name)
+		return m, m.setStatus(fmt.Sprintf("Moved \"%s\" to board \"%s\"", msg.Task.Name, board.Name), LevelSuccess)
 
 	case taskview.ArchiveRequestMsg:
 		// Archive completed tasks
@@ -364,7 +367,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshData()
 		// Push fresh data into every loaded model, not just the active view.
 		projDates := collectProjectDates(m.workspaces)
-		m.pickerView.SetBoards(m.boards)
+		m.kanbanView.SetBoards(m.boards)
 		m.taskManagerView.SetData(m.taskSvc)
 		m.taskManagerView.SetBoards(m.boards)
 		m.projectsView.SetData(m.workspaces)
@@ -372,17 +375,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
-		if m.boardLoaded {
-			if board, err := fs.ReadBoard(m.boardView.BoardPath()); err == nil {
-				m.boardView.SetBoard(board)
+		if boardPath := m.kanbanView.BoardPath(); boardPath != "" {
+			if board, err := fs.ReadBoard(boardPath); err == nil {
+				m.kanbanView.SetBoard(board)
 			} else {
 				logs.Logger.Printf("DataRefreshMsg: failed to reload board: %v", err)
 			}
-			m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
-			m.boardView.SetBoardProjects(projectsForBoard(m.workspaces, m.boardView.BoardPath()))
+			m.kanbanView.SetAllProjects(collectAllProjects(m.workspaces))
+			m.kanbanView.SetBoardProjects(projectsForBoard(m.workspaces, boardPath))
 		}
-		if m.projectDetailLoaded && m.currentView == ViewProjectDetail {
-			projName, wsDir := m.projectDetailView.OpenInfo()
+		if projName := m.projectsView.ActiveProjectName(); projName != "" && m.currentView == ViewProjects {
+			_, wsDir := m.projectsView.OpenInfo()
 			return m, func() tea.Msg {
 				return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
 			}
@@ -428,31 +431,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "P":
 				m.refreshData()
-				if m.projectDetailLoaded {
-					m.currentView = ViewProjectDetail
-					projName, wsDir := m.projectDetailView.OpenInfo()
-					return m, func() tea.Msg {
-						return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
-					}
-				} else {
-					m.currentView = ViewProjects
-					m.projectsView.SetData(m.workspaces)
+				m.currentView = ViewProjects
+				m.projectsView.SetData(m.workspaces)
+				if projName := m.projectsView.ActiveProjectName(); projName != "" {
+					m.projectsView.FocusDetail()
 				}
 				return m, nil
 			case "B":
 				m.refreshData()
-				if m.boardLoaded {
-					m.currentView = ViewKanbanBoard
-					m.boardView.SetSize(m.width, m.height-4)
-					if board, err := fs.ReadBoard(m.boardView.BoardPath()); err == nil {
-						m.boardView.SetBoard(board)
+				m.currentView = ViewKanbanPicker
+				m.kanbanView.SetBoards(m.boards)
+				if boardPath := m.kanbanView.BoardPath(); boardPath != "" {
+					if board, err := fs.ReadBoard(boardPath); err == nil {
+						m.kanbanView.SetBoard(board)
 					} else {
 						logs.Logger.Printf("B key: failed to reload board: %v", err)
 					}
-					m.boardView.SetAllProjects(collectAllProjects(m.workspaces))
-				} else {
-					m.currentView = ViewKanbanPicker
-					m.pickerView.SetBoards(m.boards)
+					m.kanbanView.SetAllProjects(collectAllProjects(m.workspaces))
+					m.kanbanView.FocusBoard()
 				}
 				return m, nil
 			case "A":
@@ -485,13 +481,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// For board/picker views and task manager in modal state,
 		// let the child view handle all keys.
-		if m.currentView == ViewKanbanBoard || m.currentView == ViewKanbanPicker || m.currentView == ViewProjectDetail {
+		if m.currentView == ViewKanbanBoard || m.currentView == ViewKanbanPicker || m.currentView == ViewProjects {
 			// Don't intercept keys — let child view handle everything
 		} else if m.currentView == ViewTaskManager && m.taskManagerView.IsInModalState() {
 			// Task manager is in a modal state (editor, picker, search, etc.)
-			// Let it handle all keys
-		} else if m.currentView == ViewProjects && m.projectsView.IsTyping() {
-			// Projects view has active text input (search, create, rename)
 			// Let it handle all keys
 		} else if m.currentView == ViewNotes && m.notesView.IsTyping() {
 			// Notes view has active text input (file picker, label input)
@@ -540,25 +533,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ViewAgendaMonth:
 		m.monthView, cmd = m.monthView.Update(msg)
 		return m, cmd
-	case ViewKanbanPicker:
-		m.pickerView, cmd = m.pickerView.Update(msg)
+	case ViewKanbanPicker, ViewKanbanBoard:
+		m.kanbanView, cmd = m.kanbanView.Update(msg)
 		return m, cmd
-	case ViewKanbanBoard:
-		if m.boardLoaded {
-			m.boardView, cmd = m.boardView.Update(msg)
-			return m, cmd
-		}
 	case ViewTaskManager:
 		m.taskManagerView, cmd = m.taskManagerView.Update(msg)
 		return m, cmd
-	case ViewProjects:
+	case ViewProjects, ViewProjectDetail:
 		m.projectsView, cmd = m.projectsView.Update(msg)
 		return m, cmd
-	case ViewProjectDetail:
-		if m.projectDetailLoaded {
-			m.projectDetailView, cmd = m.projectDetailView.Update(msg)
-			return m, cmd
-		}
 	case ViewNotes:
 		m.notesView, cmd = m.notesView.Update(msg)
 		return m, cmd
@@ -607,16 +590,12 @@ func (m *AppModel) isChildInputActive() bool {
 		return true
 	}
 	switch m.currentView {
-	case ViewKanbanBoard:
-		return m.boardView.IsModal()
-	case ViewKanbanPicker:
-		return m.pickerView.IsTyping()
+	case ViewKanbanPicker, ViewKanbanBoard:
+		return m.kanbanView.IsTyping() || m.kanbanView.IsModal()
 	case ViewTaskManager:
 		return m.taskManagerView.IsInModalState()
-	case ViewProjects:
-		return m.projectsView.IsTyping()
-	case ViewProjectDetail:
-		return m.projectDetailView.IsModal()
+	case ViewProjects, ViewProjectDetail:
+		return m.projectsView.IsTyping() || m.projectsView.IsModal()
 	case ViewNotes:
 		return m.notesView.IsTyping()
 	case ViewAgendaDay:
@@ -771,25 +750,13 @@ func (m AppModel) View() string {
 	case ViewAgendaMonth:
 		content = m.monthView.View()
 		centerContent = true
-	case ViewKanbanPicker:
-		content = m.pickerView.View()
-	case ViewKanbanBoard:
-		if m.boardLoaded {
-			content = m.boardView.View()
-		} else {
-			content = m.renderPlaceholder("Board View", "No board loaded")
-		}
+	case ViewKanbanPicker, ViewKanbanBoard:
+		content = m.kanbanView.View()
 	case ViewTaskManager:
 		content = m.taskManagerView.View()
 		centerContent = true
-	case ViewProjects:
+	case ViewProjects, ViewProjectDetail:
 		content = m.projectsView.View()
-	case ViewProjectDetail:
-		if m.projectDetailLoaded {
-			content = m.projectDetailView.View()
-		} else {
-			content = m.renderPlaceholder("Project Detail", "No project loaded")
-		}
 	case ViewNotes:
 		content = m.notesView.View()
 	}
@@ -804,24 +771,13 @@ func (m AppModel) View() string {
 	}
 
 	tabBar := m.renderTabBar()
-	hintBar := m.renderHintBar()
-
-	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, hintBar)
+	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content)
 }
 
 // renderTabBar renders the top tab bar with the active view highlighted.
+// The right side shows a transient status/alert message when present.
 func (m AppModel) renderTabBar() string {
-	type tab struct {
-		key   string
-		label string
-	}
-	tabs := []tab{
-		{"B", "oard"},
-		{"A", "genda"},
-		{"T", "asks"},
-		{"P", "rojects"},
-		{"N", "otes"},
-	}
+	tabs := []string{"Board", "Agenda", "Tasks", "Projects", "Notes"}
 
 	// Map current view to active tab index
 	activeIdx := -1
@@ -839,69 +795,42 @@ func (m AppModel) renderTabBar() string {
 	}
 
 	var parts []string
-	for i, t := range tabs {
+	for i, label := range tabs {
 		if i == activeIdx {
-			parts = append(parts, theme.TabActive.Render("["+t.key+"]"+t.label))
+			parts = append(parts, theme.TabActive.Render(label))
 		} else {
-			parts = append(parts, theme.TabInactive.Render("["+t.key+"]"+t.label))
+			parts = append(parts, theme.TabInactive.Render(label))
 		}
 	}
+	tabContent := strings.Join(parts, " ")
 
-	tabContent := strings.Join(parts, "   ")
-	centered := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, tabContent)
-	return theme.TabBar.Width(m.width).Render(centered)
+	// Right-side status message
+	var statusContent string
+	if m.statusMessage != "" {
+		var sty lipgloss.Style
+		switch m.statusLevel {
+		case LevelError:
+			sty = theme.Error
+		case LevelWarning:
+			sty = theme.Warn
+		default:
+			sty = theme.Ok
+		}
+		statusContent = sty.Render(m.statusMessage)
+	}
+
+	// theme.TabBar has PaddingLeft(1); account for it so status is truly right-aligned
+	tabWidth := lipgloss.Width(tabContent)
+	statusWidth := lipgloss.Width(statusContent)
+	gap := (m.width - 1) - tabWidth - statusWidth
+	if gap < 1 {
+		gap = 1
+	}
+
+	line := tabContent + strings.Repeat(" ", gap) + statusContent
+	return theme.TabBar.Width(m.width).Render(line)
 }
 
-// renderHintBar renders the bottom hint bar with keybind hints for the current view.
-func (m AppModel) renderHintBar() string {
-	var hintText string
-
-	switch m.currentView {
-	case ViewAgendaDay:
-		if m.dayView.IsSearching() {
-			hintText = m.dayView.HintText()
-		} else {
-			hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  /:search  enter:open  ?:help  q:quit"
-		}
-	case ViewAgendaWeek:
-		if m.weekView.IsSearching() {
-			hintText = m.weekView.HintText()
-		} else {
-			hintText = "1:day 2:week 3:month  h:prev t:today l:next  j/k:navigate  /:search  enter:open  ?:help  q:quit"
-		}
-	case ViewAgendaMonth:
-		hintText = m.monthView.HintText()
-		hintText = "1:day 2:week 3:month  " + hintText + "  ?:help  q:quit"
-	case ViewTaskManager:
-		hintText = m.taskManagerView.HintText()
-	case ViewKanbanPicker:
-		hintText = m.pickerView.HintText()
-	case ViewKanbanBoard:
-		if m.boardLoaded {
-			hintText = m.boardView.HintText()
-		}
-	case ViewProjects:
-		hintText = m.projectsView.HintText()
-	case ViewNotes:
-		hintText = m.notesView.HintText()
-	case ViewProjectDetail:
-		if m.projectDetailLoaded {
-			hintText = m.projectDetailView.HintText()
-		}
-	}
-
-	styled := theme.HelpHint.Render(hintText)
-	centered := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, styled)
-
-	// For kanban board, prepend the mode indicator left-aligned
-	if m.currentView == ViewKanbanBoard && m.boardLoaded {
-		modeText := m.boardView.ModeText()
-		// Overlay mode badge at left, hints stay centered
-		centered = modeText + centered[lipgloss.Width(modeText):]
-	}
-
-	return theme.StatusBar.Width(m.width).Render(centered)
-}
 
 func (m AppModel) renderHelpOverlay() string {
 	globalNav := shared.HelpSection{
@@ -1022,7 +951,7 @@ func (m AppModel) renderHelpOverlay() string {
 				{"esc", "Back"},
 			},
 		})
-	case ViewProjects:
+	case ViewProjects, ViewProjectDetail:
 		sections = append(sections, shared.HelpSection{
 			Title: "Projects",
 			Binds: []shared.HelpBind{
@@ -1036,10 +965,9 @@ func (m AppModel) renderHelpOverlay() string {
 				{"p", "Reparent project"},
 				{"a", "Archive / unarchive"},
 				{"ctrl+a", "Toggle show archived"},
-				{"esc", "Back"},
+				{"esc", "Focus detail / back"},
 			},
 		})
-	case ViewProjectDetail:
 		sections = append(sections, shared.HelpSection{
 			Title: "Project Detail",
 			Binds: []shared.HelpBind{
@@ -1051,7 +979,7 @@ func (m AppModel) renderHelpOverlay() string {
 				{"u", "Open URL(s)"},
 				{"U", "Edit URLs"},
 				{"d", "Edit dates"},
-				{"esc / q", "Back to projects"},
+				{"esc / q", "Back to sidebar"},
 			},
 		})
 	}

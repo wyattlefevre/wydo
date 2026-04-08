@@ -24,3 +24,13 @@ type OpenProjectMsg = messages.OpenProjectMsg
 type DataRefreshMsg = messages.DataRefreshMsg
 type CreateSubProjectMsg = messages.CreateSubProjectMsg
 type RequestExitMsg = messages.RequestExitMsg
+
+type StatusMsg = messages.StatusMsg
+type ClearStatusMsg = messages.ClearStatusMsg
+type StatusLevel = messages.StatusLevel
+
+const (
+	LevelSuccess = messages.LevelSuccess
+	LevelWarning = messages.LevelWarning
+	LevelError   = messages.LevelError
+)

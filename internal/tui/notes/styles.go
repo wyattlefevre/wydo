@@ -8,15 +8,6 @@ import (
 var (
 	titleStyle = theme.Title.Padding(0, 1)
 
-	listItemStyle = lipgloss.NewStyle().
-			Foreground(theme.Text).
-			Padding(0, 2)
-
-	selectedListItemStyle = lipgloss.NewStyle().
-				Foreground(theme.Warning).
-				Bold(true).
-				Padding(0, 2)
-
 	pathStyle = theme.Muted
 
 	sectionHeaderStyle = lipgloss.NewStyle().

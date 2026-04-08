@@ -1,6 +1,35 @@
 package shared
 
-import "strings"
+import (
+	"strings"
+
+	"wydo/internal/tui/theme"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// TruncateString truncates s to maxWidth visible runes, appending "..." if truncated.
+func TruncateString(s string, maxWidth int) string {
+	runes := []rune(s)
+	if len(runes) <= maxWidth {
+		return s
+	}
+	if maxWidth <= 3 {
+		return string(runes[:maxWidth])
+	}
+	return string(runes[:maxWidth-3]) + "..."
+}
+
+// RenderSeparatorColumn renders a vertical "│" separator column of the given height,
+// suitable for use with lipgloss.JoinHorizontal.
+func RenderSeparatorColumn(height int) string {
+	sepChar := lipgloss.NewStyle().Foreground(theme.Border).Render("│")
+	lines := make([]string, height)
+	for i := range lines {
+		lines[i] = sepChar
+	}
+	return strings.Join(lines, "\n")
+}
 
 // CenterContent renders content vertically centered in the available height.
 func CenterContent(content string, height int) string {

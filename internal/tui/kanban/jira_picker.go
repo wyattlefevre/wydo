@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"wydo/internal/jira"
+	"wydo/internal/tui/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -112,21 +113,19 @@ func (m JiraBoardPickerModel) View() string {
 	lines = append(lines, "")
 
 	if id := boardIDFromQuery(m.query); id != 0 {
-		lines = append(lines, selectedListItemStyle.Render(fmt.Sprintf("► Use board ID %d directly", id)))
+		lines = append(lines, theme.ListItemSelected.Render(fmt.Sprintf("Use board ID %d directly", id)))
 		lines = append(lines, helpStyle.Render("  (board name will show after linking)"))
 	} else if len(m.filtered) == 0 {
-		lines = append(lines, listItemStyle.Render("  No boards found"))
+		lines = append(lines, theme.ListItem.Render("  No boards found"))
 	} else {
 		show := min(10, len(m.filtered))
 		for i := 0; i < show; i++ {
 			b := m.boards[m.filtered[i]]
-			prefix := "  "
-			style := listItemStyle
+			style := theme.ListItem
 			if i == m.selected {
-				prefix = "► "
-				style = selectedListItemStyle
+				style = theme.ListItemSelected
 			}
-			lines = append(lines, style.Render(fmt.Sprintf("%s%s (ID: %d)", prefix, b.Name, b.ID)))
+			lines = append(lines, style.Render(fmt.Sprintf("%s (ID: %d)", b.Name, b.ID)))
 		}
 		if len(m.filtered) > show {
 			lines = append(lines, pathStyle.Render(fmt.Sprintf("  ... %d more", len(m.filtered)-show)))
@@ -247,13 +246,13 @@ func (m JiraIssueInputModel) View() string {
 			b.WriteString("\n\n")
 			b.WriteString(helpStyle.Render("  enter: try again • esc: edit key"))
 		} else if m.preview != nil {
-			b.WriteString(selectedListItemStyle.Render("  " + m.preview.Key))
+			b.WriteString(theme.ListItemSelected.Render("  " + m.preview.Key))
 			b.WriteString("\n")
 			summary := m.preview.Summary
 			if len(summary) > 54 {
 				summary = summary[:51] + "..."
 			}
-			b.WriteString(listItemStyle.Render("  " + summary))
+			b.WriteString(theme.ListItem.Render("  " + summary))
 			b.WriteString("\n")
 			b.WriteString(jiraStatusStyle.Render("  " + m.preview.Status))
 			b.WriteString("\n\n")

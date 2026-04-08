@@ -280,10 +280,10 @@ func (m SessionCreateModel) viewChoice() string {
 	lines = append(lines, "")
 	choices := []string{"new worktree", "use existing"}
 	for i, c := range choices {
-		style := listItemStyle
+		style := theme.ListItem
 		prefix := "  "
 		if i == m.choiceCursor {
-			style = selectedListItemStyle
+			style = theme.ListItemSelected
 			prefix = "> "
 		}
 		lines = append(lines, style.Render(prefix+c))
@@ -326,9 +326,9 @@ func (m SessionCreateModel) viewRepos() string {
 			if m.selectedRepos[repo] {
 				checked = "[x]"
 			}
-			style := listItemStyle
+			style := theme.ListItem
 			if i == m.repoCursor {
-				style = selectedListItemStyle
+				style = theme.ListItemSelected
 			}
 			lines = append(lines, style.Render("  "+checked+" "+repo))
 		}
@@ -352,10 +352,10 @@ func (m SessionCreateModel) viewExisting() string {
 		lines = append(lines, helpStyle.Render("No worktrees found in ~/worktrees/"))
 	} else {
 		for i, dir := range m.existingDirs {
-			style := listItemStyle
+			style := theme.ListItem
 			prefix := "  "
 			if i == m.existingCursor {
-				style = selectedListItemStyle
+				style = theme.ListItemSelected
 				prefix = "> "
 			}
 			lines = append(lines, style.Render(prefix+dir))

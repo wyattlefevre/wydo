@@ -143,10 +143,10 @@ func (m TmuxPickerModel) View() string {
 	} else {
 		for i, idx := range m.filtered {
 			session := m.sessions[idx]
-			style := listItemStyle
+			style := theme.ListItem
 			prefix := "  "
 			if i == m.cursor {
-				style = selectedListItemStyle
+				style = theme.ListItemSelected
 				prefix = "> "
 			}
 
@@ -235,7 +235,7 @@ func (m TmuxLaunchModel) View() string {
 
 	for _, e := range entries {
 		available := e.suffix == "" || m.children[e.suffix]
-		style := listItemStyle
+		style := theme.ListItem
 		if !available {
 			style = lipgloss.NewStyle().Foreground(theme.TextMuted).Padding(0, 2)
 		}

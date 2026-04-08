@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"wydo/internal/kanban/models"
+	"wydo/internal/tui/theme"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -72,15 +73,13 @@ func (m BoardSelectorModel) View() string {
 	lines = append(lines, "")
 
 	for i, b := range m.boards {
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.cursor {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
 		parentDir := filepath.Dir(b.Path)
 		displayPath := abbreviateBoardPath(parentDir)
-		line := style.Render(prefix+b.Name) + "  " + pathStyle.Render(displayPath)
+		line := style.Render(b.Name) + "  " + pathStyle.Render(displayPath)
 		lines = append(lines, line)
 	}
 

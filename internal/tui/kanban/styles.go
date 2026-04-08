@@ -8,9 +8,9 @@ import (
 const (
 	// Layout constants
 	columnWidth             = 40
-	columnPaddingHorizontal = 2
+	columnPaddingHorizontal = 1
 	cardPaddingHorizontal   = 1
-	cardBorderWidth         = 1
+	cardBorderWidth         = 0
 )
 
 var (
@@ -19,9 +19,7 @@ var (
 
 	// Column styles
 	columnStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(theme.Border).
-			Padding(1, columnPaddingHorizontal).
+			Padding(0, columnPaddingHorizontal).
 			Width(columnWidth)
 
 	columnTitleStyle = lipgloss.NewStyle().
@@ -31,35 +29,25 @@ var (
 
 	selectedColumnTitleStyle = lipgloss.NewStyle().
 					Bold(true).
-					Foreground(theme.Warning).
-					Background(theme.Surface).
-					Underline(true).
+					Foreground(theme.Accent).
 					Align(lipgloss.Center)
 
 	selectedColumnStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(theme.BorderFocused).
-				Padding(1, columnPaddingHorizontal).
+				Padding(0, columnPaddingHorizontal).
 				Width(columnWidth)
 
 	// Card styles
 	cardStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder(), false, false, false, true).
-			BorderForeground(theme.Border).
 			Padding(0, cardPaddingHorizontal).
 			MarginBottom(1)
 
 	selectedCardStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder(), false, false, false, true).
-				BorderForeground(theme.BorderFocused).
 				Background(theme.Surface).
 				Padding(0, cardPaddingHorizontal).
 				MarginBottom(1).
 				Bold(true)
 
 	moveSelectedCardStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder(), false, false, false, true).
-				BorderForeground(theme.Warning).
 				Background(lipgloss.Color("54")).
 				Padding(0, cardPaddingHorizontal).
 				MarginBottom(1).
@@ -82,16 +70,6 @@ var (
 
 	// Help styles
 	helpStyle = theme.Muted.Padding(1, 2)
-
-	// List styles
-	listItemStyle = lipgloss.NewStyle().
-			Foreground(theme.Text).
-			Padding(0, 2)
-
-	selectedListItemStyle = lipgloss.NewStyle().
-				Foreground(theme.Warning).
-				Bold(true).
-				Padding(0, 2)
 
 	// Message styles
 	errorStyle   = theme.Error

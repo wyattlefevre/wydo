@@ -9,6 +9,7 @@ import (
 
 	notespkg "wydo/internal/notes"
 	"wydo/internal/tui/messages"
+	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -350,7 +351,7 @@ func (m NotesModel) viewList() string {
 	lines = append(lines, "")
 
 	if len(m.flat) == 0 {
-		lines = append(lines, listItemStyle.Render("No pinned notes. Press 'p' to pin one."))
+		lines = append(lines, theme.ListItem.Render("No pinned notes. Press 'p' to pin one."))
 		lines = append(lines, "")
 		content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
@@ -394,15 +395,13 @@ func (m NotesModel) viewList() string {
 			}
 		}
 		entry := m.flat[i]
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.cursor {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
 		label := entry.note.Label
 		path := pathStyle.Render("  " + entry.note.RelPath)
-		lines = append(lines, style.Render(prefix+label)+path)
+		lines = append(lines, style.Render(label)+path)
 	}
 
 	if endIdx < len(m.flat) {
@@ -419,13 +418,11 @@ func (m NotesModel) viewSelectWorkspace() string {
 	lines = append(lines, titleStyle.Render("Select Workspace"))
 	lines = append(lines, "")
 	for i, ws := range m.workspaces {
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.selectedWSIdx {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
-		lines = append(lines, style.Render(prefix+abbreviatePath(ws.RootDir)))
+		lines = append(lines, style.Render(abbreviatePath(ws.RootDir)))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
@@ -453,19 +450,17 @@ func (m NotesModel) viewPickFile() string {
 		lines = append(lines, pathStyle.Render(fmt.Sprintf("  ▲ %d more above", startIdx)))
 	}
 	for i := startIdx; i < endIdx; i++ {
-		style := listItemStyle
-		prefix := "  "
+		style := theme.ListItem
 		if i == m.fileCursor {
-			style = selectedListItemStyle
-			prefix = "► "
+			style = theme.ListItemSelected
 		}
-		lines = append(lines, style.Render(prefix+m.filtered[i]))
+		lines = append(lines, style.Render(m.filtered[i]))
 	}
 	if endIdx < len(m.filtered) {
 		lines = append(lines, pathStyle.Render(fmt.Sprintf("  ▼ %d more below", len(m.filtered)-endIdx)))
 	}
 	if len(m.filtered) == 0 {
-		lines = append(lines, listItemStyle.Render("  No matching files."))
+		lines = append(lines, theme.ListItem.Render("  No matching files."))
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -496,7 +491,7 @@ func (m NotesModel) viewConfirmUnpin() string {
 
 	box := confirmUnpinBoxStyle.Render(
 		confirmUnpinTitleStyle.Render("Unpin Note?") + "\n\n" +
-			listItemStyle.Render(`"`+label+`"`) + "\n\n" +
+			theme.ListItem.Render(`"`+label+`"`) + "\n\n" +
 			confirmUnpinHelpStyle.Render("y:confirm  n/esc:cancel"),
 	)
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)

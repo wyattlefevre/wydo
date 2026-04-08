@@ -40,6 +40,9 @@ var (
 	Selected   = lipgloss.NewStyle().Bold(true).Foreground(Warning)
 	SelectedBg = lipgloss.NewStyle().Foreground(TextBright).Background(Surface)
 
+	ListItem         = lipgloss.NewStyle().Foreground(Text).Padding(0, 2)
+	ListItemSelected = lipgloss.NewStyle().Foreground(Warning).Bold(true).Padding(0, 2)
+
 	Project  = lipgloss.NewStyle().Foreground(Secondary)
 	Context  = lipgloss.NewStyle().Foreground(Accent)
 	Tag      = lipgloss.NewStyle().Foreground(Warning)
@@ -72,8 +75,8 @@ var (
 	NavActive   = lipgloss.NewStyle().Bold(true).Foreground(Primary)
 	NavInactive = lipgloss.NewStyle().Foreground(TextMuted)
 
-	TabActive   = lipgloss.NewStyle().Bold(true).Foreground(Primary)
-	TabInactive = lipgloss.NewStyle().Foreground(TextMuted)
+	TabActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("16")).Background(Accent).Padding(0, 1)
+	TabInactive = lipgloss.NewStyle().Foreground(TextMuted).Background(Surface).Padding(0, 1)
 	TabBar      = lipgloss.NewStyle().
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderBottom(true).

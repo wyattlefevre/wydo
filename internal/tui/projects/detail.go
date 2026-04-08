@@ -18,6 +18,7 @@ import (
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
 	taskview "wydo/internal/tui/tasks"
+	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -190,7 +191,7 @@ func (p detailChildPicker) View() string {
 		lines = append(lines, pathStyle.Render("No children"))
 	} else {
 		for i, proj := range p.entries {
-			style := listItemStyle
+			style := theme.ListItem
 			prefix := "  "
 			if i == p.cursor {
 				style = selectedDetailItemStyle
@@ -570,7 +571,7 @@ func (m DetailModel) HintText() string {
 	case detailModeChildPicker:
 		return "j/k:navigate  enter:open  esc:cancel"
 	}
-	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  n:new  u:urls  d:dates  [:parent  ]:children  esc:back"
+	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  n:new  u:urls  d:dates  [:parent  ]:children  esc/q:projects"
 }
 
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
@@ -615,7 +616,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 		return m.handleNew()
 
 	case "esc", "q":
-		return m, messages.SwitchView(messages.ViewProjects)
+		return m, func() tea.Msg { return messages.FocusSidebarMsg{} }
 
 	case "h", "left":
 		if m.selectedCol > 0 {
@@ -1094,10 +1095,6 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 }
 
 func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colWidth int) string {
-	prefix := "  "
-	if isSelected {
-		prefix = "► "
-	}
 	indent := strings.Repeat("  ", row.depth)
 
 	var rendered string
@@ -1117,7 +1114,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		} else {
 			countStr = fmt.Sprintf("%d", m.subtreeCount(row.projectName, col))
 		}
-		content := fmt.Sprintf("%s%s%s %s (%s)", indent, prefix, marker, row.projectName, countStr)
+		content := fmt.Sprintf("%s%s %s (%s)", indent, marker, row.projectName, countStr)
 		if isSelected {
 			rendered = colItemSelectedStyle.Render(content)
 		} else {
@@ -1130,18 +1127,14 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 			display = filepath.Base(row.note.FilePath)
 		}
 		if isSelected {
-			rendered = colItemSelectedStyle.Render(prefix + display)
+			rendered = colItemSelectedStyle.Render(display)
 		} else {
-			rendered = colItemStyle.Render(prefix + display)
+			rendered = colItemStyle.Render(display)
 		}
 
 	case rowKindTask:
 		taskLine := shared.StyledTaskLine(row.task)
-		if isSelected {
-			rendered = colItemSelectedStyle.Render(prefix) + taskLine
-		} else {
-			rendered = colItemStyle.Render(prefix) + taskLine
-		}
+		rendered = taskLine
 
 	case rowKindCard:
 		title := row.card.Title
@@ -1159,8 +1152,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 				jiraStr = " " + jiraKey
 			}
 			rightWidth := len(jiraStr) + len(statusStr)
-			prefixWidth := len(prefix)
-			maxTitleWidth := colWidth - prefixWidth - rightWidth
+			maxTitleWidth := colWidth - rightWidth
 			if maxTitleWidth < 1 {
 				maxTitleWidth = 1
 			}
@@ -1179,9 +1171,9 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 			}
 			var titlePart string
 			if isSelected {
-				titlePart = colItemSelectedStyle.Render(prefix + title)
+				titlePart = colItemSelectedStyle.Render(title)
 			} else {
-				titlePart = colItemStyle.Render(prefix + title)
+				titlePart = colItemStyle.Render(title)
 			}
 			var statusColor lipgloss.Color
 			if isDone {
@@ -1203,8 +1195,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 			if jiraKey != "" {
 				jiraStr = " " + jiraKey
 			}
-			prefixWidth := len(prefix)
-			maxTitleWidth := colWidth - prefixWidth - len(jiraStr)
+			maxTitleWidth := colWidth - len(jiraStr)
 			if maxTitleWidth < 1 {
 				maxTitleWidth = 1
 			}
@@ -1212,9 +1203,9 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 				title = title[:maxTitleWidth-3] + "..."
 			}
 			if isSelected {
-				rendered = colItemSelectedStyle.Render(prefix + title)
+				rendered = colItemSelectedStyle.Render(title)
 			} else {
-				rendered = colItemStyle.Render(prefix + title)
+				rendered = colItemStyle.Render(title)
 			}
 			if jiraStr != "" {
 				rendered += lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Render(jiraStr)

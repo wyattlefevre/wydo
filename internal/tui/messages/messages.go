@@ -1,9 +1,43 @@
 package messages
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"wydo/internal/workspace"
 )
+
+// StatusLevel indicates the severity of a status message shown in the top bar.
+type StatusLevel int
+
+const (
+	LevelSuccess StatusLevel = iota
+	LevelWarning
+	LevelError
+)
+
+// StatusMsg carries a one-line feedback message to be shown in the right side of the tab bar.
+type StatusMsg struct {
+	Text  string
+	Level StatusLevel
+}
+
+// ClearStatusMsg is fired by the auto-clear timer to dismiss the status message.
+type ClearStatusMsg struct{}
+
+// StatusCmd returns a Cmd that delivers a StatusMsg to the root model.
+func StatusCmd(text string, level StatusLevel) tea.Cmd {
+	return func() tea.Msg {
+		return StatusMsg{Text: text, Level: level}
+	}
+}
+
+// ClearStatusAfter returns a Cmd that fires ClearStatusMsg after d.
+func ClearStatusAfter(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg {
+		return ClearStatusMsg{}
+	})
+}
 
 // ViewType represents the different views in the application
 type ViewType int
@@ -52,6 +86,10 @@ type CreateSubProjectMsg struct {
 	Name          string
 	WsDir         string
 }
+
+// FocusSidebarMsg is sent by content views (board, project detail) to shift
+// focus to the sidebar within their parent combined view.
+type FocusSidebarMsg struct{}
 
 // RequestExitMsg is sent by child views when the user wants to quit
 type RequestExitMsg struct{}

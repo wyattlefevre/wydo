@@ -230,7 +230,7 @@ func (m BoardModel) HintText() string {
 		if m.filterActive {
 			return "?:help  /:edit filter  esc:clear filter"
 		}
-		return "?:help  /:filter  space/m:move  L:link project  esc:back"
+		return "?:help  /:filter  space/m:move  L:link project  esc/q:boards"
 	}
 }
 
@@ -272,7 +272,24 @@ func (m BoardModel) initJiraRefresh() tea.Cmd {
 }
 
 // Update handles board events as a child view
+// Update implements tea.Model. It wraps updateInner to bubble any m.message or m.err
+// up to the root model as a StatusMsg shown in the top bar.
 func (m BoardModel) Update(msg tea.Msg) (BoardModel, tea.Cmd) {
+	m, cmd := m.updateInner(msg)
+
+	if m.err != nil {
+		errCmd := messages.StatusCmd(fmt.Sprintf("Error: %v", m.err), messages.LevelError)
+		m.err = nil
+		cmd = tea.Batch(cmd, errCmd)
+	} else if m.message != "" {
+		msgCmd := messages.StatusCmd(m.message, messages.LevelSuccess)
+		m.message = ""
+		cmd = tea.Batch(cmd, msgCmd)
+	}
+	return m, cmd
+}
+
+func (m BoardModel) updateInner(msg tea.Msg) (BoardModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tmuxSessionsMsg:
 		set := make(map[string]bool, len(msg.sessions))
@@ -445,10 +462,8 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "b":
-		// Return to picker via message
-		return m, func() tea.Msg {
-			return messages.SwitchViewMsg{View: messages.ViewKanbanPicker}
-		}
+		// Focus sidebar
+		return m, func() tea.Msg { return messages.FocusSidebarMsg{} }
 
 	case "esc":
 		if m.filterActive {
@@ -459,10 +474,8 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			m.columnCursorPos[m.selectedCol] = 0
 			m.adjustScrollPosition()
 		} else {
-			// Return to picker
-			return m, func() tea.Msg {
-				return messages.SwitchViewMsg{View: messages.ViewKanbanPicker}
-			}
+			// Focus sidebar
+			return m, func() tea.Msg { return messages.FocusSidebarMsg{} }
 		}
 
 	case "/":
@@ -1022,6 +1035,17 @@ func (m BoardModel) updateColumnEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	var isDone bool
 
 	*m.columnEditor, cmd, isDone = m.columnEditor.Update(msg)
+
+	// Forward column editor feedback to the board; the board wrapper will bubble it to the top bar.
+	if !isDone {
+		if m.columnEditor.err != nil {
+			m.err = m.columnEditor.err
+			m.columnEditor.err = nil
+		} else if m.columnEditor.message != "" {
+			m.message = m.columnEditor.message
+			m.columnEditor.message = ""
+		}
+	}
 
 	if isDone {
 		// Save changes if confirmed with enter
@@ -1777,10 +1801,6 @@ func (m BoardModel) View() string {
 
 	var s strings.Builder
 
-	// Title
-	s.WriteString(titleStyle.Render(fmt.Sprintf("Board: %s", m.board.Name)))
-	s.WriteString("\n")
-
 	// Filter bar
 	if m.mode == boardModeFilter {
 		s.WriteString("  / " + m.filterInput.View())
@@ -1790,9 +1810,9 @@ func (m BoardModel) View() string {
 	s.WriteString("\n")
 
 	// Calculate fixed column height
-	boardHeaderLines := 3
-	statusLines := 3
-	marginLines := 2
+	boardHeaderLines := 2
+	statusLines := 1
+	marginLines := 0
 
 	totalFixedColumnHeight := m.height - boardHeaderLines - statusLines - marginLines
 
@@ -1831,18 +1851,9 @@ func (m BoardModel) View() string {
 	}
 
 	columns := lipgloss.JoinHorizontal(lipgloss.Top, visibleColumnViews...)
-	centeredColumns := lipgloss.Place(m.width, 0, lipgloss.Center, lipgloss.Top, columns)
-	s.WriteString(centeredColumns)
-	s.WriteString("\n")
+	s.WriteString(columns)
 
-	// Status message or error
-	if m.err != nil {
-		s.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
-		s.WriteString("\n")
-	} else if m.message != "" {
-		s.WriteString(successStyle.Render(m.message))
-		s.WriteString("\n")
-	}
+	// Status messages are shown in the top bar (see AppModel.renderTabBar)
 
 	return s.String()
 }
@@ -1852,11 +1863,12 @@ func (m BoardModel) renderColumn(index int, col models.Column, cards []models.Ca
 
 	// Column title
 	colTitleStyle := columnTitleStyle
+	colLabel := " " + col.Name + " "
 	if index == m.selectedCol {
 		colTitleStyle = selectedColumnTitleStyle
+		colLabel = "[" + col.Name + "]"
 	}
-	s.WriteString(colTitleStyle.Render(col.Name))
-	s.WriteString("\n\n")
+	s.WriteString(colTitleStyle.Render(colLabel))
 
 	// Handle empty column
 	if len(cards) == 0 {
@@ -1890,7 +1902,7 @@ func (m BoardModel) renderColumn(index int, col models.Column, cards []models.Ca
 	}
 
 	// Calculate available space for cards
-	overhead := 8
+	overhead := 2
 	availableCardSpace := fixedHeight - overhead
 
 	// Render cards that fit in available space
@@ -2358,9 +2370,9 @@ func (m *BoardModel) adjustScrollPosition() {
 		return
 	}
 
-	boardHeaderLines := 3
-	statusLines := 3
-	marginLines := 2
+	boardHeaderLines := 2
+	statusLines := 1
+	marginLines := 0
 	fixedColumnHeight := m.height - boardHeaderLines - statusLines - marginLines
 
 	if fixedColumnHeight < 10 {
@@ -2412,7 +2424,7 @@ func (m *BoardModel) adjustScrollPosition() {
 
 // calculateVisibleColumns determines which columns fit in terminal width
 func (m *BoardModel) calculateVisibleColumns() (startCol, endCol int) {
-	columnTotalWidth := 46
+	columnTotalWidth := 42
 	availableWidth := m.width
 
 	startCol = m.columnHorizontalOffset

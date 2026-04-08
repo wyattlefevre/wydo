@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
 )
 
@@ -353,9 +354,9 @@ func (m DateEditorModel) View() string {
 			}
 			var line string
 			if i == m.projectCursor {
-				line = selectedListItemStyle.Render(prefix + name)
+				line = theme.ListItemSelected.Render(prefix + name)
 			} else {
-				line = listItemStyle.Render(prefix + name)
+				line = theme.ListItem.Render(prefix + name)
 			}
 			s.WriteString(line)
 			s.WriteString("\n")
@@ -407,9 +408,9 @@ func (m DateEditorModel) View() string {
 				dateStr := d.Date.Format("Jan 2 2006")
 				var line string
 				if i == m.cursor {
-					line = selectedListItemStyle.Render(prefix+label) + "    " + pathStyle.Render(dateStr)
+					line = theme.ListItemSelected.Render(prefix+label) + "    " + pathStyle.Render(dateStr)
 				} else {
-					line = listItemStyle.Render(prefix+label) + "    " + pathStyle.Render(dateStr)
+					line = theme.ListItem.Render(prefix+label) + "    " + pathStyle.Render(dateStr)
 				}
 				s.WriteString(line)
 				s.WriteString("\n")
