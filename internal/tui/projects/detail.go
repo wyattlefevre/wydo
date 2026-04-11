@@ -551,29 +551,6 @@ func (m DetailModel) IsTyping() bool {
 	return false
 }
 
-// HintText returns the hint string for the detail view.
-func (m DetailModel) HintText() string {
-	switch m.mode {
-	case detailModeURLEditor:
-		return "n:add  d:delete  e:edit url  l:edit label  enter:save  esc:cancel"
-	case detailModeURLPicker:
-		return "j/k:navigate  /: search  enter:open  esc:cancel"
-	case detailModeDateEditor:
-		return "n:add  d:delete  e:edit label  D:edit date  enter:save  esc:cancel"
-	case detailModeSubProjectPick:
-		return "j/k:navigate  enter:select  esc:cancel"
-	case detailModeNewNoteName, detailModeNewTaskName:
-		return "enter:confirm  esc:cancel"
-	case detailModeNewTaskEditor:
-		return "enter:save  esc:cancel"
-	case detailModeNewBoardPick:
-		return "j/k:navigate  enter:select  esc:cancel"
-	case detailModeChildPicker:
-		return "j/k:navigate  enter:open  esc:cancel"
-	}
-	return "h/l:columns  j/k:navigate  space/enter:expand  enter:open  n:new  u:urls  d:dates  [:parent  ]:children  esc/q:projects"
-}
-
 func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:

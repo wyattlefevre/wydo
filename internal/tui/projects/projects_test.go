@@ -192,12 +192,3 @@ func TestIsTypingDeleteVirtual(t *testing.T) {
 	}
 }
 
-// TestHintTextArchiveConfirm verifies the hint text for modeArchiveConfirm.
-func TestHintTextArchiveConfirm(t *testing.T) {
-	m := makeModel()
-	m.mode = modeArchiveConfirm
-	want := "y:archive  n/esc:cancel"
-	if got := m.HintText(); got != want {
-		t.Errorf("HintText() = %q, want %q", got, want)
-	}
-}

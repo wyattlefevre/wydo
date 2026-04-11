@@ -113,17 +113,6 @@ func (m WeekModel) IsSearching() bool {
 	return m.searchActive
 }
 
-// HintText returns hint text for the current state
-func (m WeekModel) HintText() string {
-	if m.searchActive {
-		if m.searchFilterMode {
-			return "type to filter  enter:confirm  esc:exit"
-		}
-		return "/:edit filter  j/k:navigate  enter:open  esc:exit"
-	}
-	return ""
-}
-
 // SetSize updates the view dimensions
 func (m *WeekModel) SetSize(width, height int) {
 	m.width = width

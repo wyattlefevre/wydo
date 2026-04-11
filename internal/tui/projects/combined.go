@@ -95,17 +95,6 @@ func (m CombinedModel) IsModal() bool {
 	return false
 }
 
-// HintText returns the hint bar text for the current focus state.
-func (m CombinedModel) HintText() string {
-	if m.sidebarFocused {
-		return m.picker.HintText()
-	}
-	if m.detailLoaded {
-		return m.detail.HintText()
-	}
-	return m.picker.HintText()
-}
-
 func (m CombinedModel) Init() tea.Cmd {
 	return nil
 }
@@ -140,6 +129,14 @@ func (m CombinedModel) Update(msg tea.Msg) (CombinedModel, tea.Cmd) {
 }
 
 func (m CombinedModel) View() string {
+	// Show creation UI as a centered popup instead of in the sidebar
+	if m.picker.mode == modeCreate || m.picker.mode == modeSelectDir || m.picker.mode == modeSelectWorkspace {
+		p := m.picker
+		p.width = m.width
+		p.height = m.height
+		return p.View()
+	}
+
 	sidebar := m.picker.viewSidebar(m.height, m.ActiveProjectName(), m.sidebarFocused)
 	sep := shared.RenderSeparatorColumn(m.height)
 

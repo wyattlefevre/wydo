@@ -104,17 +104,6 @@ func (m DayModel) IsSearching() bool {
 	return m.searchActive
 }
 
-// HintText returns hint text for the current state
-func (m DayModel) HintText() string {
-	if m.searchActive {
-		if m.searchFilterMode {
-			return "type to filter  enter:confirm  esc:exit"
-		}
-		return "/:edit filter  j/k:navigate  enter:open  esc:exit"
-	}
-	return ""
-}
-
 // SetSize updates the view dimensions
 func (m *DayModel) SetSize(width, height int) {
 	m.width = width

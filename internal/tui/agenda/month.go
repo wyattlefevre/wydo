@@ -300,14 +300,6 @@ func (m MonthModel) renderDetailPanel() string {
 	return sb.String()
 }
 
-// HintText returns the raw hint string for the current month view mode.
-func (m MonthModel) HintText() string {
-	if m.inDetail {
-		return "j/k:navigate  enter:open  esc:back"
-	}
-	return "h/l:day  j/k:week  H/L:month  t:today  enter:detail"
-}
-
 func isSameDay(d1, d2 time.Time) bool {
 	return d1.Year() == d2.Year() && d1.Month() == d2.Month() && d1.Day() == d2.Day()
 }
