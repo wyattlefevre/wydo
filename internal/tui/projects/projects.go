@@ -246,32 +246,6 @@ func (m ProjectsModel) viewSidebar(height int, activeProjectName string, focused
 	return strings.Join(lines, "\n")
 }
 
-// HintText returns the raw hint string for the current projects mode.
-func (m ProjectsModel) HintText() string {
-	switch m.mode {
-	case modeSearch:
-		return "type to filter  enter:confirm  esc:cancel"
-	case modeSelectWorkspace:
-		return "j/k:navigate  enter:select  esc:cancel"
-	case modeSelectDir:
-		return "j/k:navigate  enter:select  esc:cancel"
-	case modeCreate:
-		return "enter:create  esc:cancel"
-	case modeRename:
-		return "enter:rename  esc:cancel"
-	case modeScaffoldConfirm:
-		return "y:create  n/esc:cancel"
-	case modeSetParent:
-		return "j/k:navigate  enter:confirm  esc:cancel"
-	case modeDeleteVirtual:
-		return "y:delete  n/esc:cancel"
-	case modeArchiveConfirm:
-		return "y:archive  n/esc:cancel"
-	default:
-		return "j/k:navigate  enter:open  /:search  ?:help  q:quit"
-	}
-}
-
 func (m *ProjectsModel) buildEntries() {
 	m.entries = nil
 	for _, ws := range m.workspaces {

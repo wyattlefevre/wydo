@@ -116,22 +116,6 @@ func (m *NotesModel) SetSize(w, h int) {
 	m.height = h
 }
 
-// HintText returns the hint bar text for the current mode.
-func (m NotesModel) HintText() string {
-	switch m.mode {
-	case modeSelectWorkspace:
-		return "j/k:navigate  enter:select  esc:cancel"
-	case modePickFile:
-		return "type to filter  j/k:navigate  enter:select  esc:cancel"
-	case modeInputLabel:
-		return "enter:confirm  esc:cancel"
-	case modeConfirmUnpin:
-		return "y:confirm  n/esc:cancel"
-	default:
-		return "j/k:navigate  enter:open  p:pin  d:unpin  ?:help  q:quit"
-	}
-}
-
 // IsTyping returns true when a text input is active (suppresses global key handling).
 func (m NotesModel) IsTyping() bool {
 	return m.mode == modePickFile || m.mode == modeInputLabel

@@ -176,9 +176,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		contentHeight := msg.Height - 2 // 2 for tab bar
 		contentWidth := min(msg.Width, maxContentWidth)
-		m.dayView.SetSize(contentWidth, contentHeight)
-		m.weekView.SetSize(contentWidth, contentHeight)
-		m.monthView.SetSize(contentWidth, contentHeight)
+		m.dayView.SetSize(contentWidth, contentHeight-2) // -2 for agenda sub-bar
+		m.weekView.SetSize(contentWidth, contentHeight-2)
+		m.monthView.SetSize(contentWidth, contentHeight-2)
 		m.kanbanView.SetSize(msg.Width, contentHeight)
 		m.taskManagerView.SetSize(contentWidth, contentHeight)
 		m.projectsView.SetSize(msg.Width, contentHeight)
@@ -499,19 +499,19 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q":
 				m.exitConfirming = true
 				return m, nil
-			case "1":
+			case "d", "D":
 				m.currentView = ViewAgendaDay
 				m.lastAgendaView = ViewAgendaDay
 				m.refreshData()
 				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
-			case "2":
+			case "w", "W":
 				m.currentView = ViewAgendaWeek
 				m.lastAgendaView = ViewAgendaWeek
 				m.refreshData()
 				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
 				return m, nil
-			case "3":
+			case "m", "M":
 				m.currentView = ViewAgendaMonth
 				m.lastAgendaView = ViewAgendaMonth
 				m.refreshData()
@@ -771,7 +771,48 @@ func (m AppModel) View() string {
 	}
 
 	tabBar := m.renderTabBar()
-	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content)
+	rows := []string{tabBar}
+	if subBar := m.renderAgendaSubBar(); subBar != "" {
+		rows = append(rows, subBar)
+	}
+	rows = append(rows, content)
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+}
+
+// renderAgendaSubBar renders a secondary indicator row below the tab bar
+// showing the active agenda sub-view (Day / Week / Month). Returns empty
+// string when not in an agenda view.
+func (m AppModel) renderAgendaSubBar() string {
+	subViews := []struct {
+		label string
+		view  ViewType
+	}{
+		{"Day", ViewAgendaDay},
+		{"Week", ViewAgendaWeek},
+		{"Month", ViewAgendaMonth},
+	}
+
+	var found bool
+	for _, sv := range subViews {
+		if m.currentView == sv.view {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ""
+	}
+
+	var parts []string
+	for _, sv := range subViews {
+		if m.currentView == sv.view {
+			parts = append(parts, theme.NavActive.Render(sv.label))
+		} else {
+			parts = append(parts, theme.NavInactive.Render(sv.label))
+		}
+	}
+	style := lipgloss.NewStyle().Width(m.width).PaddingLeft(1)
+	return style.Render(strings.Join(parts, "  "))
 }
 
 // renderTabBar renders the top tab bar with the active view highlighted.
@@ -841,7 +882,7 @@ func (m AppModel) renderHelpOverlay() string {
 			{"B", "Board picker"},
 			{"A", "Agenda (day view)"},
 			{"T", "Task manager"},
-			{"1 / 2 / 3", "Day / week / month"},
+			{"D / W / M", "Day / week / month"},
 			{"?", "Show this help"},
 			{"q", "Quit"},
 		},

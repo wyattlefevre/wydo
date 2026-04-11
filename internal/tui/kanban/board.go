@@ -219,26 +219,6 @@ func (m BoardModel) IsModal() bool {
 	return m.mode != boardModeNormal
 }
 
-// HintText returns the raw hint string for the current board mode.
-func (m BoardModel) HintText() string {
-	switch m.mode {
-	case boardModeMove:
-		return "h/l:move card  j/k:reorder  enter:open  esc:cancel"
-	case boardModeFilter:
-		return "type to filter  enter:lock filter  esc:cancel"
-	default:
-		if m.filterActive {
-			return "?:help  /:edit filter  esc:clear filter"
-		}
-		return "?:help  /:filter  space/m:move  L:link project  esc/q:boards"
-	}
-}
-
-// ModeText returns a styled mode badge like [MOVE] in the mode's color.
-func (m BoardModel) ModeText() string {
-	return modeIndicatorStyle(m.mode.modeColor()).Render("[" + m.mode.String() + "]")
-}
-
 func (m BoardModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.initJiraRefresh(),

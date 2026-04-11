@@ -1211,20 +1211,6 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 	}
 }
 
-// HintText returns the raw hint string for the current task manager mode.
-func (m *TaskManagerModel) HintText() string {
-	if m.searchActive {
-		if m.searchFilterMode {
-			return "enter:done  esc:clear"
-		}
-		if m.filterState.SearchQuery != "" {
-			return "/:filter  j/k:navigate  enter:done  esc:clear"
-		}
-		return "/:filter  j/k:navigate  enter:done  esc:cancel"
-	}
-	return m.infoBar.RenderHintsRaw()
-}
-
 // IsInModalState returns true if the task manager is in a mode that should
 // block global key handling (editor, picker, input, search, or any non-normal mode)
 func (m *TaskManagerModel) IsInModalState() bool {

@@ -25,6 +25,7 @@ const (
 	modeSelectDir
 	modeCreate
 	modeRename
+	modeArchiveConfirm
 )
 
 type PickerModel struct {
@@ -38,6 +39,7 @@ type PickerModel struct {
 	availableDirs  []string
 	selectedDirIdx int
 	renameIdx      int
+	archiveIdx     int
 	width          int
 	height         int
 	err            error
@@ -75,23 +77,7 @@ func (m *PickerModel) SetSize(width, height int) {
 
 // IsTyping returns true when the picker is in create, search, or rename mode with active text input
 func (m PickerModel) IsTyping() bool {
-	return m.mode == modeCreate || m.mode == modeSearch || m.mode == modeRename
-}
-
-// HintText returns the raw hint string for the current picker mode.
-func (m PickerModel) HintText() string {
-	switch m.mode {
-	case modeSearch:
-		return "type to filter  enter:confirm  esc:cancel"
-	case modeSelectDir:
-		return "j/k:navigate  enter:select  esc:cancel"
-	case modeCreate:
-		return "enter:create  esc:cancel"
-	case modeRename:
-		return "enter:rename  esc:cancel"
-	default:
-		return "j/k:navigate  /:search  enter:select  n:new board  r:rename  ?:help  q:quit"
-	}
+	return m.mode == modeCreate || m.mode == modeSearch || m.mode == modeRename || m.mode == modeArchiveConfirm
 }
 
 // ShouldFocusBoard returns true when pressing esc would return focus to the board
@@ -160,28 +146,49 @@ func (m PickerModel) viewSidebar(height int, activeBoardPath string, focused boo
 
 	// Board list (shown in modeList and modeSearch)
 	if m.mode == modeList || m.mode == modeSearch {
-		for i, idx := range m.filtered {
-			board := m.boards[idx]
-			isSelected := i == m.selected && focused
-			isActive := board.Path == activeBoardPath
-
-			name := shared.TruncateString(board.Name, nameWidth)
-
-			var nameSty lipgloss.Style
-			switch {
-			case isSelected:
-				nameSty = lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)
-			case isActive && focused:
-				nameSty = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
-			case isActive:
-				nameSty = lipgloss.NewStyle().Foreground(theme.Primary)
-			case !focused:
-				nameSty = lipgloss.NewStyle().Foreground(theme.TextMuted)
-			default:
-				nameSty = lipgloss.NewStyle().Foreground(theme.Text)
+		var activeIdxs, archivedIdxs []int
+		for _, idx := range m.filtered {
+			if m.boards[idx].Archived {
+				archivedIdxs = append(archivedIdxs, idx)
+			} else {
+				activeIdxs = append(activeIdxs, idx)
 			}
+		}
 
-			lines = append(lines, lipgloss.NewStyle().Width(sidebarWidth).Render(nameSty.Render(name)))
+		renderSidebarGroup := func(idxs []int, selectionOffset int) {
+			for i, idx := range idxs {
+				board := m.boards[idx]
+				listPos := selectionOffset + i
+				isSelected := listPos == m.selected && focused
+				isActive := board.Path == activeBoardPath
+
+				name := shared.TruncateString(board.Name, nameWidth)
+
+				var nameSty lipgloss.Style
+				switch {
+				case isSelected:
+					nameSty = lipgloss.NewStyle().Foreground(theme.Warning).Bold(true)
+				case isActive && focused:
+					nameSty = lipgloss.NewStyle().Foreground(theme.Primary).Bold(true)
+				case isActive:
+					nameSty = lipgloss.NewStyle().Foreground(theme.Primary)
+				case !focused:
+					nameSty = lipgloss.NewStyle().Foreground(theme.TextMuted)
+				default:
+					nameSty = lipgloss.NewStyle().Foreground(theme.Text)
+				}
+
+				lines = append(lines, lipgloss.NewStyle().Width(sidebarWidth).Render(nameSty.Render(name)))
+			}
+		}
+
+		renderSidebarGroup(activeIdxs, 0)
+
+		if len(archivedIdxs) > 0 {
+			lines = append(lines, "")
+			archivedHeading := shared.TruncateString("Archived", sidebarWidth)
+			lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextMuted).Width(sidebarWidth).Render(archivedHeading))
+			renderSidebarGroup(archivedIdxs, len(activeIdxs))
 		}
 	}
 
@@ -204,13 +211,16 @@ func (m *PickerModel) SetBoards(boards []models.Board) {
 }
 
 func (m *PickerModel) applyFilter() {
+	var active, archived []int
 	if m.searchQuery == "" {
-		m.filtered = nil
 		for i := range m.boards {
-			if !m.showArchived && m.boards[i].Archived {
-				continue
+			if m.boards[i].Archived {
+				if m.showArchived {
+					archived = append(archived, i)
+				}
+			} else {
+				active = append(active, i)
 			}
-			m.filtered = append(m.filtered, i)
 		}
 	} else {
 		names := make([]string, len(m.boards))
@@ -218,14 +228,18 @@ func (m *PickerModel) applyFilter() {
 			names[i] = b.Name
 		}
 		matches := fuzzy.Find(m.searchQuery, names)
-		m.filtered = nil
 		for _, match := range matches {
-			if !m.showArchived && m.boards[match.Index].Archived {
-				continue
+			if m.boards[match.Index].Archived {
+				if m.showArchived {
+					archived = append(archived, match.Index)
+				}
+			} else {
+				active = append(active, match.Index)
 			}
-			m.filtered = append(m.filtered, match.Index)
 		}
 	}
+	// Active boards first, archived at the end
+	m.filtered = append(active, archived...)
 	if m.selected >= len(m.filtered) {
 		m.selected = max(0, len(m.filtered)-1)
 	}
@@ -262,9 +276,25 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 			return m.updateCreate(msg)
 		case modeRename:
 			return m.updateRename(msg)
+		case modeArchiveConfirm:
+			return m.updateArchiveConfirm(msg)
 		}
 	}
 
+	return m, nil
+}
+
+func (m PickerModel) updateArchiveConfirm(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		if err := operations.ToggleBoardArchive(&m.boards[m.archiveIdx]); err != nil {
+			m.err = err
+		}
+		m.mode = modeList
+		m.applyFilter()
+	case "n", "esc":
+		m.mode = modeList
+	}
 	return m, nil
 }
 
@@ -343,11 +373,19 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 
 	case "a":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
-			board := &m.boards[m.filtered[m.selected]]
-			if err := operations.ToggleBoardArchive(board); err != nil {
-				m.err = err
+			idx := m.filtered[m.selected]
+			if m.boards[idx].Archived {
+				// Unarchive: no confirmation needed
+				if err := operations.ToggleBoardArchive(&m.boards[idx]); err != nil {
+					m.err = err
+				} else {
+					m.applyFilter()
+				}
 			} else {
-				m.applyFilter()
+				// Archive: require confirmation
+				m.archiveIdx = idx
+				m.mode = modeArchiveConfirm
+				m.err = nil
 			}
 		}
 
@@ -404,12 +442,13 @@ func (m PickerModel) updateCreate(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 				return m, nil
 			}
 
-			// Open the newly created board
-			return m, func() tea.Msg {
-				return messages.OpenBoardMsg{
-					BoardPath: board.Path,
-				}
-			}
+			m.mode = modeList
+			m.textInput.SetValue("")
+			boardPath := board.Path
+			return m, tea.Batch(
+				func() tea.Msg { return messages.DataRefreshMsg{} },
+				func() tea.Msg { return messages.OpenBoardMsg{BoardPath: boardPath} },
+			)
 		}
 	}
 
@@ -479,9 +518,27 @@ func (m PickerModel) View() string {
 		return m.viewCreate()
 	case modeRename:
 		return m.viewRename()
+	case modeArchiveConfirm:
+		return m.viewArchiveConfirm()
 	default:
 		return m.viewList()
 	}
+}
+
+func (m PickerModel) viewArchiveConfirm() string {
+	board := m.boards[m.archiveIdx]
+	var lines []string
+	lines = append(lines, titleStyle.Render("Archive Board"))
+	lines = append(lines, "")
+	lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Archive %q?", board.Name)))
+	lines = append(lines, "")
+	lines = append(lines, theme.ModalHelp.Render("[y] Archive   [n/esc] Cancel"))
+	if m.err != nil {
+		lines = append(lines, "")
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func (m PickerModel) viewSearch() string {
@@ -525,6 +582,16 @@ func (m PickerModel) viewList() string {
 		lines = append(lines, "")
 	}
 
+	// Split filtered into active and archived groups
+	var activeIdxs, archivedIdxs []int
+	for _, idx := range m.filtered {
+		if m.boards[idx].Archived {
+			archivedIdxs = append(archivedIdxs, idx)
+		} else {
+			activeIdxs = append(activeIdxs, idx)
+		}
+	}
+
 	if len(m.filtered) == 0 {
 		if len(m.boards) == 0 {
 			lines = append(lines, theme.ListItem.Render("No boards found. Press 'n' to create one."))
@@ -533,33 +600,36 @@ func (m PickerModel) viewList() string {
 		}
 		lines = append(lines, "")
 	} else {
-		// Calculate max board name width for alignment
-		maxNameWidth := 0
-		for _, idx := range m.filtered {
-			board := m.boards[idx]
-			width := lipgloss.Width(theme.ListItem.Render(board.Name))
-			if width > maxNameWidth {
-				maxNameWidth = width
+		renderGroup := func(idxs []int, selectionOffset int) {
+			maxNameWidth := 0
+			for _, idx := range idxs {
+				w := lipgloss.Width(theme.ListItem.Render(m.boards[idx].Name))
+				if w > maxNameWidth {
+					maxNameWidth = w
+				}
+			}
+			for i, idx := range idxs {
+				board := m.boards[idx]
+				listPos := selectionOffset + i
+				style := theme.ListItem
+				if listPos == m.selected {
+					style = theme.ListItemSelected
+				}
+				nameCol := style.Width(maxNameWidth).Render(board.Name)
+				parentDir := filepath.Dir(board.Path)
+				line := nameCol + "  " + pathStyle.Render(abbreviatePath(parentDir))
+				lines = append(lines, line)
 			}
 		}
 
-		// List filtered boards
-		for i, idx := range m.filtered {
-			board := m.boards[idx]
-			style := theme.ListItem
-			if i == m.selected {
-				style = theme.ListItemSelected
-			}
-			nameCol := style.Width(maxNameWidth).Render(board.Name)
-			parentDir := filepath.Dir(board.Path)
-			displayPath := abbreviatePath(parentDir)
-			var suffix string
-			if board.Archived {
-				suffix = " " + pathStyle.Render("[archived]")
-			}
-			line := nameCol + suffix + "  " + pathStyle.Render(displayPath)
-			lines = append(lines, line)
+		renderGroup(activeIdxs, 0)
+
+		if len(archivedIdxs) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextMuted).Bold(true).Render("  Archived"))
+			renderGroup(archivedIdxs, len(activeIdxs))
 		}
+
 		lines = append(lines, "")
 	}
 
