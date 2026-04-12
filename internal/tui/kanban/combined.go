@@ -83,6 +83,12 @@ func (m *CombinedModel) SetBoardProjects(projects []string) {
 	}
 }
 
+// UnloadBoard clears the currently loaded board and returns focus to the sidebar.
+func (m *CombinedModel) UnloadBoard() {
+	m.boardLoaded = false
+	m.sidebarFocused = true
+}
+
 // FocusBoard shifts focus to the board content area (e.g. when returning via B key).
 func (m *CombinedModel) FocusBoard() {
 	if m.boardLoaded {
@@ -152,7 +158,7 @@ func (m CombinedModel) Update(msg tea.Msg) (CombinedModel, tea.Cmd) {
 
 func (m CombinedModel) View() string {
 	// Show creation/confirmation UI as a centered popup instead of in the sidebar
-	if m.picker.mode == modeCreate || m.picker.mode == modeSelectDir || m.picker.mode == modeArchiveConfirm {
+	if m.picker.mode == modeCreate || m.picker.mode == modeSelectDir || m.picker.mode == modeArchiveConfirm || m.picker.mode == modeDeleteConfirm {
 		p := m.picker
 		p.width = m.width
 		p.height = m.height

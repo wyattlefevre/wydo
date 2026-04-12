@@ -378,11 +378,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if boardPath := m.kanbanView.BoardPath(); boardPath != "" {
 			if board, err := fs.ReadBoard(boardPath); err == nil {
 				m.kanbanView.SetBoard(board)
+				m.kanbanView.SetAllProjects(collectAllProjects(m.workspaces))
+				m.kanbanView.SetBoardProjects(projectsForBoard(m.workspaces, boardPath))
 			} else {
+				// Board no longer exists (e.g. was deleted) — unload it
 				logs.Logger.Printf("DataRefreshMsg: failed to reload board: %v", err)
+				m.kanbanView.UnloadBoard()
 			}
-			m.kanbanView.SetAllProjects(collectAllProjects(m.workspaces))
-			m.kanbanView.SetBoardProjects(projectsForBoard(m.workspaces, boardPath))
 		}
 		if projName := m.projectsView.ActiveProjectName(); projName != "" && m.currentView == ViewProjects {
 			_, wsDir := m.projectsView.OpenInfo()

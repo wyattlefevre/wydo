@@ -26,6 +26,7 @@ const (
 	modeCreate
 	modeRename
 	modeArchiveConfirm
+	modeDeleteConfirm
 )
 
 type PickerModel struct {
@@ -40,6 +41,7 @@ type PickerModel struct {
 	selectedDirIdx int
 	renameIdx      int
 	archiveIdx     int
+	deleteIdx      int
 	width          int
 	height         int
 	err            error
@@ -278,9 +280,43 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 			return m.updateRename(msg)
 		case modeArchiveConfirm:
 			return m.updateArchiveConfirm(msg)
+		case modeDeleteConfirm:
+			return m.updateDeleteConfirm(msg)
 		}
 	}
 
+	return m, nil
+}
+
+func boardTotalCards(board models.Board) int {
+	total := 0
+	for _, col := range board.Columns {
+		total += len(col.Cards)
+	}
+	return total
+}
+
+func (m PickerModel) updateDeleteConfirm(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
+	board := m.boards[m.deleteIdx]
+	if boardTotalCards(board) > 0 {
+		// Board has cards — any key dismisses
+		m.mode = modeList
+		return m, nil
+	}
+	switch msg.String() {
+	case "y":
+		if err := operations.DeleteBoard(board); err != nil {
+			m.err = err
+			return m, nil
+		}
+		// Remove from local slice so the list updates immediately
+		m.boards = append(m.boards[:m.deleteIdx], m.boards[m.deleteIdx+1:]...)
+		m.mode = modeList
+		m.applyFilter()
+		return m, func() tea.Msg { return messages.DataRefreshMsg{} }
+	case "n", "esc":
+		m.mode = modeList
+	}
 	return m, nil
 }
 
@@ -392,6 +428,13 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	case "ctrl+a":
 		m.showArchived = !m.showArchived
 		m.applyFilter()
+
+	case "d":
+		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
+			m.deleteIdx = m.filtered[m.selected]
+			m.mode = modeDeleteConfirm
+			m.err = nil
+		}
 	}
 
 	return m, nil
@@ -520,9 +563,39 @@ func (m PickerModel) View() string {
 		return m.viewRename()
 	case modeArchiveConfirm:
 		return m.viewArchiveConfirm()
+	case modeDeleteConfirm:
+		return m.viewDeleteConfirm()
 	default:
 		return m.viewList()
 	}
+}
+
+func (m PickerModel) viewDeleteConfirm() string {
+	board := m.boards[m.deleteIdx]
+	cardCount := boardTotalCards(board)
+
+	var lines []string
+	if cardCount > 0 {
+		lines = append(lines, deleteConfirmTitleStyle.Render("Cannot Delete Board"))
+		lines = append(lines, "")
+		lines = append(lines, theme.ListItem.Render(fmt.Sprintf("%q has %d card(s).", board.Name, cardCount)))
+		lines = append(lines, theme.ListItem.Render("Remove all cards before deleting a board."))
+		lines = append(lines, "")
+		lines = append(lines, theme.ModalHelp.Render("[esc] Cancel"))
+	} else {
+		lines = append(lines, deleteConfirmTitleStyle.Render("Delete Board"))
+		lines = append(lines, "")
+		lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Permanently delete %q?", board.Name)))
+		lines = append(lines, theme.ListItem.Render("This action cannot be undone."))
+		lines = append(lines, "")
+		lines = append(lines, theme.ModalHelp.Render("[y] Delete   [n/esc] Cancel"))
+	}
+	if m.err != nil {
+		lines = append(lines, "")
+		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func (m PickerModel) viewArchiveConfirm() string {
