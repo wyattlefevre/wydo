@@ -129,8 +129,8 @@ func (m CombinedModel) Update(msg tea.Msg) (CombinedModel, tea.Cmd) {
 }
 
 func (m CombinedModel) View() string {
-	// Show creation UI as a centered popup instead of in the sidebar
-	if m.picker.mode == modeCreate || m.picker.mode == modeSelectDir || m.picker.mode == modeSelectWorkspace {
+	// Show any modal UI as a centered full-screen popup instead of in the sidebar
+	if m.picker.mode != modeList {
 		p := m.picker
 		p.width = m.width
 		p.height = m.height
