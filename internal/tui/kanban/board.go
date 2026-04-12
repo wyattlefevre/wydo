@@ -1266,7 +1266,7 @@ func (m BoardModel) updatePriorityInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				} else {
 					m.board = board
 					if newPriority > 0 {
-						m.message = fmt.Sprintf("Priority set to %d", newPriority)
+						m.message = fmt.Sprintf("Priority set to %s", models.CardPriorityLabel(newPriority))
 					} else {
 						m.message = "Priority cleared"
 					}
@@ -1937,7 +1937,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	priorityPrefix := ""
 	priorityPrefixWidth := 0
 	if card.Priority > 0 {
-		priorityPrefix = fmt.Sprintf(" %d ", card.Priority)
+		priorityPrefix = " " + models.CardPriorityLabel(card.Priority) + " "
 		priorityPrefixWidth = len(priorityPrefix)
 	}
 

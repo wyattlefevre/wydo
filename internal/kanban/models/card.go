@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // CardURL represents a URL with an optional label
 type CardURL struct {
@@ -25,6 +28,28 @@ type Card struct {
 	TmuxSession   string     // From YAML frontmatter
 	JiraKey       string     // From YAML frontmatter (e.g. "PROJ-123")
 	JiraStatus    string     // From YAML frontmatter (cached Jira status)
+}
+
+// CardPriorityLabel converts an int priority (1-6) to its letter label ("A"-"F").
+// Returns "" for 0 or any out-of-range value.
+func CardPriorityLabel(p int) string {
+	if p < 1 || p > 6 {
+		return ""
+	}
+	return string(rune('A' + p - 1))
+}
+
+// CardPriorityFromLetter converts a priority letter ("A"-"F", case-insensitive) to
+// its int value (1-6). Returns 0 for any unrecognized input.
+func CardPriorityFromLetter(s string) int {
+	if len(s) != 1 {
+		return 0
+	}
+	r := rune(strings.ToUpper(s)[0])
+	if r < 'A' || r > 'F' {
+		return 0
+	}
+	return int(r-'A') + 1
 }
 
 // HasURLs returns true if the card has at least one URL

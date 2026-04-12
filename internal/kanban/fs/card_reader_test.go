@@ -123,6 +123,135 @@ func TestReadCard_ContractorQuotes(t *testing.T) {
 	}
 }
 
+func TestParseFrontmatter_PriorityNewFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		wantPrio int
+	}{
+		{"letter A", "priority: A\n", 1},
+		{"letter F", "priority: F\n", 6},
+		{"lowercase a", "priority: a\n", 1},
+		{"quoted B", "priority: \"B\"\n", 2},
+		{"letter C", "priority: C\n", 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := []byte("---\n" + tt.yaml + "---\n\n# Test\n")
+			result, err := ParseFrontmatter(content)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Priority != tt.wantPrio {
+				t.Errorf("expected priority %d, got %d", tt.wantPrio, result.Priority)
+			}
+		})
+	}
+}
+
+func TestParseFrontmatter_PriorityLegacyIntFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		wantPrio int
+	}{
+		{"int 1", "priority: 1\n", 1},
+		{"int 6", "priority: 6\n", 6},
+		{"int 3", "priority: 3\n", 3},
+		{"int 0 treated as none", "priority: 0\n", 0},
+		{"int 7 out of range", "priority: 7\n", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := []byte("---\n" + tt.yaml + "---\n\n# Test\n")
+			result, err := ParseFrontmatter(content)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result.Priority != tt.wantPrio {
+				t.Errorf("expected priority %d, got %d", tt.wantPrio, result.Priority)
+			}
+		})
+	}
+}
+
+func TestParseFrontmatter_PriorityNone(t *testing.T) {
+	content := []byte("---\ntags:\n  - test\n---\n\n# Test\n")
+	result, err := ParseFrontmatter(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Priority != 0 {
+		t.Errorf("expected priority 0 (none), got %d", result.Priority)
+	}
+}
+
+func TestWriteCard_PriorityWrittenAsLetter(t *testing.T) {
+	card := models.Card{
+		Filename: "test.md",
+		Priority: 2,
+		Content:  "# Test\n",
+	}
+	tmpDir := t.TempDir()
+	path := tmpDir + "/test.md"
+
+	if err := WriteCard(card, path); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	rawStr := string(raw)
+	if !contains(rawStr, "priority: B") {
+		t.Errorf("expected 'priority: B' in written file, got:\n%s", rawStr)
+	}
+	// Must not write the old numeric format
+	if contains(rawStr, "priority: 2") {
+		t.Errorf("found old numeric format 'priority: 2' in written file")
+	}
+}
+
+func TestWriteCard_PriorityRoundTrip(t *testing.T) {
+	for p := 1; p <= 6; p++ {
+		card := models.Card{
+			Filename: "test.md",
+			Priority: p,
+			Content:  "# Test\n",
+			Tags:     []string{},
+			Projects: []string{},
+		}
+		tmpDir := t.TempDir()
+		path := tmpDir + "/test.md"
+
+		if err := WriteCard(card, path); err != nil {
+			t.Fatalf("write error for priority %d: %v", p, err)
+		}
+		loaded, err := ReadCard(path)
+		if err != nil {
+			t.Fatalf("read error for priority %d: %v", p, err)
+		}
+		if loaded.Priority != p {
+			t.Errorf("priority round-trip failed for %d: got %d", p, loaded.Priority)
+		}
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func TestParseFrontmatter_LegacyURL(t *testing.T) {
 	content := []byte(`---
 url: "https://example.com"

@@ -5,7 +5,7 @@ due: "2026-02-10"
 tags:
   - backend
   - security
-priority: 1
+priority: A
 ---
 
 # Auth Service

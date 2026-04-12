@@ -10,6 +10,7 @@ import (
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tasks/service"
+	"wydo/internal/tui/messages"
 	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
 )
@@ -28,6 +29,10 @@ type stackItem struct {
 	subtitle string // board › column for cards
 	task     *data.Task
 	card     *kanbanmodels.Card
+	// card navigation
+	boardPath string
+	colIndex  int
+	cardIndex int
 }
 
 type stackGroup struct {
@@ -116,21 +121,24 @@ func (m *StackModel) refreshData() {
 		if idx < 0 {
 			continue
 		}
-		for _, col := range board.Columns {
+		for ci, col := range board.Columns {
 			if strings.EqualFold(col.Name, "done") {
 				continue
 			}
-			for _, card := range col.Cards {
+			for ki, card := range col.Cards {
 				if card.Priority == 0 || card.Archived {
 					continue
 				}
 				cc := card
 				buckets[idx] = append(buckets[idx], stackItem{
-					kind:     kindCard,
-					priority: card.Priority,
-					title:    card.Title,
-					subtitle: board.Name + " › " + col.Name,
-					card:     &cc,
+					kind:      kindCard,
+					priority:  card.Priority,
+					title:     card.Title,
+					subtitle:  board.Name + " › " + col.Name,
+					card:      &cc,
+					boardPath: board.Path,
+					colIndex:  ci,
+					cardIndex: ki,
 				})
 			}
 		}
@@ -177,6 +185,28 @@ func (m StackModel) Update(msg tea.Msg) (StackModel, tea.Cmd) {
 			if len(m.flatItems) > 0 {
 				m.cursor = len(m.flatItems) - 1
 			}
+		case "enter":
+			return m.openSelected()
+		}
+	}
+	return m, nil
+}
+
+func (m StackModel) openSelected() (StackModel, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.flatItems) {
+		return m, nil
+	}
+	item := m.flatItems[m.cursor]
+	switch item.kind {
+	case kindTask:
+		if item.task != nil {
+			id := item.task.ID
+			return m, func() tea.Msg { return messages.FocusTaskMsg{TaskID: id} }
+		}
+	case kindCard:
+		path, ci, ki := item.boardPath, item.colIndex, item.cardIndex
+		return m, func() tea.Msg {
+			return messages.OpenBoardMsg{BoardPath: path, ColIndex: ci, CardIndex: ki}
 		}
 	}
 	return m, nil
@@ -237,8 +267,40 @@ func (m StackModel) View() string {
 	return strings.Join(out, "\n")
 }
 
+func priorityStyle(p int) lipgloss.Style {
+	var bg, fg lipgloss.Color
+	switch p {
+	case 1:
+		bg, fg = lipgloss.Color("5"), lipgloss.Color("16")   // magenta
+	case 2:
+		bg, fg = lipgloss.Color("1"), lipgloss.Color("16")   // red
+	case 3:
+		bg, fg = lipgloss.Color("208"), lipgloss.Color("16") // orange
+	case 4:
+		bg, fg = lipgloss.Color("3"), lipgloss.Color("16")   // yellow
+	case 5:
+		bg, fg = lipgloss.Color("2"), lipgloss.Color("16")   // green
+	default:
+		bg, fg = lipgloss.Color("8"), lipgloss.Color("15")   // gray
+	}
+	return lipgloss.NewStyle().Bold(true).Background(bg).Foreground(fg)
+}
+
+var (
+	taskKindStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))  // bright blue
+	cardKindStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")) // amber
+)
+
 func renderItem(item stackItem, selected bool) string {
-	pBadge := theme.Priority.Render("[" + priorityLabel(item.priority) + "]")
+	pBadge := priorityStyle(item.priority).Render(" " + priorityLabel(item.priority) + " ")
+
+	var kindBadge string
+	switch item.kind {
+	case kindTask:
+		kindBadge = taskKindStyle.Render("[Task]")
+	case kindCard:
+		kindBadge = cardKindStyle.Render("[Card]")
+	}
 
 	var titleStr string
 	if selected {
@@ -254,9 +316,9 @@ func renderItem(item stackItem, selected bool) string {
 
 	if selected {
 		cursor := theme.Cursor.Render(">")
-		return "  " + cursor + " " + pBadge + " " + titleStr + suffix
+		return "  " + cursor + " " + pBadge + " " + kindBadge + " " + titleStr + suffix
 	}
-	return "    " + pBadge + " " + titleStr + suffix
+	return "    " + pBadge + " " + kindBadge + " " + titleStr + suffix
 }
 
 func priorityLabel(p int) string {

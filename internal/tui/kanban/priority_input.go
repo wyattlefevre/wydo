@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	kanbanmodels "wydo/internal/kanban/models"
 )
 
 type PriorityInputModel struct {
@@ -32,24 +33,18 @@ func (m PriorityInputModel) Update(msg tea.KeyMsg) (PriorityInputModel, bool) {
 		return m, true
 	case "0", "backspace":
 		m.priority = 0
-	case "1":
+	case "a", "A":
 		m.priority = 1
-	case "2":
+	case "b", "B":
 		m.priority = 2
-	case "3":
+	case "c", "C":
 		m.priority = 3
-	case "4":
+	case "d", "D":
 		m.priority = 4
-	case "5":
+	case "e", "E":
 		m.priority = 5
-	case "6":
+	case "f", "F":
 		m.priority = 6
-	case "7":
-		m.priority = 7
-	case "8":
-		m.priority = 8
-	case "9":
-		m.priority = 9
 	}
 
 	return m, false
@@ -63,13 +58,14 @@ func (m PriorityInputModel) View() string {
 	s.WriteString("\n\n")
 
 	if m.priority > 0 {
-		s.WriteString(fmt.Sprintf("Priority: %s", kanbanPriorityStyle(m.priority).Render(fmt.Sprintf("%d", m.priority))))
+		label := kanbanmodels.CardPriorityLabel(m.priority)
+		s.WriteString(fmt.Sprintf("Priority: %s", kanbanPriorityStyle(m.priority).Render(" "+label+" ")))
 	} else {
 		s.WriteString(helpStyle.Render("Priority: (none)"))
 	}
 	s.WriteString("\n\n")
 
-	help := helpStyle.Render("1-9: set priority • 0/backspace: clear • enter: save • esc: cancel")
+	help := helpStyle.Render("a-f: set priority • 0/backspace: clear • enter: save • esc: cancel")
 	s.WriteString(help)
 
 	content := s.String()

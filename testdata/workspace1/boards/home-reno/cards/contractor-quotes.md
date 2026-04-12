@@ -4,7 +4,7 @@ projects:
 due: "2026-02-20"
 tags:
   - planning
-priority: 2
+priority: B
 ---
 
 # Contractor Quotes

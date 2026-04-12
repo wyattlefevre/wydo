@@ -18,8 +18,8 @@ func TestLoad_Default(t *testing.T) {
 		t.Error("expected default workspace")
 	}
 
-	if cfg.DefaultView != "day" {
-		t.Errorf("expected default view 'day', got %q", cfg.DefaultView)
+	if cfg.DefaultView != "stack" {
+		t.Errorf("expected default view 'stack', got %q", cfg.DefaultView)
 	}
 }
 

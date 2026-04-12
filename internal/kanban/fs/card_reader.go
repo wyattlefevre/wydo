@@ -99,7 +99,7 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		Due           string           `yaml:"due"`
 		Scheduled     string           `yaml:"scheduled"`
 		DateCompleted string           `yaml:"date_completed"`
-		Priority      int              `yaml:"priority"`
+		Priority      interface{}      `yaml:"priority"`
 		Archived      bool             `yaml:"archived"`
 		TmuxSession   string           `yaml:"tmux_session"`
 		JiraKey       string           `yaml:"jira_key,omitempty"`
@@ -158,13 +158,27 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		DueDate:       dueDate,
 		ScheduledDate: scheduledDate,
 		DateCompleted: dateCompleted,
-		Priority:      frontmatter.Priority,
+		Priority:      parsePriorityField(frontmatter.Priority),
 		Archived:      frontmatter.Archived,
 		TmuxSession:   frontmatter.TmuxSession,
 		JiraKey:       frontmatter.JiraKey,
 		JiraStatus:    frontmatter.JiraStatus,
 		Body:          body,
 	}, nil
+}
+
+// parsePriorityField converts a raw YAML priority value to an int (1-6, 0=none).
+// Supports new letter format ("A"-"F") and legacy integer format (1-6).
+func parsePriorityField(raw interface{}) int {
+	switch v := raw.(type) {
+	case int:
+		if v >= 1 && v <= 6 {
+			return v
+		}
+	case string:
+		return models.CardPriorityFromLetter(v)
+	}
+	return 0
 }
 
 func extractTitle(markdown string) string {

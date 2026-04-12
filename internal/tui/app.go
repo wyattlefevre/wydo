@@ -84,8 +84,12 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		}
 	}
 
-	view := ViewAgendaDay
+	view := ViewStack
 	switch cfg.DefaultView {
+	case "stack":
+		view = ViewStack
+	case "day":
+		view = ViewAgendaDay
 	case "week":
 		view = ViewAgendaWeek
 	case "month":
@@ -1052,6 +1056,7 @@ func (m AppModel) renderHelpOverlay() string {
 			Binds: []shared.HelpBind{
 				{"j / k", "Navigate"},
 				{"g / G", "Top / bottom"},
+				{"enter", "Open item"},
 			},
 		})
 	}

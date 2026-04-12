@@ -46,7 +46,7 @@ func WriteCard(card models.Card, path string) error {
 		delete(fm, "date_completed")
 	}
 
-	set("priority", card.Priority, card.Priority > 0)
+	set("priority", models.CardPriorityLabel(card.Priority), card.Priority > 0)
 	set("archived", card.Archived, card.Archived)
 	set("tmux_session", card.TmuxSession, card.TmuxSession != "")
 	set("jira_key", card.JiraKey, card.JiraKey != "")
