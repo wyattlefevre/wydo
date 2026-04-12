@@ -52,6 +52,7 @@ const (
 	ViewProjects
 	ViewProjectDetail
 	ViewNotes
+	ViewStack
 )
 
 // SwitchViewMsg is sent by child views to switch to a different view
