@@ -107,7 +107,7 @@ func NewListPickerModel(config ListPickerConfig) ListPickerModel {
 		selected:  selected,
 		textInput: ti,
 	}
-	m.filteredItems = m.allItems
+	m.filterItems()
 	return m
 }
 
@@ -455,20 +455,33 @@ func (m ListPickerModel) CreateModeActive() bool {
 }
 
 // filterItems applies fuzzy matching and updates filteredItems and showCreate.
+// Selected items are always floated to the top of the result, preserving
+// relative order within each group.
 func (m *ListPickerModel) filterItems() {
 	if m.query == "" {
 		m.filteredItems = m.allItems
 		m.showCreate = false
-		return
+	} else {
+		matches := fuzzy.Find(m.query, m.allItems)
+		filtered := make([]string, len(matches))
+		for i, match := range matches {
+			filtered[i] = match.Str
+		}
+		m.filteredItems = filtered
+		m.showCreate = m.config.AllowCreate && !listExactMatch(m.query, m.allItems)
 	}
 
-	matches := fuzzy.Find(m.query, m.allItems)
-	filtered := make([]string, len(matches))
-	for i, match := range matches {
-		filtered[i] = match.Str
+	// Stable-partition: selected items first, then unselected.
+	sel := make([]string, 0, len(m.selected))
+	unsel := make([]string, 0, len(m.filteredItems))
+	for _, item := range m.filteredItems {
+		if m.selected[item] {
+			sel = append(sel, item)
+		} else {
+			unsel = append(unsel, item)
+		}
 	}
-	m.filteredItems = filtered
-	m.showCreate = m.config.AllowCreate && !listExactMatch(m.query, m.allItems)
+	m.filteredItems = append(sel, unsel...)
 }
 
 func (m *ListPickerModel) toggleItem() {

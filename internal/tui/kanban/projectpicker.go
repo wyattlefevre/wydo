@@ -41,7 +41,8 @@ func NewProjectPickerModel(currentProjects []string, allProjects []ProjectPicker
 			PreSelectedItems: selected,
 			ItemDepths:       depths,
 			MultiSelect:      true,
-			AllowCreate:      false,
+			AllowCreate:      true,
+			SanitizeFunc:     sanitizeProject,
 		}),
 	}
 }
