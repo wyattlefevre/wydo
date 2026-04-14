@@ -25,6 +25,7 @@ type TaskService interface {
 	Complete(id string) error
 	Delete(id string) error
 	Archive() error
+	ArchiveByIDs(ids []string) error
 	GetProjects() map[string]data.Project
 	Reload() error
 }
@@ -312,6 +313,29 @@ func (s *taskServiceImpl) Archive() error {
 			}
 			s.tasks[i].File = archiveFile
 		}
+	}
+	if err := data.WriteAllTasks(s.tasks); err != nil {
+		return err
+	}
+	return s.Reload()
+}
+
+// ArchiveByIDs moves the specified tasks (by ID) to archive/tasks/todo.txt.
+func (s *taskServiceImpl) ArchiveByIDs(ids []string) error {
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	for i := range s.tasks {
+		if !idSet[s.tasks[i].ID] || s.tasks[i].Archived {
+			continue
+		}
+		workspaceRoot := filepath.Dir(filepath.Dir(s.tasks[i].File))
+		archiveFile := filepath.Join(workspaceRoot, "archive", "tasks", "todo.txt")
+		if err := os.MkdirAll(filepath.Dir(archiveFile), 0755); err != nil {
+			return err
+		}
+		s.tasks[i].File = archiveFile
 	}
 	if err := data.WriteAllTasks(s.tasks); err != nil {
 		return err

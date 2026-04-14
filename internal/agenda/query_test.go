@@ -40,6 +40,7 @@ func (m *mockTaskService) Update(data.Task) error                             { 
 func (m *mockTaskService) Complete(string) error                              { return nil }
 func (m *mockTaskService) Delete(string) error                                { return nil }
 func (m *mockTaskService) Archive() error                                     { return nil }
+func (m *mockTaskService) ArchiveByIDs([]string) error                        { return nil }
 func (m *mockTaskService) GetProjects() map[string]data.Project               { return nil }
 func (m *mockTaskService) Reload() error                                      { return nil }
 

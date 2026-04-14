@@ -53,6 +53,11 @@ type MoveTaskToBoardMsg struct {
 	BoardPath string
 }
 
+// ArchiveSelectionRequestMsg is sent when selected tasks should be archived
+type ArchiveSelectionRequestMsg struct {
+	IDs []string
+}
+
 // TaskManagerModel manages the task list view with filtering, sorting, and grouping
 type TaskManagerModel struct {
 	// Data
@@ -85,8 +90,8 @@ type TaskManagerModel struct {
 	// Direct edit state
 	directEditTaskID string
 
-	// Archive visibility
-	showArchived bool
+	// Archive mode selection
+	archiveSelection map[string]bool
 
 	// Pending delete (for confirmation modal)
 	pendingDeleteTaskID string
@@ -290,6 +295,8 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 			return m.handleSortDirection(msg)
 		case ModeGroupDirection:
 			return m.handleGroupDirection(msg)
+		case ModeArchive:
+			return m.handleArchiveMode(msg)
 		}
 	}
 
@@ -381,9 +388,22 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 
 	for i := m.scrollOffset; i < end; i++ {
 		task := m.displayTasks[i]
-		prefix := "  "
-		if i == m.cursor {
-			prefix = cursorStyle.Render("> ")
+		var prefix string
+		if m.inputContext.Mode == ModeArchive {
+			box := "[ ]"
+			if m.archiveSelection[task.ID] {
+				box = "[x]"
+			}
+			if i == m.cursor {
+				prefix = cursorStyle.Render(box+" ")
+			} else {
+				prefix = box + " "
+			}
+		} else {
+			prefix = "  "
+			if i == m.cursor {
+				prefix = cursorStyle.Render("> ")
+			}
 		}
 		b.WriteString(prefix + shared.StyledTaskLine(task) + "\n")
 	}
@@ -436,9 +456,22 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 				break
 			}
 			if taskIndex >= m.scrollOffset {
-				prefix := "  "
-				if taskIndex == m.cursor {
-					prefix = cursorStyle.Render("> ")
+				var prefix string
+				if m.inputContext.Mode == ModeArchive {
+					box := "[ ]"
+					if m.archiveSelection[task.ID] {
+						box = "[x]"
+					}
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render(box + " ")
+					} else {
+						prefix = box + " "
+					}
+				} else {
+					prefix = "  "
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render("> ")
+					}
 				}
 				b.WriteString(prefix + shared.StyledTaskLine(task) + "\n")
 				linesRendered++
@@ -500,8 +533,8 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "m":
 		return m.startMoveToBoard()
 	case "a":
-		m.showArchived = !m.showArchived
-		m.refreshDisplayTasks()
+		m.archiveSelection = make(map[string]bool)
+		m.inputContext.TransitionTo(ModeArchive)
 	}
 	return m, nil
 }
@@ -585,6 +618,48 @@ func (m TaskManagerModel) handleGroupDirection(msg tea.KeyMsg) (TaskManagerModel
 		m.applyGroupField(true)
 	case "d":
 		m.applyGroupField(false)
+	}
+	return m, nil
+}
+
+func (m TaskManagerModel) handleArchiveMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.moveCursor(1)
+	case "k", "up":
+		m.moveCursor(-1)
+	case " ":
+		task := m.selectedTask()
+		if task != nil {
+			m.archiveSelection[task.ID] = !m.archiveSelection[task.ID]
+			if !m.archiveSelection[task.ID] {
+				delete(m.archiveSelection, task.ID)
+			}
+		}
+	case "a":
+		// Select all if any unselected; deselect all if all selected
+		allSelected := len(m.archiveSelection) == len(m.displayTasks) && len(m.displayTasks) > 0
+		if allSelected {
+			m.archiveSelection = make(map[string]bool)
+		} else {
+			for _, t := range m.displayTasks {
+				m.archiveSelection[t.ID] = true
+			}
+		}
+	case "enter":
+		count := len(m.archiveSelection)
+		if count == 0 {
+			return m, messages.StatusCmd("No tasks selected to archive", messages.LevelWarning)
+		}
+		m.confirmationModal = NewConfirmationModal(
+			fmt.Sprintf("Archive %d task(s)?", count),
+			"Selected tasks will be moved to archive/tasks/todo.txt",
+			50,
+		)
+		m.inputContext.TransitionTo(ModeConfirmation)
+	case "esc":
+		m.archiveSelection = nil
+		m.inputContext.Reset()
 	}
 	return m, nil
 }
@@ -688,6 +763,9 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 
 	// Go back or reset
 	if m.inputContext.Mode != ModeNormal {
+		if m.inputContext.Mode == ModeArchive {
+			m.archiveSelection = nil
+		}
 		m.inputContext.Back()
 		if m.inputContext.Mode == ModeNormal {
 			m.inputContext.Reset()
@@ -1026,8 +1104,8 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 	// Apply workspace filter (needs roots context, separate from ApplyFilters)
 	filtered = ApplyWorkspaceFilter(filtered, m.filterState.WorkspaceFilter, m.workspaceRoots)
 
-	// Exclude archived tasks unless showArchived is true
-	if !m.showArchived {
+	// Exclude archived tasks from the default view
+	{
 		nonArchived := filtered[:0]
 		for _, t := range filtered {
 			if !t.Archived {
@@ -1235,6 +1313,7 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 
 	if !msg.Confirmed {
 		m.pendingDeleteTaskID = ""
+		m.archiveSelection = nil
 		return m, nil
 	}
 
@@ -1247,7 +1326,19 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		}
 	}
 
-	// Archive flow
+	// Archive-selection flow
+	if len(m.archiveSelection) > 0 {
+		ids := make([]string, 0, len(m.archiveSelection))
+		for id := range m.archiveSelection {
+			ids = append(ids, id)
+		}
+		m.archiveSelection = nil
+		return m, func() tea.Msg {
+			return ArchiveSelectionRequestMsg{IDs: ids}
+		}
+	}
+
+	// Legacy archive-all flow (StartArchiveMsg path)
 	count := 0
 	for _, task := range m.tasks {
 		if task.Done && !task.Archived {

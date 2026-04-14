@@ -337,8 +337,19 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, m.setStatus(fmt.Sprintf("Moved \"%s\" to board \"%s\"", msg.Task.Name, board.Name), LevelSuccess)
 
+	case taskview.ArchiveSelectionRequestMsg:
+		// Archive specifically selected tasks
+		if err := m.taskSvc.ArchiveByIDs(msg.IDs); err != nil {
+			logs.Logger.Printf("Error archiving selected tasks: %v", err)
+			return m, nil
+		}
+		m.taskManagerView.SetData(m.taskSvc)
+		return m, func() tea.Msg {
+			return taskview.ArchiveCompleteMsg{Count: len(msg.IDs)}
+		}
+
 	case taskview.ArchiveRequestMsg:
-		// Archive completed tasks
+		// Archive all completed tasks
 		if err := m.taskSvc.Archive(); err != nil {
 			logs.Logger.Printf("Error archiving tasks: %v", err)
 			return m, nil

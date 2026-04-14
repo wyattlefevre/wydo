@@ -24,24 +24,16 @@ func makeTasksWithArchived() []data.Task {
 	}
 }
 
-func TestShowArchived_False_ExcludesArchivedTasks(t *testing.T) {
-	m := &TaskManagerModel{showArchived: false, tasks: makeTasksWithArchived()}
+func TestArchivedTasksExcludedByDefault(t *testing.T) {
+	m := &TaskManagerModel{tasks: makeTasksWithArchived()}
 	m.refreshDisplayTasks()
 	for _, task := range m.displayTasks {
 		if task.Archived {
-			t.Errorf("showArchived=false: got archived task %q", task.Name)
+			t.Errorf("expected archived tasks excluded, got %q", task.Name)
 		}
 	}
 	if len(m.displayTasks) != 2 {
-		t.Errorf("showArchived=false: expected 2 tasks, got %d", len(m.displayTasks))
-	}
-}
-
-func TestShowArchived_True_IncludesArchivedTasks(t *testing.T) {
-	m := &TaskManagerModel{showArchived: true, tasks: makeTasksWithArchived()}
-	m.refreshDisplayTasks()
-	if len(m.displayTasks) != 4 {
-		t.Errorf("showArchived=true: expected 4 tasks, got %d", len(m.displayTasks))
+		t.Errorf("expected 2 non-archived tasks, got %d", len(m.displayTasks))
 	}
 }
 
