@@ -129,7 +129,7 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 		return "d:date  p:project  P:priority  t:context  esc:back"
 
 	case ModeGroupSelect:
-		return "d:date  p:project  P:priority  t:context  f:file  esc:back"
+		return "d:date  p:project  P:priority  t:context  esc:back"
 
 	case ModeSortDirection, ModeGroupDirection:
 		return "a:ascending  d:descending  esc:back"

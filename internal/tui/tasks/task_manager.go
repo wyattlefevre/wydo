@@ -121,7 +121,7 @@ func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string, b
 		inputContext:    NewInputModeContext(),
 		filterState:     NewFilterState(),
 		sortState:       NewSortState(),
-		groupState: GroupState{Field: GroupByFile, Ascending: false},
+		groupState: GroupState{Field: GroupByNone, Ascending: false},
 		infoBar:    NewInfoBar(),
 	}
 	m.loadTasks()
@@ -565,9 +565,6 @@ func (m TaskManagerModel) handleGroupSelect(msg tea.KeyMsg) (TaskManagerModel, t
 	case "t", "c":
 		m.inputContext.Field = "context"
 		m.inputContext.TransitionTo(ModeGroupDirection)
-	case "f":
-		m.inputContext.Field = "file"
-		m.inputContext.TransitionTo(ModeGroupDirection)
 	}
 	return m, nil
 }
@@ -701,7 +698,7 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 	// In normal mode, clear filters, restore default grouping
 	m.filterState.Reset()
 	m.sortState.Reset()
-	m.groupState = GroupState{Field: GroupByFile, Ascending: true}
+	m.groupState = GroupState{Field: GroupByNone, Ascending: true}
 	m.refreshDisplayTasks()
 	return m, nil
 }
@@ -866,8 +863,6 @@ func (m *TaskManagerModel) applyGroupField(ascending bool) {
 		field = GroupByPriority
 	case "context":
 		field = GroupByContext
-	case "file":
-		field = GroupByFile
 	}
 
 	m.groupState.Field = field

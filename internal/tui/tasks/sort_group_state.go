@@ -79,7 +79,6 @@ const (
 	GroupByProject
 	GroupByPriority
 	GroupByContext
-	GroupByFile
 )
 
 // GroupState holds grouping configuration
@@ -123,8 +122,6 @@ func (g *GroupState) String() string {
 		field = "priority"
 	case GroupByContext:
 		field = "context"
-	case GroupByFile:
-		field = "file"
 	}
 
 	dir := "asc"
@@ -317,8 +314,6 @@ func getGroupKeys(task data.Task, field GroupField, roots []string) []string {
 		}
 		return task.Contexts
 
-	case GroupByFile:
-		return []string{RelativeFilePath(task.File, roots)}
 	}
 
 	return []string{""}
