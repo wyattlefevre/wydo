@@ -23,7 +23,6 @@ import (
 	notesview "wydo/internal/tui/notes"
 	projectsview "wydo/internal/tui/projects"
 	"wydo/internal/tui/shared"
-	stackview "wydo/internal/tui/stack"
 	taskview "wydo/internal/tui/tasks"
 	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
@@ -50,7 +49,6 @@ type AppModel struct {
 	taskManagerView     taskview.TaskManagerModel
 	projectsView projectsview.CombinedModel
 	notesView           notesview.NotesModel
-	stackView           stackview.StackModel
 	showHelp       bool
 	exitConfirming bool
 	width          int
@@ -84,10 +82,8 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		}
 	}
 
-	view := ViewStack
+	view := ViewTaskManager
 	switch cfg.DefaultView {
-	case "stack":
-		view = ViewStack
 	case "day":
 		view = ViewAgendaDay
 	case "week":
@@ -138,7 +134,6 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards, collectAllProjects(workspaces)),
 		projectsView:    projectsview.NewCombinedModel(workspaces),
 		notesView:       notesview.NewNotesModel(workspaces),
-		stackView:       stackview.NewStackModel(workspaces, taskSvc, allBoards),
 	}
 
 	// If a specific board was requested, find and open it directly
@@ -190,7 +185,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetSize(contentWidth, contentHeight)
 		m.projectsView.SetSize(msg.Width, contentHeight)
 		m.notesView.SetSize(msg.Width, contentHeight)
-		m.stackView.SetSize(contentWidth, contentHeight)
 		return m, nil
 
 	case OpenBoardMsg:
@@ -260,9 +254,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewNotes:
 			m.refreshData()
 			m.notesView.SetData(m.workspaces)
-		case ViewStack:
-			m.refreshData()
-			m.stackView.SetData(m.workspaces, m.taskSvc, m.boards)
 		}
 		return m, nil
 
@@ -483,11 +474,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.taskManagerView.SetBoards(m.boards)
 				}
 				return m, nil
-			case "S":
-				m.refreshData()
-				m.currentView = ViewStack
-				m.stackView.SetData(m.workspaces, m.taskSvc, m.boards)
-				return m, nil
 			}
 		}
 
@@ -562,9 +548,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case ViewNotes:
 		m.notesView, cmd = m.notesView.Update(msg)
-		return m, cmd
-	case ViewStack:
-		m.stackView, cmd = m.stackView.Update(msg)
 		return m, cmd
 	}
 
@@ -780,9 +763,6 @@ func (m AppModel) View() string {
 		content = m.projectsView.View()
 	case ViewNotes:
 		content = m.notesView.View()
-	case ViewStack:
-		content = m.stackView.View()
-		centerContent = true
 	}
 
 	if centerContent && m.width > maxContentWidth {
@@ -842,7 +822,7 @@ func (m AppModel) renderAgendaSubBar() string {
 // renderTabBar renders the top tab bar with the active view highlighted.
 // The right side shows a transient status/alert message when present.
 func (m AppModel) renderTabBar() string {
-	tabs := []string{"Board", "Agenda", "Tasks", "Projects", "Notes", "Stack"}
+	tabs := []string{"Board", "Agenda", "Tasks", "Projects", "Notes"}
 
 	// Map current view to active tab index
 	activeIdx := -1
@@ -857,8 +837,6 @@ func (m AppModel) renderTabBar() string {
 		activeIdx = 3
 	case ViewNotes:
 		activeIdx = 4
-	case ViewStack:
-		activeIdx = 5
 	}
 
 	var parts []string
@@ -908,7 +886,6 @@ func (m AppModel) renderHelpOverlay() string {
 			{"B", "Board picker"},
 			{"A", "Agenda (day view)"},
 			{"T", "Task manager"},
-			{"S", "Stack view"},
 			{"D / W / M", "Day / week / month"},
 			{"?", "Show this help"},
 			{"q", "Quit"},
@@ -1048,15 +1025,6 @@ func (m AppModel) renderHelpOverlay() string {
 				{"U", "Edit URLs"},
 				{"d", "Edit dates"},
 				{"esc / q", "Back to sidebar"},
-			},
-		})
-	case ViewStack:
-		sections = append(sections, shared.HelpSection{
-			Title: "Stack",
-			Binds: []shared.HelpBind{
-				{"j / k", "Navigate"},
-				{"g / G", "Top / bottom"},
-				{"enter", "Open item"},
 			},
 		})
 	}

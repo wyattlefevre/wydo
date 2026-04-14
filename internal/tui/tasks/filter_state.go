@@ -47,9 +47,7 @@ type FilterState struct {
 
 // NewFilterState creates a new empty filter state
 func NewFilterState() FilterState {
-	return FilterState{
-		StatusFilter: StatusPending,
-	}
+	return FilterState{}
 }
 
 // IsEmpty returns true if no filters are active

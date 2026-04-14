@@ -419,29 +419,6 @@ func (m *TaskEditorModel) View() string {
 	return editorBoxStyle.Width(m.Width).Render(content.String())
 }
 
-// IsModified returns true if the task has been modified
-func (m *TaskEditorModel) IsModified() bool {
-	if m.task.Priority != m.originalTask.Priority {
-		return true
-	}
-	if m.task.GetDueDate() != m.originalTask.GetDueDate() {
-		return true
-	}
-	if m.task.GetScheduledDate() != m.originalTask.GetScheduledDate() {
-		return true
-	}
-	if !slicesEqual(m.task.Projects, m.originalTask.Projects) {
-		return true
-	}
-	if !slicesEqual(m.task.Contexts, m.originalTask.Contexts) {
-		return true
-	}
-	if m.task.GetURL() != m.originalTask.GetURL() {
-		return true
-	}
-	return false
-}
-
 // slicesEqual compares two string slices for equality
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {

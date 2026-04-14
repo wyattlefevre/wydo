@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent).MarginTop(1)
+	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
 	cursorStyle      = theme.Cursor
 )
 
@@ -36,11 +36,6 @@ const (
 // TaskUpdateMsg is sent when a task is updated
 type TaskUpdateMsg struct {
 	Task data.Task
-}
-
-// TaskEditorOpenMsg is sent to open the task editor
-type TaskEditorOpenMsg struct {
-	Task *data.Task
 }
 
 // ToggleFileViewMsg is sent to cycle file view mode
@@ -327,7 +322,7 @@ func (m TaskManagerModel) View() string {
 
 	// Info bar (always visible)
 	b.WriteString(m.infoBar.View())
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	// Sub-component overlays (except search - which is inline)
 	if m.projectPicker != nil {
@@ -373,7 +368,18 @@ func (m TaskManagerModel) View() string {
 		b.WriteString(m.renderFlatTasks())
 	}
 
-	return shared.CenterContent(b.String(), m.height)
+	// Pin mode bar to bottom
+	content := strings.TrimRight(b.String(), "\n")
+	modeBar := m.infoBar.RenderModeBar(m.width)
+	modeBarLines := strings.Count(modeBar, "\n") + 1
+	contentLines := strings.Count(content, "\n") + 1
+	if content == "" {
+		contentLines = 0
+	}
+	if padding := m.height - contentLines - modeBarLines; padding > 0 {
+		content += strings.Repeat("\n", padding)
+	}
+	return content + "\n" + modeBar
 }
 
 func (m *TaskManagerModel) renderFlatTasks() string {
@@ -426,6 +432,17 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 
 		// Emit group header if any task in this group is visible
 		if taskIndex >= m.scrollOffset || (groupStart < m.scrollOffset && groupEnd > m.scrollOffset) {
+			// Blank separator before header (skip at very top of viewport)
+			if linesRendered > 0 {
+				if linesRendered >= visible {
+					break
+				}
+				b.WriteString("\n")
+				linesRendered++
+			}
+			if linesRendered >= visible {
+				break
+			}
 			b.WriteString(groupHeaderStyle.Render("-- " + group.Label + " --"))
 			b.WriteString("\n")
 			linesRendered++
@@ -462,8 +479,6 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.openTaskEditor()
 	case "d":
 		return m.startDirectDueDateEdit()
-	case "s":
-		return m.startDirectScheduledDateEdit()
 	case "t":
 		return m.startDirectContextEdit()
 	case "p":
@@ -477,7 +492,7 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "f":
 		m.inputContext.TransitionTo(ModeFilterSelect)
 		m.inputContext.Category = "filter"
-	case "S":
+	case "s":
 		m.inputContext.TransitionTo(ModeSortSelect)
 		m.inputContext.Category = "sort"
 	case "g":
@@ -1079,9 +1094,9 @@ func (m *TaskManagerModel) selectedTask() *data.Task {
 }
 
 // visibleTaskRows returns the number of task lines that fit in the viewport.
-// The info bar uses 4 lines (3 content + border), gap uses 1 line, hints use 1 line.
+// The info bar uses 2 lines (1 content + border), mode bar uses 2 lines (border + content).
 func (m *TaskManagerModel) visibleTaskRows() int {
-	used := 6 // info bar (4) + gap (1) + hints (1)
+	used := 4 // info bar (2) + mode bar (2)
 	if m.searchActive {
 		used++ // search input line
 	}
@@ -1093,6 +1108,7 @@ func (m *TaskManagerModel) visibleTaskRows() int {
 }
 
 // ensureCursorVisible adjusts scrollOffset so the cursor is within the visible window.
+// In grouped mode it accounts for group header rows via countVisualRows.
 func (m *TaskManagerModel) ensureCursorVisible() {
 	visible := m.visibleTaskRows()
 	if m.scrollOffset < 0 {
@@ -1100,10 +1116,54 @@ func (m *TaskManagerModel) ensureCursorVisible() {
 	}
 	if m.cursor < m.scrollOffset {
 		m.scrollOffset = m.cursor
+		return
 	}
-	if m.cursor >= m.scrollOffset+visible {
-		m.scrollOffset = m.cursor - visible + 1
+	for m.scrollOffset < m.cursor {
+		if m.countVisualRows(m.scrollOffset, m.cursor+1) <= visible {
+			break
+		}
+		m.scrollOffset++
 	}
+}
+
+// countVisualRows returns the number of visual rows needed to display tasks [start, end)
+// accounting for group headers and blank separator lines in grouped mode.
+func (m *TaskManagerModel) countVisualRows(start, end int) int {
+	if end <= start {
+		return 0
+	}
+	if !m.groupState.IsActive() || len(m.taskGroups) == 0 {
+		return end - start
+	}
+	rows := 0
+	taskIndex := 0
+	firstGroup := true
+	for _, group := range m.taskGroups {
+		groupEnd := taskIndex + len(group.Tasks)
+		if groupEnd <= start {
+			taskIndex = groupEnd
+			continue
+		}
+		if taskIndex >= end {
+			break
+		}
+		showHeader := taskIndex >= start || (taskIndex < start && groupEnd > start)
+		if showHeader {
+			if !firstGroup {
+				rows++ // blank separator before header
+			}
+			rows++ // header row
+			firstGroup = false
+		}
+		for i := range group.Tasks {
+			idx := taskIndex + i
+			if idx >= start && idx < end {
+				rows++
+			}
+		}
+		taskIndex = groupEnd
+	}
+	return rows
 }
 
 // handleStartArchive initiates the archive flow

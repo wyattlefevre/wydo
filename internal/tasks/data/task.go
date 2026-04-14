@@ -1,7 +1,6 @@
 package data
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -178,18 +177,6 @@ func (t Task) String() string {
 	}
 
 	return strings.Join(parts, " ")
-}
-
-func (t Task) Print() {
-	fmt.Printf("ID: %s\n", t.ID)
-	fmt.Printf("Name: %s\n", t.Name)
-	fmt.Printf("Projects: %v\n", t.Projects)
-	fmt.Printf("Contexts: %v\n", t.Contexts)
-	fmt.Printf("Done: %v\n", t.Done)
-	fmt.Printf("Tags: %v\n", t.Tags)
-	fmt.Printf("CreatedDate: %s\n", t.CreatedDate)
-	fmt.Printf("CompletionDate: %s\n", t.CompletionDate)
-	fmt.Printf("Priority: %c\n", t.Priority)
 }
 
 func ParseTask(input string, id string, file string) Task {

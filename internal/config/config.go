@@ -39,7 +39,7 @@ var globalConfig *Config
 // Load loads configuration with priority: CLI flags > env vars > config file > default
 func Load(flags CLIFlags) (*Config, error) {
 	cfg := &Config{
-		DefaultView: "stack",
+		DefaultView: "tasks",
 	}
 
 	// Try loading config file first for base values
@@ -197,7 +197,7 @@ func EnsureConfigFile() error {
 
 	settings := Settings{
 		Workspaces:  []string{defaultDir},
-		DefaultView: "stack",
+		DefaultView: "tasks",
 	}
 
 	data, err := json.MarshalIndent(settings, "", "  ")

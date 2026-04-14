@@ -15,7 +15,6 @@ const (
 	ViewProjects      = messages.ViewProjects
 	ViewProjectDetail = messages.ViewProjectDetail
 	ViewNotes         = messages.ViewNotes
-	ViewStack         = messages.ViewStack
 )
 
 type SwitchViewMsg = messages.SwitchViewMsg
