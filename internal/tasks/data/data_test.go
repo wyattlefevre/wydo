@@ -10,7 +10,7 @@ func TestLoadTasksFromDir(t *testing.T) {
 	wd, _ := os.Getwd()
 	tasksDir := filepath.Join(wd, "..", "..", "..", "testdata", "workspace1", "tasks")
 
-	tasks, err := LoadTasksFromDir(tasksDir, []string{"todo.txt", "done.txt"}, true)
+	tasks, err := LoadTasksFromDir(tasksDir, []string{"todo.txt"}, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -19,23 +19,11 @@ func TestLoadTasksFromDir(t *testing.T) {
 		t.Fatal("expected tasks to be loaded")
 	}
 
-	// Check that tasks from both files are loaded
-	hasFromTodo := false
-	hasFromDone := false
+	// All tasks should come from todo.txt
 	for _, task := range tasks {
-		if filepath.Base(task.File) == "todo.txt" {
-			hasFromTodo = true
+		if filepath.Base(task.File) != "todo.txt" {
+			t.Errorf("expected file todo.txt, got %q", filepath.Base(task.File))
 		}
-		if filepath.Base(task.File) == "done.txt" {
-			hasFromDone = true
-		}
-	}
-
-	if !hasFromTodo {
-		t.Error("expected tasks from todo.txt")
-	}
-	if !hasFromDone {
-		t.Error("expected tasks from done.txt")
 	}
 }
 

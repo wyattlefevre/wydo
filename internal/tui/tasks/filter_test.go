@@ -15,70 +15,47 @@ func makeTasks() []data.Task {
 	}
 }
 
-func TestFileViewAll_ShowsBothPendingAndDone(t *testing.T) {
-	m := &TaskManagerModel{fileViewMode: FileViewAll}
-	tasks := makeTasks()
-	result := m.applyFileViewFilter(tasks)
-	if len(result) != 4 {
-		t.Errorf("FileViewAll: expected 4 tasks, got %d", len(result))
+func makeTasksWithArchived() []data.Task {
+	return []data.Task{
+		{ID: "1", Name: "pending task", Done: false, Archived: false},
+		{ID: "2", Name: "done task", Done: true, Archived: false},
+		{ID: "3", Name: "archived task", Done: true, Archived: true},
+		{ID: "4", Name: "archived pending", Done: false, Archived: true},
 	}
 }
 
-func TestFileViewTodoOnly_ExcludesDone(t *testing.T) {
-	m := &TaskManagerModel{fileViewMode: FileViewTodoOnly}
-	tasks := makeTasks()
-	result := m.applyFileViewFilter(tasks)
-	if len(result) != 2 {
-		t.Errorf("FileViewTodoOnly: expected 2 tasks, got %d", len(result))
-	}
-	for _, task := range result {
-		if task.Done {
-			t.Errorf("FileViewTodoOnly: got done task %q", task.Name)
+func TestShowArchived_False_ExcludesArchivedTasks(t *testing.T) {
+	m := &TaskManagerModel{showArchived: false, tasks: makeTasksWithArchived()}
+	m.refreshDisplayTasks()
+	for _, task := range m.displayTasks {
+		if task.Archived {
+			t.Errorf("showArchived=false: got archived task %q", task.Name)
 		}
 	}
-}
-
-func TestFileViewDoneOnly_ExcludesPending(t *testing.T) {
-	m := &TaskManagerModel{fileViewMode: FileViewDoneOnly}
-	tasks := makeTasks()
-	result := m.applyFileViewFilter(tasks)
-	if len(result) != 2 {
-		t.Errorf("FileViewDoneOnly: expected 2 tasks, got %d", len(result))
-	}
-	for _, task := range result {
-		if !task.Done {
-			t.Errorf("FileViewDoneOnly: got pending task %q", task.Name)
-		}
+	if len(m.displayTasks) != 2 {
+		t.Errorf("showArchived=false: expected 2 tasks, got %d", len(m.displayTasks))
 	}
 }
 
-func TestStatusFilterDone_WithFileViewAll_ShowsDoneTasks(t *testing.T) {
+func TestShowArchived_True_IncludesArchivedTasks(t *testing.T) {
+	m := &TaskManagerModel{showArchived: true, tasks: makeTasksWithArchived()}
+	m.refreshDisplayTasks()
+	if len(m.displayTasks) != 4 {
+		t.Errorf("showArchived=true: expected 4 tasks, got %d", len(m.displayTasks))
+	}
+}
+
+func TestStatusFilterDone_ShowsDoneTasks(t *testing.T) {
 	tasks := makeTasks()
 	state := FilterState{StatusFilter: StatusDone}
 	filtered := ApplyFilters(tasks, state)
 
-	m := &TaskManagerModel{fileViewMode: FileViewAll}
-	result := m.applyFileViewFilter(filtered)
-
-	if len(result) != 2 {
-		t.Errorf("StatusDone + FileViewAll: expected 2 tasks, got %d", len(result))
+	if len(filtered) != 2 {
+		t.Errorf("StatusDone: expected 2 tasks, got %d", len(filtered))
 	}
-	for _, task := range result {
+	for _, task := range filtered {
 		if !task.Done {
-			t.Errorf("StatusDone + FileViewAll: got pending task %q", task.Name)
+			t.Errorf("StatusDone: got pending task %q", task.Name)
 		}
-	}
-}
-
-func TestStatusFilterDone_WithFileViewTodoOnly_ShowsNothing(t *testing.T) {
-	tasks := makeTasks()
-	state := FilterState{StatusFilter: StatusDone}
-	filtered := ApplyFilters(tasks, state)
-
-	m := &TaskManagerModel{fileViewMode: FileViewTodoOnly}
-	result := m.applyFileViewFilter(filtered)
-
-	if len(result) != 0 {
-		t.Errorf("StatusDone + FileViewTodoOnly: expected 0 tasks, got %d", len(result))
 	}
 }

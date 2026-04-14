@@ -85,6 +85,12 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 						return err
 					}
 				}
+			case "archive":
+				if dir == rootDir {
+					if err := scanArchiveDir(absPath, scan); err != nil {
+						return err
+					}
+				}
 			case "projects":
 				if err := scanProjectsDir(absPath, rootDir, projectContext, scan); err != nil {
 					return err
@@ -155,6 +161,17 @@ func scanTasksDir(tasksDir string, scan *WorkspaceScan) error {
 		})
 	}
 
+	return nil
+}
+
+// scanArchiveDir scans archive/ for mirrored subdirectories (e.g. archive/tasks/).
+func scanArchiveDir(archiveDir string, scan *WorkspaceScan) error {
+	tasksDir := filepath.Join(archiveDir, "tasks")
+	if _, err := os.Stat(tasksDir); err == nil {
+		if err := scanTasksDir(tasksDir, scan); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

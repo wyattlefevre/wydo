@@ -130,14 +130,14 @@ func TestCompleteMovesToDone(t *testing.T) {
 		t.Errorf("expected %d done, got %d", doneCountBefore+1, len(doneAfter))
 	}
 
-	// The completed task should be in done.txt in the same directory
+	// The completed task should stay in todo.txt (same dir), not moved to done.txt
 	found := false
 	for _, dt := range doneAfter {
 		if dt.Name == taskName {
 			found = true
-			expectedDone := filepath.Join(taskDir, "done.txt")
-			if dt.File != expectedDone {
-				t.Errorf("expected file %q, got %q", expectedDone, dt.File)
+			expectedFile := filepath.Join(taskDir, "todo.txt")
+			if dt.File != expectedFile {
+				t.Errorf("expected file %q, got %q", expectedFile, dt.File)
 			}
 			break
 		}
@@ -317,13 +317,14 @@ func TestArchivePerDirectory(t *testing.T) {
 		t.Fatalf("archive error: %v", err)
 	}
 
-	// done.txt should now exist in dir1
-	doneFile := filepath.Join(dir1, "done.txt")
-	if _, err := os.Stat(doneFile); err != nil {
-		t.Error("expected done.txt to be created after archive")
+	// archive/tasks/todo.txt should now exist under the workspace root (parent of dir1)
+	workspaceRoot := filepath.Dir(dir1)
+	archiveFile := filepath.Join(workspaceRoot, "archive", "tasks", "todo.txt")
+	if _, err := os.Stat(archiveFile); err != nil {
+		t.Errorf("expected archive/tasks/todo.txt to be created after archive, got: %v", err)
 	}
 
-	// Reload and verify
+	// Reload and verify: 1 pending in todo.txt, 1 done in archive
 	tasks, _ := svc.ListPending()
 	done, _ := svc.ListDone()
 

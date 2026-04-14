@@ -37,6 +37,9 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 		TaskDirs: scan.TaskDirs,
 	}
 
+	// Ensure archive directory structure exists
+	_ = os.MkdirAll(filepath.Join(scan.RootDir, "archive", "tasks"), 0755)
+
 	// Load boards
 	for _, bi := range scan.Boards {
 		board, err := fs.ReadBoard(bi.Path)

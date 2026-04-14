@@ -24,22 +24,10 @@ var (
 	cursorStyle      = theme.Cursor
 )
 
-// FileViewMode determines which file(s) to display tasks from
-type FileViewMode int
-
-const (
-	FileViewAll FileViewMode = iota
-	FileViewTodoOnly
-	FileViewDoneOnly
-)
-
 // TaskUpdateMsg is sent when a task is updated
 type TaskUpdateMsg struct {
 	Task data.Task
 }
-
-// ToggleFileViewMsg is sent to cycle file view mode
-type ToggleFileViewMsg struct{}
 
 // StartArchiveMsg is sent to start the archive flow
 type StartArchiveMsg struct{}
@@ -97,8 +85,8 @@ type TaskManagerModel struct {
 	// Direct edit state
 	directEditTaskID string
 
-	// File view mode
-	fileViewMode FileViewMode
+	// Archive visibility
+	showArchived bool
 
 	// Pending delete (for confirmation modal)
 	pendingDeleteTaskID string
@@ -133,9 +121,8 @@ func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string, b
 		inputContext:    NewInputModeContext(),
 		filterState:     NewFilterState(),
 		sortState:       NewSortState(),
-		groupState:      GroupState{Field: GroupByFile, Ascending: false},
-		infoBar:         NewInfoBar(),
-		fileViewMode:    FileViewAll,
+		groupState: GroupState{Field: GroupByFile, Ascending: false},
+		infoBar:    NewInfoBar(),
 	}
 	m.loadTasks()
 	return m
@@ -207,10 +194,6 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		return m.handleTextInputResult(msg)
 	case TaskEditorResultMsg:
 		return m.handleEditorResult(msg)
-	case ToggleFileViewMsg:
-		m.cycleFileViewMode()
-		m.refreshDisplayTasks()
-		return m, nil
 	case StartArchiveMsg:
 		return m.handleStartArchive()
 	case ConfirmationResultMsg:
@@ -218,7 +201,7 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 	case ArchiveCompleteMsg:
 		m.confirmationModal = nil
 		m.loadTasks()
-		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks to done.txt", msg.Count), messages.LevelSuccess)
+		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks", msg.Count), messages.LevelSuccess)
 	}
 
 	// Handle inline search mode (before other sub-components)
@@ -318,7 +301,7 @@ func (m TaskManagerModel) View() string {
 	var b strings.Builder
 
 	// Update info bar with current state
-	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, m.fileViewMode, len(m.workspaceRoots) > 1)
+	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1)
 
 	// Info bar (always visible)
 	b.WriteString(m.infoBar.View())
@@ -516,6 +499,9 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.handleOpenURL()
 	case "m":
 		return m.startMoveToBoard()
+	case "a":
+		m.showArchived = !m.showArchived
+		m.refreshDisplayTasks()
 	}
 	return m, nil
 }
@@ -712,11 +698,10 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 
-	// In normal mode, clear filters and file view mode, restore default grouping
+	// In normal mode, clear filters, restore default grouping
 	m.filterState.Reset()
 	m.sortState.Reset()
 	m.groupState = GroupState{Field: GroupByFile, Ascending: true}
-	m.fileViewMode = FileViewAll
 	m.refreshDisplayTasks()
 	return m, nil
 }
@@ -1046,8 +1031,16 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 	// Apply workspace filter (needs roots context, separate from ApplyFilters)
 	filtered = ApplyWorkspaceFilter(filtered, m.filterState.WorkspaceFilter, m.workspaceRoots)
 
-	// Apply file view filter
-	filtered = m.applyFileViewFilter(filtered)
+	// Exclude archived tasks unless showArchived is true
+	if !m.showArchived {
+		nonArchived := filtered[:0]
+		for _, t := range filtered {
+			if !t.Archived {
+				nonArchived = append(nonArchived, t)
+			}
+		}
+		filtered = nonArchived
+	}
 
 	// Apply sort
 	sorted := ApplySort(filtered, m.sortState)
@@ -1168,10 +1161,10 @@ func (m *TaskManagerModel) countVisualRows(start, end int) int {
 
 // handleStartArchive initiates the archive flow
 func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
-	// Count completed tasks not yet in done.txt
+	// Count completed tasks not yet archived
 	count := 0
 	for _, task := range m.tasks {
-		if task.Done && !strings.HasSuffix(task.File, "done.txt") {
+		if task.Done && !task.Archived {
 			count++
 		}
 	}
@@ -1183,7 +1176,7 @@ func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
 	// Show confirmation modal
 	m.confirmationModal = NewConfirmationModal(
 		fmt.Sprintf("Archive %d completed task(s)?", count),
-		"This will move completed tasks from todo.txt to done.txt",
+		"This will move completed tasks to archive/tasks/todo.txt",
 		50,
 	)
 	m.inputContext.TransitionTo(ModeConfirmation)
@@ -1262,7 +1255,7 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 	// Archive flow
 	count := 0
 	for _, task := range m.tasks {
-		if task.Done && !strings.HasSuffix(task.File, "done.txt") {
+		if task.Done && !task.Archived {
 			count++
 		}
 	}
@@ -1278,30 +1271,6 @@ func (m *TaskManagerModel) IsInModalState() bool {
 		return true
 	}
 	return m.inputContext.Mode != ModeNormal
-}
-
-// cycleFileViewMode cycles through file view modes: All -> TodoOnly -> DoneOnly -> All
-func (m *TaskManagerModel) cycleFileViewMode() {
-	m.fileViewMode = (m.fileViewMode + 1) % 3
-	m.cursor = 0       // Reset cursor position
-	m.scrollOffset = 0 // Reset scroll position
-}
-
-// applyFileViewFilter filters tasks based on the current file view mode
-func (m *TaskManagerModel) applyFileViewFilter(tasks []data.Task) []data.Task {
-	if m.fileViewMode == FileViewAll {
-		return tasks
-	}
-
-	var filtered []data.Task
-	for _, task := range tasks {
-		if m.fileViewMode == FileViewTodoOnly && !task.Done {
-			filtered = append(filtered, task)
-		} else if m.fileViewMode == FileViewDoneOnly && task.Done {
-			filtered = append(filtered, task)
-		}
-	}
-	return filtered
 }
 
 // Direct edit handlers

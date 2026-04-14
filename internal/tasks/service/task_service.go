@@ -47,11 +47,21 @@ func NewTaskService(taskDirs []scanner.TaskDirInfo) (TaskService, error) {
 }
 
 func (s *taskServiceImpl) Reload() error {
+	// Migrate any done.txt files to archive/tasks/todo.txt
+	for _, td := range s.taskDirs {
+		if err := migrateDoneTxt(td.DirPath); err != nil {
+			logs.Logger.Printf("Warning: error migrating done.txt from %s: %v", td.DirPath, err)
+		}
+	}
+
+	// Ensure archive task dirs are tracked (they may have been created by Archive())
+	s.ensureArchiveTaskDirs()
+
 	var allTasks []data.Task
 	projects := make(map[string]data.Project)
 
 	for i, td := range s.taskDirs {
-		// Re-discover .txt files in the directory (handles newly created done.txt)
+		// Re-discover .txt files in the directory
 		files := discoverTxtFiles(td.DirPath)
 		if len(files) > 0 {
 			s.taskDirs[i].Files = files
@@ -77,6 +87,72 @@ func (s *taskServiceImpl) Reload() error {
 	s.tasks = allTasks
 	s.projects = projects
 	return nil
+}
+
+// ensureArchiveTaskDirs checks for archive/tasks/ directories derived from known task dirs
+// and adds them to s.taskDirs if not already present. This handles the case where
+// Archive() creates archive/tasks/ after the service was initialized.
+func (s *taskServiceImpl) ensureArchiveTaskDirs() {
+	known := make(map[string]bool)
+	for _, td := range s.taskDirs {
+		known[td.DirPath] = true
+	}
+
+	for _, td := range s.taskDirs {
+		// Skip dirs that are already inside an archive/
+		if filepath.Base(filepath.Dir(td.DirPath)) == "archive" {
+			continue
+		}
+		workspaceRoot := filepath.Dir(td.DirPath)
+		archiveTasksDir := filepath.Join(workspaceRoot, "archive", "tasks")
+		if known[archiveTasksDir] {
+			continue
+		}
+		if _, err := os.Stat(archiveTasksDir); err == nil {
+			s.taskDirs = append(s.taskDirs, scanner.TaskDirInfo{DirPath: archiveTasksDir})
+			known[archiveTasksDir] = true
+		}
+	}
+}
+
+// migrateDoneTxt moves tasks from a done.txt (if present) into archive/tasks/todo.txt
+// and then deletes done.txt. It is a no-op if done.txt does not exist or if the
+// dirPath is itself inside an archive/ directory.
+func migrateDoneTxt(dirPath string) error {
+	// Don't migrate archive task dirs themselves
+	if filepath.Base(filepath.Dir(dirPath)) == "archive" {
+		return nil
+	}
+
+	doneTxt := filepath.Join(dirPath, "done.txt")
+	if _, err := os.Stat(doneTxt); os.IsNotExist(err) {
+		return nil
+	}
+
+	workspaceRoot := filepath.Dir(dirPath)
+	archiveDir := filepath.Join(workspaceRoot, "archive", "tasks")
+	if err := os.MkdirAll(archiveDir, 0755); err != nil {
+		return fmt.Errorf("create archive dir: %w", err)
+	}
+
+	doneData, err := os.ReadFile(doneTxt)
+	if err != nil {
+		return fmt.Errorf("read done.txt: %w", err)
+	}
+
+	archiveTodo := filepath.Join(archiveDir, "todo.txt")
+	f, err := os.OpenFile(archiveTodo, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open archive todo.txt: %w", err)
+	}
+	_, writeErr := f.Write(doneData)
+	f.Close()
+	if writeErr != nil {
+		return fmt.Errorf("write archive todo.txt: %w", writeErr)
+	}
+
+	logs.Logger.Printf("Migrated done.txt from %s to %s", dirPath, archiveTodo)
+	return os.Remove(doneTxt)
 }
 
 func discoverTxtFiles(dirPath string) []string {
@@ -172,7 +248,7 @@ func (s *taskServiceImpl) Update(task data.Task) error {
 	return s.Reload()
 }
 
-// Complete marks a task as done and moves it to done.txt in the same tasks/ directory
+// Complete marks a task as done; it stays in tasks/todo.txt until explicitly archived.
 func (s *taskServiceImpl) Complete(id string) error {
 	task, err := s.Get(id)
 	if err != nil {
@@ -181,11 +257,6 @@ func (s *taskServiceImpl) Complete(id string) error {
 
 	task.Done = true
 	task.CompletionDate = time.Now().Format("2006-01-02")
-
-	// Find done.txt in the same tasks/ directory
-	taskDir := filepath.Dir(task.File)
-	doneFile := filepath.Join(taskDir, "done.txt")
-	task.File = doneFile
 
 	s.tasks = data.UpdateTask(s.tasks, *task)
 	if err := data.WriteAllTasks(s.tasks); err != nil {
@@ -229,13 +300,17 @@ func (s *taskServiceImpl) Delete(id string) error {
 	return s.Reload()
 }
 
-// Archive moves done tasks to done.txt within each tasks/ directory
+// Archive moves done, non-archived tasks into archive/tasks/todo.txt.
 func (s *taskServiceImpl) Archive() error {
 	for i := range s.tasks {
-		if s.tasks[i].Done {
-			taskDir := filepath.Dir(s.tasks[i].File)
-			doneFile := filepath.Join(taskDir, "done.txt")
-			s.tasks[i].File = doneFile
+		if s.tasks[i].Done && !s.tasks[i].Archived {
+			// Derive workspace root: task file is <workspace>/tasks/todo.txt
+			workspaceRoot := filepath.Dir(filepath.Dir(s.tasks[i].File))
+			archiveFile := filepath.Join(workspaceRoot, "archive", "tasks", "todo.txt")
+			if err := os.MkdirAll(filepath.Dir(archiveFile), 0755); err != nil {
+				return err
+			}
+			s.tasks[i].File = archiveFile
 		}
 	}
 	if err := data.WriteAllTasks(s.tasks); err != nil {

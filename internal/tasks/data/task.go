@@ -34,6 +34,7 @@ type Task struct {
 	Projects       []string
 	Contexts       []string
 	Done           bool
+	Archived       bool
 	Tags           map[string]string
 	CreatedDate    string
 	CompletionDate string

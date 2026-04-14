@@ -24,7 +24,6 @@ type InfoBarModel struct {
 	SearchQuery    string
 	Message        string
 	Width          int
-	FileViewMode   FileViewMode
 	MultiWorkspace bool
 }
 
@@ -36,13 +35,12 @@ func NewInfoBar() InfoBarModel {
 }
 
 // SetContext updates the info bar with current state
-func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, fileViewMode FileViewMode, multiWorkspace bool) {
+func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, multiWorkspace bool) {
 	m.InputContext = ctx
 	m.FilterState = filter
 	m.SortState = sortState
 	m.GroupState = groupState
 	m.SearchQuery = searchQuery
-	m.FileViewMode = fileViewMode
 	m.MultiWorkspace = multiWorkspace
 }
 
@@ -84,17 +82,6 @@ func (m *InfoBarModel) renderStatusLine() string {
 		groupText = m.GroupState.String()
 	}
 	parts = append(parts, filterStyle.Render("Group: "+groupText))
-
-	var viewMode string
-	switch m.FileViewMode {
-	case FileViewAll:
-		viewMode = "todo.txt + done.txt"
-	case FileViewDoneOnly:
-		viewMode = "done.txt"
-	default:
-		viewMode = "todo.txt"
-	}
-	parts = append(parts, lipgloss.NewStyle().Foreground(theme.Secondary).Render("View: "+viewMode))
 
 	if m.Message != "" {
 		parts = append(parts, hintStyle.Render(m.Message))

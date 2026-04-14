@@ -170,6 +170,8 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 		}
 		hashId := HashTaskLine(fmt.Sprintf("%d:%s", lineNum, filePath))
 		task := ParseTask(line, hashId, filePath)
+		// Mark as archived if the file lives inside an archive/ directory
+		task.Archived = filepath.Base(filepath.Dir(filepath.Dir(filePath))) == "archive"
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
 				projects[project] = Project{Name: project}

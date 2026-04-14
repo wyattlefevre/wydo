@@ -39,27 +39,31 @@ func TestScanWorkspace_FindsTaskDirs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should find only the root tasks/ directory
-	if len(scan.TaskDirs) != 1 {
-		t.Fatalf("expected exactly 1 task dir (root only), got %d", len(scan.TaskDirs))
+	// Should find the root tasks/ directory (and possibly archive/tasks/ if present)
+	if len(scan.TaskDirs) < 1 {
+		t.Fatalf("expected at least 1 task dir, got %d", len(scan.TaskDirs))
 	}
 
-	td := scan.TaskDirs[0]
+	// Find the root tasks dir
+	var rootTaskDir *TaskDirInfo
+	for i, td := range scan.TaskDirs {
+		if filepath.Base(filepath.Dir(td.DirPath)) != "archive" {
+			rootTaskDir = &scan.TaskDirs[i]
+			break
+		}
+	}
+	if rootTaskDir == nil {
+		t.Fatal("root tasks dir not found")
+	}
+
 	foundTodo := false
-	foundDone := false
-	for _, f := range td.Files {
+	for _, f := range rootTaskDir.Files {
 		if f == "todo.txt" {
 			foundTodo = true
-		}
-		if f == "done.txt" {
-			foundDone = true
 		}
 	}
 	if !foundTodo {
 		t.Error("root tasks dir missing todo.txt")
-	}
-	if !foundDone {
-		t.Error("root tasks dir missing done.txt")
 	}
 }
 
