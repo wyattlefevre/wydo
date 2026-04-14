@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"wydo/internal/logs"
@@ -24,6 +23,7 @@ type TaskService interface {
 	Update(task data.Task) error
 	Complete(id string) error
 	Delete(id string) error
+	DeleteByIDs(ids []string) error
 	Archive() error
 	ArchiveByIDs(ids []string) error
 	GetProjects() map[string]data.Project
@@ -61,14 +61,8 @@ func (s *taskServiceImpl) Reload() error {
 	var allTasks []data.Task
 	projects := make(map[string]data.Project)
 
-	for i, td := range s.taskDirs {
-		// Re-discover .txt files in the directory
-		files := discoverTxtFiles(td.DirPath)
-		if len(files) > 0 {
-			s.taskDirs[i].Files = files
-		}
-
-		tasks, err := data.LoadTasksFromDir(td.DirPath, s.taskDirs[i].Files, true)
+	for _, td := range s.taskDirs {
+		tasks, err := data.LoadTasksFromDir(td.DirPath, true)
 		if err != nil {
 			logs.Logger.Printf("Warning: error loading tasks from %s: %v", td.DirPath, err)
 			continue
@@ -156,22 +150,13 @@ func migrateDoneTxt(dirPath string) error {
 	return os.Remove(doneTxt)
 }
 
-func discoverTxtFiles(dirPath string) []string {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".txt") {
-			files = append(files, e.Name())
-		}
-	}
-	return files
-}
 
 func (s *taskServiceImpl) List() ([]data.Task, error) {
-	return s.tasks, nil
+	// Return a copy so callers cannot corrupt s.tasks by aliasing its backing array
+	// (e.g. filter-in-place operations like filtered[:0]).
+	result := make([]data.Task, len(s.tasks))
+	copy(result, s.tasks)
+	return result, nil
 }
 
 func (s *taskServiceImpl) ListByProject(project string) ([]data.Task, error) {
@@ -301,6 +286,51 @@ func (s *taskServiceImpl) Delete(id string) error {
 	return s.Reload()
 }
 
+// DeleteByIDs removes all tasks with the given IDs in a single write+reload.
+// This avoids the stale-ID problem that occurs when deleting one at a time
+// (each Delete call reloads and reassigns IDs based on new line numbers).
+func (s *taskServiceImpl) DeleteByIDs(ids []string) error {
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	// Track which files lose all their tasks so we can rewrite them as empty
+	affectedFiles := make(map[string]bool)
+	for _, t := range s.tasks {
+		if idSet[t.ID] {
+			affectedFiles[t.File] = true
+		}
+	}
+
+	// Remove all matching tasks in one pass
+	for id := range idSet {
+		s.tasks = data.DeleteTask(s.tasks, id)
+	}
+
+	if err := data.WriteAllTasks(s.tasks); err != nil {
+		return err
+	}
+
+	// Rewrite any files that now have no remaining tasks
+	for filePath := range affectedFiles {
+		hasRemaining := false
+		for _, t := range s.tasks {
+			if t.File == filePath {
+				hasRemaining = true
+				break
+			}
+		}
+		if !hasRemaining {
+			if err := os.WriteFile(filePath, []byte{}, 0644); err != nil {
+				return err
+			}
+		}
+	}
+
+	return s.Reload()
+}
+
 // Archive moves done, non-archived tasks into archive/tasks/todo.txt.
 func (s *taskServiceImpl) Archive() error {
 	for i := range s.tasks {
@@ -347,18 +377,13 @@ func (s *taskServiceImpl) GetProjects() map[string]data.Project {
 	return s.projects
 }
 
-// firstTodoFile returns the path to the first todo.txt found
+// firstTodoFile returns the todo.txt path for the first non-archive task directory.
 func (s *taskServiceImpl) firstTodoFile() string {
 	for _, td := range s.taskDirs {
-		for _, f := range td.Files {
-			if f == "todo.txt" {
-				return filepath.Join(td.DirPath, f)
-			}
+		if filepath.Base(filepath.Dir(td.DirPath)) == "archive" {
+			continue
 		}
-	}
-	// Fallback: first file in first dir
-	if len(s.taskDirs) > 0 && len(s.taskDirs[0].Files) > 0 {
-		return filepath.Join(s.taskDirs[0].DirPath, s.taskDirs[0].Files[0])
+		return filepath.Join(td.DirPath, "todo.txt")
 	}
 	return ""
 }

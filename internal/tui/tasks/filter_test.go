@@ -37,6 +37,32 @@ func TestArchivedTasksExcludedByDefault(t *testing.T) {
 	}
 }
 
+// TestRefreshDisplayTasksDoesNotCorruptSourceSlice is a regression test for the
+// duplication bug. refreshDisplayTasks used filtered[:0] (filter-in-place), which
+// shares the backing array with m.tasks/s.tasks. When archived tasks were present,
+// the loop overwrote the archived-task slots with later non-archived tasks, silently
+// corrupting s.tasks. WriteAllTasks would then write the duplicate entries to disk.
+func TestRefreshDisplayTasksDoesNotCorruptSourceSlice(t *testing.T) {
+	original := makeTasksWithArchived()
+	// Keep an independent copy to compare against
+	snapshot := make([]data.Task, len(original))
+	copy(snapshot, original)
+
+	m := &TaskManagerModel{tasks: original}
+	m.refreshDisplayTasks()
+
+	// m.tasks must not have been mutated by refreshDisplayTasks
+	if len(m.tasks) != len(snapshot) {
+		t.Fatalf("m.tasks length changed: got %d, want %d", len(m.tasks), len(snapshot))
+	}
+	for i := range snapshot {
+		if m.tasks[i].ID != snapshot[i].ID || m.tasks[i].Name != snapshot[i].Name {
+			t.Errorf("m.tasks[%d] corrupted: got {ID:%s Name:%q}, want {ID:%s Name:%q}",
+				i, m.tasks[i].ID, m.tasks[i].Name, snapshot[i].ID, snapshot[i].Name)
+		}
+	}
+}
+
 func TestStatusFilterDone_ShowsDoneTasks(t *testing.T) {
 	tasks := makeTasks()
 	state := FilterState{StatusFilter: StatusDone}

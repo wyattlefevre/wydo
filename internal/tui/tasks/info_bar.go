@@ -155,6 +155,9 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 	case ModeArchive:
 		return "space:select  a:select all  enter:archive  esc:cancel"
 
+	case ModeDelete:
+		return "space:select  a:select all  enter:delete  esc:cancel"
+
 	case ModeConfirmation:
 		return "y/enter:yes  n/esc:no"
 

@@ -266,13 +266,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskview.TaskUpdateMsg:
 		// A task was updated in the task manager — persist it
 		if msg.Task.File == "" {
-			if _, err := m.taskSvc.Add(msg.Task.String()); err != nil {
+			added, err := m.taskSvc.Add(msg.Task.String())
+			if err != nil {
 				logs.Logger.Printf("Error adding new task: %v", err)
 			}
-		} else {
-			if err := m.taskSvc.Update(msg.Task); err != nil {
-				logs.Logger.Printf("Error updating task: %v", err)
+			m.taskManagerView.SetData(m.taskSvc)
+			if added != nil {
+				return m, m.setStatus(fmt.Sprintf("%q added to %s", msg.Task.Name, added.File), LevelSuccess)
 			}
+			return m, nil
+		}
+		if err := m.taskSvc.Update(msg.Task); err != nil {
+			logs.Logger.Printf("Error updating task: %v", err)
 		}
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, nil
@@ -346,6 +351,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, func() tea.Msg {
 			return taskview.ArchiveCompleteMsg{Count: len(msg.IDs)}
+		}
+
+	case taskview.DeleteSelectionRequestMsg:
+		// Permanently delete specifically selected tasks in one write+reload
+		if err := m.taskSvc.DeleteByIDs(msg.IDs); err != nil {
+			logs.Logger.Printf("Error deleting tasks: %v", err)
+			return m, nil
+		}
+		m.taskManagerView.SetData(m.taskSvc)
+		return m, func() tea.Msg {
+			return taskview.DeleteCompleteMsg{Count: len(msg.IDs)}
 		}
 
 	case taskview.ArchiveRequestMsg:
@@ -514,24 +530,30 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q":
 				m.exitConfirming = true
 				return m, nil
-			case "d", "D":
-				m.currentView = ViewAgendaDay
-				m.lastAgendaView = ViewAgendaDay
-				m.refreshData()
-				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
-				return m, nil
-			case "w", "W":
-				m.currentView = ViewAgendaWeek
-				m.lastAgendaView = ViewAgendaWeek
-				m.refreshData()
-				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
-				return m, nil
-			case "m", "M":
-				m.currentView = ViewAgendaMonth
-				m.lastAgendaView = ViewAgendaMonth
-				m.refreshData()
-				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
-				return m, nil
+			}
+
+			// Agenda sub-view switching — only when already in an agenda view
+			if m.currentView == ViewAgendaDay || m.currentView == ViewAgendaWeek || m.currentView == ViewAgendaMonth {
+				switch msg.String() {
+				case "d", "D":
+					m.currentView = ViewAgendaDay
+					m.lastAgendaView = ViewAgendaDay
+					m.refreshData()
+					m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+					return m, nil
+				case "w", "W":
+					m.currentView = ViewAgendaWeek
+					m.lastAgendaView = ViewAgendaWeek
+					m.refreshData()
+					m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+					return m, nil
+				case "m", "M":
+					m.currentView = ViewAgendaMonth
+					m.lastAgendaView = ViewAgendaMonth
+					m.refreshData()
+					m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+					return m, nil
+				}
 			}
 		}
 	}
@@ -748,10 +770,21 @@ func (m AppModel) View() string {
 		return m.renderHelpOverlay()
 	}
 
+	bg := m.renderBackground()
+
 	if m.exitConfirming {
-		return m.renderExitConfirmModal()
+		d := shared.Dialog{
+			Title: "Quit wydo?",
+			Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[esc]") + " Cancel",
+			Width: 40,
+		}
+		return shared.PlaceOverlay(bg, d.View(), m.width, m.height)
 	}
 
+	return bg
+}
+
+func (m AppModel) renderBackground() string {
 	var content string
 	centerContent := false
 
@@ -1049,11 +1082,3 @@ func (m AppModel) renderPlaceholder(title, subtitle string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, "", titleStr, subtitleStr, "")
 }
 
-func (m AppModel) renderExitConfirmModal() string {
-	content := theme.ModalTitle.Render("Quit wydo?")
-	content += "\n\n"
-	content += theme.Ok.Render("[y/enter]") + " Confirm  "
-	content += theme.Error.Render("[esc]") + " Cancel"
-	modal := theme.ModalBox.Width(40).Render(content)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
-}

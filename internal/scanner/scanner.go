@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+
 // WorkspaceScan holds everything discovered from scanning a single workspace
 type WorkspaceScan struct {
 	RootDir   string
@@ -22,8 +23,7 @@ type BoardInfo struct {
 
 // TaskDirInfo describes a discovered tasks/ directory
 type TaskDirInfo struct {
-	DirPath string   // absolute path to the tasks/ directory
-	Files   []string // .txt filenames found within
+	DirPath string // absolute path to the tasks/ directory
 }
 
 // ProjectInfo describes a discovered project directory
@@ -137,30 +137,9 @@ func scanBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	return nil
 }
 
-// scanTasksDir scans a tasks/ directory for .txt files
+// scanTasksDir registers a tasks/ directory.
 func scanTasksDir(tasksDir string, scan *WorkspaceScan) error {
-	entries, err := os.ReadDir(tasksDir)
-	if err != nil {
-		return err
-	}
-
-	var files []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ".txt") {
-			files = append(files, entry.Name())
-		}
-	}
-
-	if len(files) > 0 {
-		scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{
-			DirPath: tasksDir,
-			Files:   files,
-		})
-	}
-
+	scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{DirPath: tasksDir})
 	return nil
 }
 

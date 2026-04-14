@@ -47,6 +47,16 @@ type ArchiveCompleteMsg struct {
 	Count int
 }
 
+// DeleteSelectionRequestMsg is sent when selected tasks should be permanently deleted
+type DeleteSelectionRequestMsg struct {
+	IDs []string
+}
+
+// DeleteCompleteMsg is sent when a bulk delete operation completes
+type DeleteCompleteMsg struct {
+	Count int
+}
+
 // MoveTaskToBoardMsg is sent when a task should be moved to a kanban board
 type MoveTaskToBoardMsg struct {
 	Task      data.Task
@@ -92,6 +102,9 @@ type TaskManagerModel struct {
 
 	// Archive mode selection
 	archiveSelection map[string]bool
+
+	// Delete mode selection
+	deleteSelection map[string]bool
 
 	// Pending delete (for confirmation modal)
 	pendingDeleteTaskID string
@@ -207,6 +220,10 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		m.confirmationModal = nil
 		m.loadTasks()
 		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks", msg.Count), messages.LevelSuccess)
+	case DeleteCompleteMsg:
+		m.confirmationModal = nil
+		m.loadTasks()
+		return m, messages.StatusCmd(fmt.Sprintf("Deleted %d tasks", msg.Count), messages.LevelSuccess)
 	}
 
 	// Handle inline search mode (before other sub-components)
@@ -297,6 +314,8 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 			return m.handleGroupDirection(msg)
 		case ModeArchive:
 			return m.handleArchiveMode(msg)
+		case ModeDelete:
+			return m.handleDeleteMode(msg)
 		}
 	}
 
@@ -399,6 +418,16 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 			} else {
 				prefix = box + " "
 			}
+		} else if m.inputContext.Mode == ModeDelete {
+			box := "[ ]"
+			if m.deleteSelection[task.ID] {
+				box = "[x]"
+			}
+			if i == m.cursor {
+				prefix = cursorStyle.Render(box+" ")
+			} else {
+				prefix = box + " "
+			}
 		} else {
 			prefix = "  "
 			if i == m.cursor {
@@ -467,6 +496,16 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 					} else {
 						prefix = box + " "
 					}
+				} else if m.inputContext.Mode == ModeDelete {
+					box := "[ ]"
+					if m.deleteSelection[task.ID] {
+						box = "[x]"
+					}
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render(box + " ")
+					} else {
+						prefix = box + " "
+					}
 				} else {
 					prefix = "  "
 					if taskIndex == m.cursor {
@@ -493,8 +532,6 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		m.moveCursor(-1)
 	case "enter":
 		return m.openTaskEditor()
-	case "d":
-		return m.startDirectDueDateEdit()
 	case "t":
 		return m.startDirectContextEdit()
 	case "p":
@@ -526,8 +563,6 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.toggleTaskDone()
 	case "n":
 		return m.startNewTask()
-	case "D":
-		return m.handleStartDelete()
 	case "u":
 		return m.handleOpenURL()
 	case "m":
@@ -535,6 +570,9 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "a":
 		m.archiveSelection = make(map[string]bool)
 		m.inputContext.TransitionTo(ModeArchive)
+	case "d":
+		m.deleteSelection = make(map[string]bool)
+		m.inputContext.TransitionTo(ModeDelete)
 	}
 	return m, nil
 }
@@ -664,6 +702,48 @@ func (m TaskManagerModel) handleArchiveMode(msg tea.KeyMsg) (TaskManagerModel, t
 	return m, nil
 }
 
+func (m TaskManagerModel) handleDeleteMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.moveCursor(1)
+	case "k", "up":
+		m.moveCursor(-1)
+	case " ":
+		task := m.selectedTask()
+		if task != nil {
+			m.deleteSelection[task.ID] = !m.deleteSelection[task.ID]
+			if !m.deleteSelection[task.ID] {
+				delete(m.deleteSelection, task.ID)
+			}
+		}
+	case "a":
+		// Select all if any unselected; deselect all if all selected
+		allSelected := len(m.deleteSelection) == len(m.displayTasks) && len(m.displayTasks) > 0
+		if allSelected {
+			m.deleteSelection = make(map[string]bool)
+		} else {
+			for _, t := range m.displayTasks {
+				m.deleteSelection[t.ID] = true
+			}
+		}
+	case "enter":
+		count := len(m.deleteSelection)
+		if count == 0 {
+			return m, messages.StatusCmd("No tasks selected to delete", messages.LevelWarning)
+		}
+		m.confirmationModal = NewConfirmationModal(
+			fmt.Sprintf("Delete %d task(s)?", count),
+			"This will permanently remove the selected tasks.",
+			50,
+		)
+		m.inputContext.TransitionTo(ModeConfirmation)
+	case "esc":
+		m.deleteSelection = nil
+		m.inputContext.Reset()
+	}
+	return m, nil
+}
+
 func (m TaskManagerModel) handleSearchMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
 	// Handle filter typing mode
 	if m.searchFilterMode {
@@ -765,6 +845,9 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 	if m.inputContext.Mode != ModeNormal {
 		if m.inputContext.Mode == ModeArchive {
 			m.archiveSelection = nil
+		}
+		if m.inputContext.Mode == ModeDelete {
+			m.deleteSelection = nil
 		}
 		m.inputContext.Back()
 		if m.inputContext.Mode == ModeNormal {
@@ -1104,9 +1187,12 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 	// Apply workspace filter (needs roots context, separate from ApplyFilters)
 	filtered = ApplyWorkspaceFilter(filtered, m.filterState.WorkspaceFilter, m.workspaceRoots)
 
-	// Exclude archived tasks from the default view
+	// Exclude archived tasks from the default view.
+	// NOTE: must NOT use filtered[:0] here — filtered may share its backing array
+	// with m.tasks/s.tasks. Filter-in-place would corrupt s.tasks, causing
+	// WriteAllTasks to write duplicate tasks on the next update.
 	{
-		nonArchived := filtered[:0]
+		var nonArchived []data.Task
 		for _, t := range filtered {
 			if !t.Archived {
 				nonArchived = append(nonArchived, t)
@@ -1314,6 +1400,7 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 	if !msg.Confirmed {
 		m.pendingDeleteTaskID = ""
 		m.archiveSelection = nil
+		m.deleteSelection = nil
 		return m, nil
 	}
 
@@ -1335,6 +1422,18 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		m.archiveSelection = nil
 		return m, func() tea.Msg {
 			return ArchiveSelectionRequestMsg{IDs: ids}
+		}
+	}
+
+	// Delete-selection flow
+	if len(m.deleteSelection) > 0 {
+		ids := make([]string, 0, len(m.deleteSelection))
+		for id := range m.deleteSelection {
+			ids = append(ids, id)
+		}
+		m.deleteSelection = nil
+		return m, func() tea.Msg {
+			return DeleteSelectionRequestMsg{IDs: ids}
 		}
 	}
 

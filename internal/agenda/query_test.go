@@ -39,6 +39,7 @@ func (m *mockTaskService) Add(string) (*data.Task, error)                     { 
 func (m *mockTaskService) Update(data.Task) error                             { return nil }
 func (m *mockTaskService) Complete(string) error                              { return nil }
 func (m *mockTaskService) Delete(string) error                                { return nil }
+func (m *mockTaskService) DeleteByIDs([]string) error                         { return nil }
 func (m *mockTaskService) Archive() error                                     { return nil }
 func (m *mockTaskService) ArchiveByIDs([]string) error                        { return nil }
 func (m *mockTaskService) GetProjects() map[string]data.Project               { return nil }
