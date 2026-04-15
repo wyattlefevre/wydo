@@ -291,7 +291,7 @@ func (m PickerModel) Update(msg tea.Msg) (PickerModel, tea.Cmd) {
 func boardTotalCards(board models.Board) int {
 	total := 0
 	for _, col := range board.Columns {
-		total += len(col.Cards)
+		total += len(col.TaskNotes)
 	}
 	return total
 }

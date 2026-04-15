@@ -149,7 +149,7 @@ func TestQueryAgenda_CardDueDate(t *testing.T) {
 			Columns: []kanbanmodels.Column{
 				{
 					Name: "To Do",
-					Cards: []kanbanmodels.Card{
+					TaskNotes: []kanbanmodels.TaskNote{
 						{
 							Title:   "Deploy v2",
 							DueDate: datePtr(2026, 2, 6),
@@ -158,7 +158,7 @@ func TestQueryAgenda_CardDueDate(t *testing.T) {
 				},
 				{
 					Name: "Done",
-					Cards: []kanbanmodels.Card{
+					TaskNotes: []kanbanmodels.TaskNote{
 						{
 							Title:   "Already done",
 							DueDate: datePtr(2026, 2, 6),
@@ -175,23 +175,23 @@ func TestQueryAgenda_CardDueDate(t *testing.T) {
 		t.Fatalf("expected 1 bucket, got %d", len(buckets))
 	}
 	// "To Do" card should be in Cards (pending)
-	if len(buckets[0].Cards) != 1 {
-		t.Fatalf("expected 1 pending card, got %d", len(buckets[0].Cards))
+	if len(buckets[0].TaskNotes) != 1 {
+		t.Fatalf("expected 1 pending card, got %d", len(buckets[0].TaskNotes))
 	}
-	if buckets[0].Cards[0].Card.Title != "Deploy v2" {
-		t.Errorf("expected 'Deploy v2', got '%s'", buckets[0].Cards[0].Card.Title)
+	if buckets[0].TaskNotes[0].TaskNote.Title != "Deploy v2" {
+		t.Errorf("expected 'Deploy v2', got '%s'", buckets[0].TaskNotes[0].TaskNote.Title)
 	}
-	if buckets[0].Cards[0].BoardName != "Sprint" {
-		t.Errorf("expected board 'Sprint', got '%s'", buckets[0].Cards[0].BoardName)
+	if buckets[0].TaskNotes[0].BoardName != "Sprint" {
+		t.Errorf("expected board 'Sprint', got '%s'", buckets[0].TaskNotes[0].BoardName)
 	}
 	// "Done" card should be in CompletedCards
-	if len(buckets[0].CompletedCards) != 1 {
-		t.Fatalf("expected 1 completed card, got %d", len(buckets[0].CompletedCards))
+	if len(buckets[0].CompletedTaskNotes) != 1 {
+		t.Fatalf("expected 1 completed card, got %d", len(buckets[0].CompletedTaskNotes))
 	}
-	if buckets[0].CompletedCards[0].Card.Title != "Already done" {
-		t.Errorf("expected 'Already done', got '%s'", buckets[0].CompletedCards[0].Card.Title)
+	if buckets[0].CompletedTaskNotes[0].TaskNote.Title != "Already done" {
+		t.Errorf("expected 'Already done', got '%s'", buckets[0].CompletedTaskNotes[0].TaskNote.Title)
 	}
-	if !buckets[0].CompletedCards[0].Completed {
+	if !buckets[0].CompletedTaskNotes[0].Completed {
 		t.Error("expected Completed flag to be true")
 	}
 }
@@ -372,14 +372,14 @@ func TestQueryOverdueItems_Cards(t *testing.T) {
 			Columns: []kanbanmodels.Column{
 				{
 					Name: "In Progress",
-					Cards: []kanbanmodels.Card{
+					TaskNotes: []kanbanmodels.TaskNote{
 						{Title: "Overdue card", DueDate: datePtr(2026, 2, 1)},
 						{Title: "Current card", DueDate: datePtr(2026, 2, 6)},
 					},
 				},
 				{
 					Name: "Done",
-					Cards: []kanbanmodels.Card{
+					TaskNotes: []kanbanmodels.TaskNote{
 						{Title: "Done card", DueDate: datePtr(2026, 2, 1)},
 					},
 				},
@@ -393,8 +393,8 @@ func TestQueryOverdueItems_Cards(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 overdue item, got %d", len(items))
 	}
-	if items[0].Card.Title != "Overdue card" {
-		t.Errorf("expected 'Overdue card', got '%s'", items[0].Card.Title)
+	if items[0].TaskNote.Title != "Overdue card" {
+		t.Errorf("expected 'Overdue card', got '%s'", items[0].TaskNote.Title)
 	}
 	if items[0].BoardName != "Sprint" {
 		t.Errorf("expected board 'Sprint', got '%s'", items[0].BoardName)

@@ -1117,7 +1117,7 @@ func countCardsForProject(entry projectEntry, workspaces []*workspace.Workspace)
 		count := 0
 		for _, board := range ws.Boards {
 			for _, col := range board.Columns {
-				for _, card := range col.Cards {
+				for _, card := range col.TaskNotes {
 					for _, p := range card.Projects {
 						if strings.EqualFold(p, entry.Project.Name) {
 							count++

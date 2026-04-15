@@ -207,7 +207,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				proj := ws.Projects.Get(msg.ProjectName)
 				projNotes := ws.Projects.NotesForProject(msg.ProjectName, ws.Notes)
 				projTasks := ws.Projects.TasksForProject(msg.ProjectName, ws.Tasks)
-				projCards := ws.Projects.CardsForProject(msg.ProjectName, ws.Boards)
+				projCards := ws.Projects.TaskNotesForProject(msg.ProjectName, ws.Boards)
 				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
 				children := ws.Projects.ChildrenOf(msg.ProjectName)
 				var indexPreview string
@@ -309,7 +309,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		priority := operations.TaskPriorityToCardPriority(rune(msg.Task.Priority))
+		priority := operations.TaskPriorityToTaskNotePriority(rune(msg.Task.Priority))
 
 		// Merge board projects into task projects
 		projects := msg.Task.Projects
@@ -327,7 +327,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Create the card
-		_, err = operations.CreateCardFromTask(&board, msg.Task.Name, projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
+		_, err = operations.CreateTaskNoteFromTask(&board, msg.Task.Name, projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
 		if err != nil {
 			return m, m.setStatus(fmt.Sprintf("Error creating card: %v", err), LevelError)
 		}
@@ -779,6 +779,12 @@ func (m AppModel) View() string {
 			Width: 40,
 		}
 		return shared.PlaceOverlay(bg, d.View(), m.width, m.height)
+	}
+
+	if m.currentView == ViewTaskManager {
+		if overlay := m.taskManagerView.OverlayView(); overlay != "" {
+			return shared.PlaceOverlay(bg, overlay, m.width, m.height)
+		}
 	}
 
 	return bg

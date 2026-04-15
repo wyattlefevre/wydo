@@ -25,6 +25,7 @@ type InfoBarModel struct {
 	Message        string
 	Width          int
 	MultiWorkspace bool
+	ActivePreset   ViewPreset
 }
 
 // NewInfoBar creates a new info bar
@@ -35,18 +36,37 @@ func NewInfoBar() InfoBarModel {
 }
 
 // SetContext updates the info bar with current state
-func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, multiWorkspace bool) {
+func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, multiWorkspace bool, activePreset ViewPreset) {
 	m.InputContext = ctx
 	m.FilterState = filter
 	m.SortState = sortState
 	m.GroupState = groupState
 	m.SearchQuery = searchQuery
 	m.MultiWorkspace = multiWorkspace
+	m.ActivePreset = activePreset
 }
 
 // View renders the info bar as a single line with a bottom border.
 func (m *InfoBarModel) View() string {
-	return infoBarStyle.Width(m.Width).Render(m.renderStatusLine())
+	left := m.renderStatusLine()
+	right := m.renderPresetTabs()
+	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	content := left + strings.Repeat(" ", gap) + right
+	return infoBarStyle.Width(m.Width).Render(content)
+}
+
+func (m *InfoBarModel) renderPresetTabs() string {
+	stackStyle := theme.TabInactive
+	cacheStyle := theme.TabInactive
+	if m.ActivePreset == PresetStack {
+		stackStyle = theme.TabActive
+	} else if m.ActivePreset == PresetCache {
+		cacheStyle = theme.TabActive
+	}
+	return stackStyle.Render("1:Stack") + " " + cacheStyle.Render("2:Cache")
 }
 
 // RenderModeBar renders the mode indicator and keybind hints as a full-width bottom bar.
@@ -112,24 +132,24 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		hint := "?:help  /:search  enter:details  space:done  r:rename"
+		hint := "?:help  /:search  enter:details  space:done  r:rename  b:board"
 		if m.MultiWorkspace {
-			hint = "?:help  /:search  enter:details  space:done  r:rename  W:workspace"
+			hint = "?:help  /:search  enter:details  space:done  r:rename  b:board  W:workspace"
 		}
 		return hint
 
 	case ModeFilterSelect:
-		hint := "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back"
+		hint := "/:search  d:date  p:project  i:priority  t:context  s:status  f:file  esc:back"
 		if m.MultiWorkspace {
-			hint = "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  w:workspace  esc:back"
+			hint = "/:search  d:date  p:project  i:priority  t:context  s:status  f:file  w:workspace  esc:back"
 		}
 		return hint
 
 	case ModeSortSelect:
-		return "d:date  p:project  P:priority  t:context  esc:back"
+		return "d:date  p:project  i:priority  t:context  esc:back"
 
 	case ModeGroupSelect:
-		return "d:date  p:project  P:priority  t:context  esc:back"
+		return "d:date  p:project  i:priority  t:context  b:board  esc:back"
 
 	case ModeSortDirection, ModeGroupDirection:
 		return "a:ascending  d:descending  esc:back"

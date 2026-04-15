@@ -18,7 +18,8 @@ type WorkspaceScan struct {
 
 // BoardInfo describes a discovered board directory
 type BoardInfo struct {
-	Path string // absolute path to board dir (containing board.md)
+	Path     string // absolute path to board dir (containing board.md)
+	Archived bool   // true if this board lives under archive/boards/
 }
 
 // TaskDirInfo describes a discovered tasks/ directory
@@ -143,7 +144,7 @@ func scanTasksDir(tasksDir string, scan *WorkspaceScan) error {
 	return nil
 }
 
-// scanArchiveDir scans archive/ for mirrored subdirectories (e.g. archive/tasks/).
+// scanArchiveDir scans archive/ for mirrored subdirectories (e.g. archive/tasks/, archive/boards/).
 func scanArchiveDir(archiveDir string, scan *WorkspaceScan) error {
 	tasksDir := filepath.Join(archiveDir, "tasks")
 	if _, err := os.Stat(tasksDir); err == nil {
@@ -151,6 +152,40 @@ func scanArchiveDir(archiveDir string, scan *WorkspaceScan) error {
 			return err
 		}
 	}
+
+	boardsDir := filepath.Join(archiveDir, "boards")
+	if _, err := os.Stat(boardsDir); err == nil {
+		if err := scanArchivedBoardsDir(boardsDir, scan); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// scanArchivedBoardsDir scans archive/boards/ for archived board directories
+func scanArchivedBoardsDir(boardsDir string, scan *WorkspaceScan) error {
+	entries, err := os.ReadDir(boardsDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		boardPath := filepath.Join(boardsDir, entry.Name())
+		boardFile := filepath.Join(boardPath, "board.md")
+
+		if _, err := os.Stat(boardFile); err == nil {
+			scan.Boards = append(scan.Boards, BoardInfo{
+				Path:     boardPath,
+				Archived: true,
+			})
+		}
+	}
+
 	return nil
 }
 

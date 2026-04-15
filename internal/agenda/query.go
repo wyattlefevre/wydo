@@ -59,19 +59,19 @@ func QueryAgenda(taskSvc service.TaskService, boards []kanbanmodels.Board, allNo
 		}
 	}
 
-	// Scan cards from boards
+	// Scan task notes from boards
 	for _, board := range boards {
 		if board.Archived {
 			continue
 		}
 		for colIdx, col := range board.Columns {
 			isDone := strings.EqualFold(col.Name, "done")
-			for cardIdx := range col.Cards {
-				card := &col.Cards[cardIdx]
-				if card.Archived {
+			for cardIdx := range col.TaskNotes {
+				tn := &col.TaskNotes[cardIdx]
+				if tn.Archived {
 					continue
 				}
-				addCardItems(card, board.Name, board.Path, col.Name, colIdx, cardIdx, isDone, dateRange, bucketMap)
+				addTaskNoteItems(tn, board.Name, board.Path, col.Name, colIdx, cardIdx, isDone, dateRange, bucketMap)
 			}
 		}
 	}
@@ -159,7 +159,7 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 		}
 	}
 
-	// Scan cards from boards
+	// Scan task notes from boards
 	for _, board := range boards {
 		if board.Archived {
 			continue
@@ -168,21 +168,21 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 			if strings.EqualFold(col.Name, "done") {
 				continue
 			}
-			for cardIdx := range col.Cards {
-				card := &col.Cards[cardIdx]
-				if card.Archived {
+			for cardIdx := range col.TaskNotes {
+				tn := &col.TaskNotes[cardIdx]
+				if tn.Archived {
 					continue
 				}
 				added := false
-				if card.DueDate != nil {
-					dueDate := *card.DueDate
+				if tn.DueDate != nil {
+					dueDate := *tn.DueDate
 					d := time.Date(dueDate.Year(), dueDate.Month(), dueDate.Day(), 0, 0, 0, 0, time.Local)
 					if d.Before(cutoffDay) {
 						items = append(items, AgendaItem{
 							Source:     SourceCard,
 							Reason:     ReasonDue,
 							Date:       dueDate,
-							Card:       card,
+							TaskNote:   tn,
 							BoardName:  board.Name,
 							BoardPath:  board.Path,
 							ColumnName: col.Name,
@@ -192,15 +192,15 @@ func QueryOverdueItems(taskSvc service.TaskService, boards []kanbanmodels.Board,
 						added = true
 					}
 				}
-				if !added && card.ScheduledDate != nil {
-					schedDate := *card.ScheduledDate
+				if !added && tn.ScheduledDate != nil {
+					schedDate := *tn.ScheduledDate
 					d := time.Date(schedDate.Year(), schedDate.Month(), schedDate.Day(), 0, 0, 0, 0, time.Local)
 					if d.Before(cutoffDay) {
 						items = append(items, AgendaItem{
 							Source:     SourceCard,
 							Reason:     ReasonScheduled,
 							Date:       schedDate,
-							Card:       card,
+							TaskNote:   tn,
 							BoardName:  board.Name,
 							BoardPath:  board.Path,
 							ColumnName: col.Name,
@@ -267,17 +267,17 @@ func addTaskItems(task *data.Task, completed bool, dateRange DateRange, bucketMa
 	}
 }
 
-func addCardItems(card *kanbanmodels.Card, boardName, boardPath, columnName string, colIdx, cardIdx int, completed bool, dateRange DateRange, bucketMap map[string]*DateBucket) {
+func addTaskNoteItems(tn *kanbanmodels.TaskNote, boardName, boardPath, columnName string, colIdx, cardIdx int, completed bool, dateRange DateRange, bucketMap map[string]*DateBucket) {
 	// Check due date
-	if card.DueDate != nil {
-		dueDate := *card.DueDate
+	if tn.DueDate != nil {
+		dueDate := *tn.DueDate
 		if inRange(dueDate, dateRange) {
 			bucket := getOrCreateBucket(bucketMap, dueDate)
 			item := AgendaItem{
 				Source:     SourceCard,
 				Reason:     ReasonDue,
 				Date:       dueDate,
-				Card:       card,
+				TaskNote:   tn,
 				BoardName:  boardName,
 				BoardPath:  boardPath,
 				ColumnName: columnName,
@@ -286,17 +286,17 @@ func addCardItems(card *kanbanmodels.Card, boardName, boardPath, columnName stri
 				Completed:  completed,
 			}
 			if completed {
-				bucket.CompletedCards = append(bucket.CompletedCards, item)
+				bucket.CompletedTaskNotes = append(bucket.CompletedTaskNotes, item)
 			} else {
-				bucket.Cards = append(bucket.Cards, item)
+				bucket.TaskNotes = append(bucket.TaskNotes, item)
 			}
 		}
 	}
 
 	// Check scheduled date (skip if due date is the same day to avoid duplicates)
-	if card.ScheduledDate != nil {
-		schedDate := *card.ScheduledDate
-		if card.DueDate != nil && card.DueDate.Format("2006-01-02") == schedDate.Format("2006-01-02") {
+	if tn.ScheduledDate != nil {
+		schedDate := *tn.ScheduledDate
+		if tn.DueDate != nil && tn.DueDate.Format("2006-01-02") == schedDate.Format("2006-01-02") {
 			return
 		}
 		if inRange(schedDate, dateRange) {
@@ -305,7 +305,7 @@ func addCardItems(card *kanbanmodels.Card, boardName, boardPath, columnName stri
 				Source:     SourceCard,
 				Reason:     ReasonScheduled,
 				Date:       schedDate,
-				Card:       card,
+				TaskNote:   tn,
 				BoardName:  boardName,
 				BoardPath:  boardPath,
 				ColumnName: columnName,
@@ -314,9 +314,9 @@ func addCardItems(card *kanbanmodels.Card, boardName, boardPath, columnName stri
 				Completed:  completed,
 			}
 			if completed {
-				bucket.CompletedCards = append(bucket.CompletedCards, item)
+				bucket.CompletedTaskNotes = append(bucket.CompletedTaskNotes, item)
 			} else {
-				bucket.Cards = append(bucket.Cards, item)
+				bucket.TaskNotes = append(bucket.TaskNotes, item)
 			}
 		}
 	}

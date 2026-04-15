@@ -303,6 +303,13 @@ func (m *TaskEditorModel) cyclePriority() {
 	}
 }
 
+// HasActiveSubComponent returns true when a sub-picker (date, project, context, URL)
+// is currently open inside the editor. Callers use this to decide whether the editor
+// should be shown as a full-screen component or composited as an overlay box.
+func (m *TaskEditorModel) HasActiveSubComponent() bool {
+	return m.urlInput != nil || m.datePicker != nil || m.projectPicker != nil || m.fuzzyPicker != nil
+}
+
 // View implements tea.Model
 func (m *TaskEditorModel) View() string {
 	// If URL input is active, show it
@@ -335,9 +342,9 @@ func (m *TaskEditorModel) View() string {
 
 	// Priority
 	content.WriteString(editorLabelStyle.Render("Priority:"))
-	priStr := "(none)"
+	priStr := "none"
 	if m.task.Priority != 0 {
-		priStr = "(" + string(m.task.Priority) + ")"
+		priStr = string(m.task.Priority)
 	}
 	if m.task.Priority != m.originalTask.Priority {
 		content.WriteString(editorModifiedStyle.Render(priStr + " *"))

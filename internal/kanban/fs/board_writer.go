@@ -17,11 +17,8 @@ func WriteBoard(board models.Board) error {
 
 	var buf bytes.Buffer
 
-	if board.Archived || board.JiraBoardID != 0 || board.Project != "" {
+	if board.JiraBoardID != 0 || board.Project != "" {
 		buf.WriteString("---\n")
-		if board.Archived {
-			buf.WriteString("archived: true\n")
-		}
 		if board.JiraBoardID != 0 {
 			buf.WriteString(fmt.Sprintf("jira_board_id: %d\n", board.JiraBoardID))
 		}
@@ -42,11 +39,11 @@ func WriteBoard(board models.Board) error {
 		buf.WriteString(column.Name)
 		buf.WriteString("\n\n")
 
-		for _, card := range column.Cards {
+		for _, tn := range column.TaskNotes {
 			buf.WriteString("[")
-			buf.WriteString(card.Title)
+			buf.WriteString(tn.Title)
 			buf.WriteString("](./cards/")
-			buf.WriteString(card.Filename)
+			buf.WriteString(tn.Filename)
 			buf.WriteString(")\n\n")
 		}
 	}

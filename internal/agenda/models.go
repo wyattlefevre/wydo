@@ -50,13 +50,13 @@ type ProjectDateSource struct {
 	Date        time.Time
 }
 
-// AgendaItem wraps either a task, card, note, or project date with its date context
+// AgendaItem wraps either a task, task note, note, or project date with its date context
 type AgendaItem struct {
 	Source       ItemSource
 	Reason       DateReason
 	Date         time.Time
 	Task         *data.Task
-	Card         *kanbanmodels.Card
+	TaskNote     *kanbanmodels.TaskNote
 	Note         *notes.Note
 	BoardName    string
 	BoardPath    string
@@ -70,36 +70,36 @@ type AgendaItem struct {
 
 // DateBucket groups agenda items by date
 type DateBucket struct {
-	Date           time.Time
-	Tasks          []AgendaItem
-	Cards          []AgendaItem
-	Notes          []AgendaItem
-	ProjectDates   []AgendaItem
-	CompletedTasks []AgendaItem
-	CompletedCards []AgendaItem
+	Date                time.Time
+	Tasks               []AgendaItem
+	TaskNotes           []AgendaItem
+	Notes               []AgendaItem
+	ProjectDates        []AgendaItem
+	CompletedTasks      []AgendaItem
+	CompletedTaskNotes  []AgendaItem
 }
 
-// AllItems returns all items in the bucket (tasks first, then cards, then notes, then project dates)
+// AllItems returns all items in the bucket (tasks first, then task notes, then notes, then project dates)
 func (b DateBucket) AllItems() []AgendaItem {
-	items := make([]AgendaItem, 0, len(b.Tasks)+len(b.Cards)+len(b.Notes)+len(b.ProjectDates))
+	items := make([]AgendaItem, 0, len(b.Tasks)+len(b.TaskNotes)+len(b.Notes)+len(b.ProjectDates))
 	items = append(items, b.Tasks...)
-	items = append(items, b.Cards...)
+	items = append(items, b.TaskNotes...)
 	items = append(items, b.Notes...)
 	items = append(items, b.ProjectDates...)
 	return items
 }
 
-// AllCompletedItems returns all completed items in the bucket (tasks first, then cards)
+// AllCompletedItems returns all completed items in the bucket (tasks first, then task notes)
 func (b DateBucket) AllCompletedItems() []AgendaItem {
-	items := make([]AgendaItem, 0, len(b.CompletedTasks)+len(b.CompletedCards))
+	items := make([]AgendaItem, 0, len(b.CompletedTasks)+len(b.CompletedTaskNotes))
 	items = append(items, b.CompletedTasks...)
-	items = append(items, b.CompletedCards...)
+	items = append(items, b.CompletedTaskNotes...)
 	return items
 }
 
 // TotalCount returns the total number of items in the bucket (including completed)
 func (b DateBucket) TotalCount() int {
-	return len(b.Tasks) + len(b.Cards) + len(b.Notes) + len(b.ProjectDates) + len(b.CompletedTasks) + len(b.CompletedCards)
+	return len(b.Tasks) + len(b.TaskNotes) + len(b.Notes) + len(b.ProjectDates) + len(b.CompletedTasks) + len(b.CompletedTaskNotes)
 }
 
 // DateRange represents a range of dates for querying

@@ -7,6 +7,24 @@ import (
 	"wydo/internal/tasks/data"
 )
 
+// ViewPreset represents a named filter+sort combination
+type ViewPreset int
+
+const (
+	PresetNone  ViewPreset = 0
+	PresetStack ViewPreset = 1 // pending + has priority, sort priority asc
+	PresetCache ViewPreset = 2 // pending + no priority, sort due date asc
+)
+
+// PriorityPresence represents the three-state priority filter
+type PriorityPresence int
+
+const (
+  PriorityPresenceAny  PriorityPresence = 0 // default, no filter
+  PriorityPresenceHas  PriorityPresence = 1 // task has any priority
+  PriorityPresenceNone PriorityPresence = 2 // task has no priority
+)
+
 // StatusFilter represents filtering by task completion status
 type StatusFilter int
 
@@ -38,10 +56,10 @@ type FilterState struct {
 	SearchQuery     string
 	StatusFilter    StatusFilter
 	DateFilter      *DateFilter
-	ProjectFilter   []string
-	ContextFilter   []string
-	PriorityFilter  []data.Priority
-	FileFilter      []string
+	ProjectFilter    []string
+	ContextFilter    []string
+	PriorityPresence PriorityPresence
+	FileFilter       []string
 	WorkspaceFilter []string // workspace basenames
 }
 
@@ -57,7 +75,7 @@ func (f *FilterState) IsEmpty() bool {
 		f.DateFilter == nil &&
 		len(f.ProjectFilter) == 0 &&
 		len(f.ContextFilter) == 0 &&
-		len(f.PriorityFilter) == 0 &&
+		f.PriorityPresence == PriorityPresenceAny &&
 		len(f.FileFilter) == 0 &&
 		len(f.WorkspaceFilter) == 0
 }
@@ -69,7 +87,7 @@ func (f *FilterState) Reset() {
 	f.DateFilter = nil
 	f.ProjectFilter = nil
 	f.ContextFilter = nil
-	f.PriorityFilter = nil
+	f.PriorityPresence = PriorityPresenceAny
 	f.FileFilter = nil
 	f.WorkspaceFilter = nil
 }
@@ -143,8 +161,13 @@ func matchesFilters(task data.Task, state FilterState) bool {
 	}
 
 	// Priority filter
-	if len(state.PriorityFilter) > 0 {
-		if !matchesPriority(task, state.PriorityFilter) {
+	switch state.PriorityPresence {
+	case PriorityPresenceHas:
+		if task.Priority == 0 {
+			return false
+		}
+	case PriorityPresenceNone:
+		if task.Priority != 0 {
 			return false
 		}
 	}
@@ -225,15 +248,6 @@ func matchesAnyContext(task data.Task, contexts []string) bool {
 	return false
 }
 
-func matchesPriority(task data.Task, priorities []data.Priority) bool {
-	for _, p := range priorities {
-		if task.Priority == p {
-			return true
-		}
-	}
-	return false
-}
-
 func matchesFile(task data.Task, files []string) bool {
 	for _, f := range files {
 		// Strip workspace prefix ("name: ") if present so suffix matching
@@ -277,12 +291,11 @@ func (f *FilterState) Summary() string {
 		parts = append(parts, "context="+strings.Join(f.ContextFilter, ","))
 	}
 
-	if len(f.PriorityFilter) > 0 {
-		var ps []string
-		for _, p := range f.PriorityFilter {
-			ps = append(ps, string(p))
-		}
-		parts = append(parts, "priority="+strings.Join(ps, ","))
+	switch f.PriorityPresence {
+	case PriorityPresenceHas:
+		parts = append(parts, "priority=has")
+	case PriorityPresenceNone:
+		parts = append(parts, "priority=none")
 	}
 
 	if f.DateFilter != nil {

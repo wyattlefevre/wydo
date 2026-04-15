@@ -7,7 +7,7 @@ type Board struct {
 	Name        string   // Board name from H1 in board.md
 	Path        string   // Absolute path to board directory
 	Columns     []Column // List of columns
-	Archived    bool     // From YAML frontmatter in board.md
+	Archived    bool     // Derived from file path (true if board is under archive/boards/)
 	JiraBoardID int      // From YAML frontmatter in board.md (optional)
 	Project     string   // relative path from board.md to the linked project index file, or ""
 }

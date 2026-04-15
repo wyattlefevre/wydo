@@ -40,6 +40,10 @@ type Task struct {
 	CompletionDate string
 	Priority       Priority
 	File           string
+	// TaskNote origin — zero values mean a regular todo.txt task
+	IsTaskNote bool
+	BoardName  string
+	ColumnName string
 }
 
 func (t *Task) HasProject(project string) bool {

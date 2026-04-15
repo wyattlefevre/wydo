@@ -9,7 +9,7 @@ import (
 
 func TestReadCard_Frontmatter(t *testing.T) {
 	cardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work", "cards", "auth-service.md")
-	card, err := ReadCard(cardPath)
+	card, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestReadCard_NoFrontmatter(t *testing.T) {
 	cardPath := filepath.Join(tmpDir, "simple.md")
 	os.WriteFile(cardPath, []byte("# Simple Card\n\nJust some content.\n"), 0644)
 
-	card, err := ReadCard(cardPath)
+	card, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestReadCard_NoFrontmatter(t *testing.T) {
 
 func TestWriteCard_ReadCard_RoundTrip(t *testing.T) {
 	cardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work", "cards", "auth-service.md")
-	original, err := ReadCard(cardPath)
+	original, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("read error: %v", err)
 	}
@@ -70,12 +70,12 @@ func TestWriteCard_ReadCard_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpPath := filepath.Join(tmpDir, "roundtrip.md")
 
-	if err := WriteCard(original, tmpPath); err != nil {
+	if err := WriteTaskNote(original, tmpPath); err != nil {
 		t.Fatalf("write error: %v", err)
 	}
 
 	// Read back
-	loaded, err := ReadCard(tmpPath)
+	loaded, err := ReadTaskNote(tmpPath)
 	if err != nil {
 		t.Fatalf("read-back error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestWriteCard_ReadCard_RoundTrip(t *testing.T) {
 
 func TestReadCard_ContractorQuotes(t *testing.T) {
 	cardPath := filepath.Join(testdataDir(), "workspace1", "boards", "home-reno", "cards", "contractor-quotes.md")
-	card, err := ReadCard(cardPath)
+	card, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestParseFrontmatter_PriorityNone(t *testing.T) {
 }
 
 func TestWriteCard_PriorityWrittenAsLetter(t *testing.T) {
-	card := models.Card{
+	card := models.TaskNote{
 		Filename: "test.md",
 		Priority: 2,
 		Content:  "# Test\n",
@@ -195,7 +195,7 @@ func TestWriteCard_PriorityWrittenAsLetter(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := tmpDir + "/test.md"
 
-	if err := WriteCard(card, path); err != nil {
+	if err := WriteTaskNote(card, path); err != nil {
 		t.Fatalf("write error: %v", err)
 	}
 
@@ -216,7 +216,7 @@ func TestWriteCard_PriorityWrittenAsLetter(t *testing.T) {
 
 func TestWriteCard_PriorityRoundTrip(t *testing.T) {
 	for p := 1; p <= 6; p++ {
-		card := models.Card{
+		card := models.TaskNote{
 			Filename: "test.md",
 			Priority: p,
 			Content:  "# Test\n",
@@ -226,10 +226,10 @@ func TestWriteCard_PriorityRoundTrip(t *testing.T) {
 		tmpDir := t.TempDir()
 		path := tmpDir + "/test.md"
 
-		if err := WriteCard(card, path); err != nil {
+		if err := WriteTaskNote(card, path); err != nil {
 			t.Fatalf("write error for priority %d: %v", p, err)
 		}
-		loaded, err := ReadCard(path)
+		loaded, err := ReadTaskNote(path)
 		if err != nil {
 			t.Fatalf("read error for priority %d: %v", p, err)
 		}
@@ -331,11 +331,11 @@ tags:
 }
 
 func TestWriteCard_ReadCard_URLRoundTrip(t *testing.T) {
-	original := models.Card{
+	original := models.TaskNote{
 		Filename: "test.md",
 		Title:    "URL Round Trip",
 		Tags:     []string{},
-		URLs: []models.CardURL{
+		URLs: []models.TaskNoteURL{
 			{Label: "GitHub", URL: "https://github.com/example"},
 			{URL: "https://docs.example.com"},
 		},
@@ -345,11 +345,11 @@ func TestWriteCard_ReadCard_URLRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpPath := filepath.Join(tmpDir, "url-roundtrip.md")
 
-	if err := WriteCard(original, tmpPath); err != nil {
+	if err := WriteTaskNote(original, tmpPath); err != nil {
 		t.Fatalf("write error: %v", err)
 	}
 
-	loaded, err := ReadCard(tmpPath)
+	loaded, err := ReadTaskNote(tmpPath)
 	if err != nil {
 		t.Fatalf("read-back error: %v", err)
 	}

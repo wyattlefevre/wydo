@@ -12,7 +12,7 @@ import (
 
 // URLPickerModel is a single-select fuzzy picker for choosing which URL to open.
 type URLPickerModel struct {
-	urls       []models.CardURL
+	urls       []models.TaskNoteURL
 	display    []string // "label - url" or just "url"
 	cursor     int
 	filterText string
@@ -29,7 +29,7 @@ func (m *URLPickerModel) SetSize(w, h int) {
 }
 
 // NewURLPickerModel creates a new URL picker.
-func NewURLPickerModel(urls []models.CardURL) URLPickerModel {
+func NewURLPickerModel(urls []models.TaskNoteURL) URLPickerModel {
 	display := make([]string, len(urls))
 	for i, u := range urls {
 		if u.Label != "" {

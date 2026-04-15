@@ -39,12 +39,16 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 
 	// Ensure archive directory structure exists
 	_ = os.MkdirAll(filepath.Join(scan.RootDir, "archive", "tasks"), 0755)
+	_ = os.MkdirAll(filepath.Join(scan.RootDir, "archive", "boards"), 0755)
 
 	// Load boards
 	for _, bi := range scan.Boards {
 		board, err := fs.ReadBoard(bi.Path)
 		if err != nil {
 			continue
+		}
+		if bi.Archived {
+			board.Archived = true
 		}
 		ws.Boards = append(ws.Boards, board)
 	}
@@ -174,14 +178,14 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 		}
 	}
 
-	// Update card frontmatter project references (with dedup for merge case)
+	// Update task note frontmatter project references (with dedup for merge case)
 	for bi := range ws.Boards {
 		for ci := range ws.Boards[bi].Columns {
-			for cdi := range ws.Boards[bi].Columns[ci].Cards {
-				card := &ws.Boards[bi].Columns[ci].Cards[cdi]
+			for cdi := range ws.Boards[bi].Columns[ci].TaskNotes {
+				tn := &ws.Boards[bi].Columns[ci].TaskNotes[cdi]
 				hasOld := false
 				hasNew := false
-				for _, p := range card.Projects {
+				for _, p := range tn.Projects {
 					if strings.EqualFold(p, oldName) {
 						hasOld = true
 					}
@@ -193,26 +197,26 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 					continue
 				}
 				if hasNew {
-					// Card already references target — just remove the old name
-					filtered := card.Projects[:0]
-					for _, p := range card.Projects {
+					// TaskNote already references target — just remove the old name
+					filtered := tn.Projects[:0]
+					for _, p := range tn.Projects {
 						if !strings.EqualFold(p, oldName) {
 							filtered = append(filtered, p)
 						}
 					}
-					card.Projects = filtered
+					tn.Projects = filtered
 				} else {
 					// Replace old with new
-					for pi, p := range card.Projects {
+					for pi, p := range tn.Projects {
 						if strings.EqualFold(p, oldName) {
-							card.Projects[pi] = newName
+							tn.Projects[pi] = newName
 							break
 						}
 					}
 				}
-				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", card.Filename)
-				if err := fs.WriteCard(*card, cardPath); err != nil {
-					return fmt.Errorf("write card %s: %w", card.Filename, err)
+				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", tn.Filename)
+				if err := fs.WriteTaskNote(*tn, cardPath); err != nil {
+					return fmt.Errorf("write task note %s: %w", tn.Filename, err)
 				}
 			}
 		}
@@ -251,13 +255,13 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 		}
 	}
 
-	// Remove from card frontmatter
+	// Remove from task note frontmatter
 	for bi := range ws.Boards {
 		for ci := range ws.Boards[bi].Columns {
-			for cdi := range ws.Boards[bi].Columns[ci].Cards {
-				card := &ws.Boards[bi].Columns[ci].Cards[cdi]
+			for cdi := range ws.Boards[bi].Columns[ci].TaskNotes {
+				tn := &ws.Boards[bi].Columns[ci].TaskNotes[cdi]
 				var hasProject bool
-				for _, p := range card.Projects {
+				for _, p := range tn.Projects {
 					if strings.EqualFold(p, projectName) {
 						hasProject = true
 						break
@@ -266,16 +270,16 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 				if !hasProject {
 					continue
 				}
-				filtered := card.Projects[:0]
-				for _, p := range card.Projects {
+				filtered := tn.Projects[:0]
+				for _, p := range tn.Projects {
 					if !strings.EqualFold(p, projectName) {
 						filtered = append(filtered, p)
 					}
 				}
-				card.Projects = filtered
-				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", card.Filename)
-				if err := fs.WriteCard(*card, cardPath); err != nil {
-					return fmt.Errorf("write card %s: %w", card.Filename, err)
+				tn.Projects = filtered
+				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", tn.Filename)
+				if err := fs.WriteTaskNote(*tn, cardPath); err != nil {
+					return fmt.Errorf("write task note %s: %w", tn.Filename, err)
 				}
 			}
 		}
@@ -357,7 +361,7 @@ type Project struct {
 	Parent   string
 	Archived bool
 	Dates    []ProjectDate        // from index frontmatter
-	URLs     []kanbanmodels.CardURL // from index frontmatter
+	URLs     []kanbanmodels.TaskNoteURL // from index frontmatter
 }
 
 // ProjectRegistry manages project discovery and cross-entity queries within a workspace
@@ -383,11 +387,11 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 		}
 	}
 
-	// 3. From card frontmatter projects field
+	// 3. From task note frontmatter projects field
 	for _, board := range boards {
 		for _, col := range board.Columns {
-			for _, card := range col.Cards {
-				for _, p := range card.Projects {
+			for _, tn := range col.TaskNotes {
+				for _, p := range tn.Projects {
 					r.ensureProject(p, "", "")
 				}
 			}
@@ -424,7 +428,7 @@ func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
 	}
 	var archived bool
 	var dates []ProjectDate
-	var urls []kanbanmodels.CardURL
+	var urls []kanbanmodels.TaskNoteURL
 	if dirPath != "" {
 		archived, dates, urls = readProjectFrontmatter(dirPath, name)
 	}
@@ -445,11 +449,11 @@ type projectIndexFM struct {
 		Label string `yaml:"label"`
 		Date  string `yaml:"date"`
 	} `yaml:"dates,omitempty"`
-	URLs []kanbanmodels.CardURL `yaml:"urls,omitempty"`
+	URLs []kanbanmodels.TaskNoteURL `yaml:"urls,omitempty"`
 }
 
 // readProjectFrontmatter reads the project index file and returns archived status, dates, and URLs.
-func readProjectFrontmatter(dirPath, name string) (archived bool, dates []ProjectDate, urls []kanbanmodels.CardURL) {
+func readProjectFrontmatter(dirPath, name string) (archived bool, dates []ProjectDate, urls []kanbanmodels.TaskNoteURL) {
 	indexPath := filepath.Join(dirPath, name+".md")
 	content, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -626,7 +630,7 @@ func WriteProjectDates(project *Project, dates []ProjectDate) error {
 
 // WriteProjectURLs sets the project's URLs and persists them to the index file frontmatter.
 // Returns an error for virtual projects (no DirPath).
-func WriteProjectURLs(project *Project, urls []kanbanmodels.CardURL) error {
+func WriteProjectURLs(project *Project, urls []kanbanmodels.TaskNoteURL) error {
 	if project.DirPath == "" {
 		return fmt.Errorf("cannot write URLs for virtual project %q", project.Name)
 	}
@@ -813,15 +817,15 @@ func (r *ProjectRegistry) ProjectsForBoard(boardPath string, allBoards []kanbanm
 	return result
 }
 
-// CardsForProject returns cards linked to a specific project across all boards
-func (r *ProjectRegistry) CardsForProject(name string, boards []kanbanmodels.Board) []kanbanmodels.Card {
-	var result []kanbanmodels.Card
+// TaskNotesForProject returns task notes linked to a specific project across all boards
+func (r *ProjectRegistry) TaskNotesForProject(name string, boards []kanbanmodels.Board) []kanbanmodels.TaskNote {
+	var result []kanbanmodels.TaskNote
 	for _, board := range boards {
 		for _, col := range board.Columns {
-			for _, card := range col.Cards {
-				for _, p := range card.Projects {
+			for _, tn := range col.TaskNotes {
+				for _, p := range tn.Projects {
 					if strings.EqualFold(p, name) {
-						result = append(result, card)
+						result = append(result, tn)
 						break
 					}
 				}

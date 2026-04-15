@@ -102,6 +102,22 @@ The hook script requires tmux. It exits silently when `$TMUX` is not set, so it 
 
 Status files are written to `~/.config/wydo/claude-status/<tmux-session-name>` and cleaned up automatically on session end.
 
+## Migrations
+
+### Archive format (path-based)
+
+Boards and cards are now archived by moving them to `archive/boards/` rather than by setting `archived: true` in frontmatter. If you have existing data using the old frontmatter-based approach, run the migration script once from inside the `wydo/` directory:
+
+```
+cd /path/to/wydo && go run ./cmd/migrate-archive <workspace-path>
+```
+
+The script:
+- Moves boards with `archived: true` in `board.md` → `archive/boards/<name>/`
+- Moves cards with `archived: true` in their frontmatter → `archive/boards/<board>/cards/<file>`, updates `board.md` to remove the link, and stores the card's column in frontmatter for restore on unarchive
+
+It is safe to run multiple times.
+
 ## CLI
 
 ```

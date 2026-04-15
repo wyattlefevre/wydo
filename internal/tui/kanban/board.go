@@ -205,7 +205,7 @@ func (m *BoardModel) SetBoardProjects(projects []string) {
 func (m *BoardModel) NavigateTo(colIndex, cardIndex int) {
 	if colIndex >= 0 && colIndex < len(m.board.Columns) {
 		m.selectedCol = colIndex
-		if cardIndex >= 0 && cardIndex < len(m.board.Columns[colIndex].Cards) {
+		if cardIndex >= 0 && cardIndex < len(m.board.Columns[colIndex].TaskNotes) {
 			m.selectedCard = cardIndex
 			m.columnCursorPos[colIndex] = cardIndex
 		}
@@ -237,7 +237,7 @@ func (m BoardModel) initJiraRefresh() tea.Cmd {
 	var keys []string
 	seen := make(map[string]bool)
 	for _, col := range m.board.Columns {
-		for _, card := range col.Cards {
+		for _, card := range col.TaskNotes {
 			if card.JiraKey != "" && !seen[card.JiraKey] {
 				keys = append(keys, card.JiraKey)
 				seen[card.JiraKey] = true
@@ -298,8 +298,8 @@ func (m BoardModel) updateInner(msg tea.Msg) (BoardModel, tea.Cmd) {
 		if m.sessionCreate != nil {
 			col := m.sessionCreate.launchCardCol
 			idx := m.sessionCreate.launchCardIdx
-			if col < len(m.board.Columns) && idx < len(m.board.Columns[col].Cards) {
-				if err := operations.UpdateCardTmuxSession(&m.board, col, idx, msg.sessionName); err != nil {
+			if col < len(m.board.Columns) && idx < len(m.board.Columns[col].TaskNotes) {
+				if err := operations.UpdateTaskNoteTmuxSession(&m.board, col, idx, msg.sessionName); err != nil {
 					m.err = err
 				} else {
 					m.message = "Session created: " + msg.sessionName
@@ -314,12 +314,12 @@ func (m BoardModel) updateInner(msg tea.Msg) (BoardModel, tea.Cmd) {
 	case jiraStatusMsg:
 		if len(msg.statuses) > 0 {
 			for ci, col := range m.board.Columns {
-				for ki, card := range col.Cards {
+				for ki, card := range col.TaskNotes {
 					if card.JiraKey != "" {
 						if status, ok := msg.statuses[card.JiraKey]; ok && status != card.JiraStatus {
-							m.board.Columns[ci].Cards[ki].JiraStatus = status
+							m.board.Columns[ci].TaskNotes[ki].JiraStatus = status
 							cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
-							_ = fs.WriteCard(m.board.Columns[ci].Cards[ki], cardPath)
+							_ = fs.WriteTaskNote(m.board.Columns[ci].TaskNotes[ki], cardPath)
 						}
 					}
 				}
@@ -353,7 +353,7 @@ func (m BoardModel) updateInner(msg tea.Msg) (BoardModel, tea.Cmd) {
 		} else {
 			// Sync filename before reloading (in case title changed)
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			if err := operations.SyncCardFilename(&m.board, m.selectedCol, realIdx); err != nil {
+			if err := operations.SyncTaskNoteFilename(&m.board, m.selectedCol, realIdx); err != nil {
 				m.err = err
 				return m, nil
 			}
@@ -557,7 +557,7 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "D":
 		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			cardTitle := m.board.Columns[m.selectedCol].Cards[realIdx].Title
+			cardTitle := m.board.Columns[m.selectedCol].TaskNotes[realIdx].Title
 			model := NewDeleteConfirmModel(cardTitle)
 			model.width = m.width
 			model.height = m.height
@@ -592,10 +592,10 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "a":
 		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			if err := operations.ToggleCardArchive(&m.board, m.selectedCol, realIdx); err != nil {
+			if err := operations.ToggleTaskNoteArchive(&m.board, m.selectedCol, realIdx); err != nil {
 				m.err = err
 			} else {
-				if m.board.Columns[m.selectedCol].Cards[realIdx].Archived {
+				if m.board.Columns[m.selectedCol].TaskNotes[realIdx].Archived {
 					m.message = "Card archived"
 				} else {
 					m.message = "Card unarchived"
@@ -653,7 +653,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "h", "left":
 		if m.selectedCol > 0 {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			if err := operations.MoveCard(&m.board, m.selectedCol, realIdx, m.selectedCol-1); err != nil {
+			if err := operations.MoveTaskNote(&m.board, m.selectedCol, realIdx, m.selectedCol-1); err != nil {
 				m.err = err
 			} else {
 				m.selectedCol--
@@ -672,7 +672,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "l", "right":
 		if m.selectedCol < len(m.board.Columns)-1 {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			if err := operations.MoveCard(&m.board, m.selectedCol, realIdx, m.selectedCol+1); err != nil {
+			if err := operations.MoveTaskNote(&m.board, m.selectedCol, realIdx, m.selectedCol+1); err != nil {
 				m.err = err
 			} else {
 				m.selectedCol++
@@ -691,8 +691,8 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "j", "down":
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 		col := m.board.Columns[m.selectedCol]
-		if realIdx < len(col.Cards)-1 {
-			if err := operations.ReorderCard(&m.board, m.selectedCol, realIdx, realIdx+1); err != nil {
+		if realIdx < len(col.TaskNotes)-1 {
+			if err := operations.ReorderTaskNote(&m.board, m.selectedCol, realIdx, realIdx+1); err != nil {
 				m.err = err
 			} else {
 				m.selectedCard++
@@ -704,7 +704,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "k", "up":
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 		if realIdx > 0 {
-			if err := operations.ReorderCard(&m.board, m.selectedCol, realIdx, realIdx-1); err != nil {
+			if err := operations.ReorderTaskNote(&m.board, m.selectedCol, realIdx, realIdx-1); err != nil {
 				m.err = err
 			} else {
 				m.selectedCard--
@@ -728,7 +728,7 @@ func (m BoardModel) updateConfirmDelete(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 	if confirmed {
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-		if err := operations.DeleteCard(&m.board, m.selectedCol, realIdx); err != nil {
+		if err := operations.DeleteTaskNote(&m.board, m.selectedCol, realIdx); err != nil {
 			m.err = err
 		} else {
 			m.message = "Card deleted"
@@ -870,7 +870,7 @@ func (m BoardModel) handleEdit() (BoardModel, tea.Cmd) {
 	}
 
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	card := m.board.Columns[m.selectedCol].Cards[realIdx]
+	card := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 	// Open editor
 	return m, openEditor(m.board.Path, card.Filename)
@@ -882,14 +882,14 @@ func (m BoardModel) handleNew() (BoardModel, tea.Cmd) {
 	}
 
 	columnName := m.board.Columns[m.selectedCol].Name
-	card, err := operations.CreateCard(&m.board, columnName)
+	card, err := operations.CreateTaskNote(&m.board, columnName)
 	if err != nil {
 		m.err = err
 		return m, nil
 	}
 
 	// Point cursor at the new card so editorFinishedMsg can find it
-	m.selectedCard = len(m.board.Columns[m.selectedCol].Cards) - 1
+	m.selectedCard = len(m.board.Columns[m.selectedCol].TaskNotes) - 1
 	m.columnCursorPos[m.selectedCol] = m.selectedCard
 
 	// Apply board projects immediately so they appear in the editor
@@ -902,7 +902,7 @@ func (m BoardModel) handleNew() (BoardModel, tea.Cmd) {
 func (m BoardModel) handleTagEdit() (BoardModel, tea.Cmd) {
 	allTags := operations.CollectAllTags(&m.board)
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 	picker := NewTagPickerModel(currentCard.Tags, allTags)
 	m.tagPicker = &picker
@@ -924,7 +924,7 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		if msg.String() == "enter" {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 			newTags := m.tagPicker.GetSelectedTags()
-			err := operations.UpdateCardTags(&m.board, m.selectedCol, realIdx, newTags)
+			err := operations.UpdateTaskNoteTags(&m.board, m.selectedCol, realIdx, newTags)
 			if err != nil {
 				m.err = err
 			} else {
@@ -952,7 +952,7 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 func (m BoardModel) handleProjectEdit() (BoardModel, tea.Cmd) {
 	allProjects := m.allProjects
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 	picker := NewProjectPickerModel(currentCard.Projects, allProjects)
 	m.projectPicker = &picker
@@ -974,7 +974,7 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		if msg.String() == "enter" {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 			newProjects := m.projectPicker.GetSelectedProjects()
-			err := operations.UpdateCardProjects(&m.board, m.selectedCol, realIdx, newProjects)
+			err := operations.UpdateTaskNoteProjects(&m.board, m.selectedCol, realIdx, newProjects)
 			if err != nil {
 				m.err = err
 			} else {
@@ -1071,7 +1071,7 @@ func (m BoardModel) updateColumnEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleURLEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 	editor := NewURLEditorModel(currentCard.URLs)
 	editor.width = m.width
 	editor.height = m.height
@@ -1090,7 +1090,7 @@ func (m BoardModel) updateURLEditor(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		if saved {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 			newURLs := m.urlEditor.GetURLs()
-			err := operations.UpdateCardURLs(&m.board, m.selectedCol, realIdx, newURLs)
+			err := operations.UpdateTaskNoteURLs(&m.board, m.selectedCol, realIdx, newURLs)
 			if err != nil {
 				m.err = err
 			} else {
@@ -1136,7 +1136,7 @@ func (m BoardModel) updateURLPicker(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleDueDateEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 	datePickerModel := shared.NewDatePickerModel(currentCard.DueDate, "Due Date")
 	datePickerModel.SetSize(m.width, m.height)
 	m.dueDatePicker = &datePickerModel
@@ -1154,7 +1154,7 @@ func (m BoardModel) updateDueDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		// Save date (or clear if 'c' was pressed)
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 		newDate := m.dueDatePicker.GetDate()
-		err := operations.UpdateCardDueDate(&m.board, m.selectedCol, realIdx, newDate)
+		err := operations.UpdateTaskNoteDueDate(&m.board, m.selectedCol, realIdx, newDate)
 		if err != nil {
 			m.err = err
 		} else {
@@ -1187,7 +1187,7 @@ func (m BoardModel) updateDueDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleScheduledDateEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 	datePickerModel := shared.NewDatePickerModel(currentCard.ScheduledDate, "Scheduled Date")
 	datePickerModel.SetSize(m.width, m.height)
 	m.scheduledDatePicker = &datePickerModel
@@ -1205,7 +1205,7 @@ func (m BoardModel) updateScheduledDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd
 		// Save date (or clear if 'c' was pressed)
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 		newDate := m.scheduledDatePicker.GetDate()
-		err := operations.UpdateCardScheduledDate(&m.board, m.selectedCol, realIdx, newDate)
+		err := operations.UpdateTaskNoteScheduledDate(&m.board, m.selectedCol, realIdx, newDate)
 		if err != nil {
 			m.err = err
 		} else {
@@ -1238,7 +1238,7 @@ func (m BoardModel) updateScheduledDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd
 
 func (m BoardModel) handlePriorityEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 	priorityInputModel := NewPriorityInputModel(currentCard.Priority)
 	priorityInputModel.width = m.width
 	priorityInputModel.height = m.height
@@ -1256,7 +1256,7 @@ func (m BoardModel) updatePriorityInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		if msg.String() == "enter" {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 			newPriority := m.priorityInput.GetPriority()
-			err := operations.UpdateCardPriority(&m.board, m.selectedCol, realIdx, newPriority)
+			err := operations.UpdateTaskNotePriority(&m.board, m.selectedCol, realIdx, newPriority)
 			if err != nil {
 				m.err = err
 			} else {
@@ -1266,7 +1266,7 @@ func (m BoardModel) updatePriorityInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				} else {
 					m.board = board
 					if newPriority > 0 {
-						m.message = fmt.Sprintf("Priority set to %s", models.CardPriorityLabel(newPriority))
+						m.message = fmt.Sprintf("Priority set to %s", models.TaskNotePriorityLabel(newPriority))
 					} else {
 						m.message = "Priority cleared"
 					}
@@ -1284,17 +1284,17 @@ func (m BoardModel) updatePriorityInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleOpenURL() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 	// Build effective URL list: Jira ticket first (if linked), then card URLs
-	urls := make([]models.CardURL, 0, len(currentCard.URLs)+1)
+	urls := make([]models.TaskNoteURL, 0, len(currentCard.URLs)+1)
 	if currentCard.JiraKey != "" {
 		jiraURL := currentCard.JiraKey // fallback label if no base URL
 		cfg := config.Get()
 		if cfg != nil && cfg.Jira != nil {
 			jiraURL = cfg.Jira.BaseURL + "/browse/" + currentCard.JiraKey
 		}
-		urls = append(urls, models.CardURL{Label: "jira", URL: jiraURL})
+		urls = append(urls, models.TaskNoteURL{Label: "jira", URL: jiraURL})
 	}
 	urls = append(urls, currentCard.URLs...)
 
@@ -1350,7 +1350,7 @@ func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.err = fmt.Errorf("load target board: %w", err)
 			} else {
 				realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-				err := operations.MoveCardToBoard(&m.board, m.selectedCol, realIdx, &dstBoard, m.boardProjects)
+				err := operations.MoveTaskNoteToBoard(&m.board, m.selectedCol, realIdx, &dstBoard, m.boardProjects)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1381,7 +1381,7 @@ func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleTmuxEdit() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 	picker := NewTmuxPickerModel(currentCard.TmuxSession)
 	picker.width = m.width
 	picker.height = m.height
@@ -1398,10 +1398,10 @@ func (m BoardModel) updateTmuxPicker(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 
 	if done {
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-		currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+		currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 		if selectedSession != currentCard.TmuxSession {
-			err := operations.UpdateCardTmuxSession(&m.board, m.selectedCol, realIdx, selectedSession)
+			err := operations.UpdateTaskNoteTmuxSession(&m.board, m.selectedCol, realIdx, selectedSession)
 			if err != nil {
 				m.err = err
 			} else {
@@ -1431,7 +1431,7 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 		return m, nil
 	}
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 	// No session linked -> start the "create session" flow
 	if currentCard.TmuxSession == "" {
@@ -1455,7 +1455,7 @@ func (m BoardModel) handleTmuxLaunch() (BoardModel, tea.Cmd) {
 
 func (m BoardModel) handleClaudeLaunch() (BoardModel, tea.Cmd) {
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentCard := m.board.Columns[m.selectedCol].Cards[realIdx]
+	currentCard := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 
 	if currentCard.TmuxSession == "" {
 		m.message = "No tmux session linked"
@@ -1649,7 +1649,7 @@ func (m BoardModel) handleJiraIssue() (BoardModel, tea.Cmd) {
 		return m.handleJiraLink()
 	}
 	realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-	currentKey := m.board.Columns[m.selectedCol].Cards[realIdx].JiraKey
+	currentKey := m.board.Columns[m.selectedCol].TaskNotes[realIdx].JiraKey
 	input := NewJiraIssueInputModel(currentKey)
 	input.width = m.width
 	input.height = m.height
@@ -1677,11 +1677,11 @@ func (m BoardModel) updateJiraIssue(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		m.jiraIssueInput = nil
 		if confirmed != nil {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			m.board.Columns[m.selectedCol].Cards[realIdx].JiraKey = confirmed.Key
-			m.board.Columns[m.selectedCol].Cards[realIdx].JiraStatus = confirmed.Status
-			card := m.board.Columns[m.selectedCol].Cards[realIdx]
+			m.board.Columns[m.selectedCol].TaskNotes[realIdx].JiraKey = confirmed.Key
+			m.board.Columns[m.selectedCol].TaskNotes[realIdx].JiraStatus = confirmed.Status
+			card := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
 			cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
-			if err := fs.WriteCard(card, cardPath); err != nil {
+			if err := fs.WriteTaskNote(card, cardPath); err != nil {
 				m.err = err
 			} else if confirmed.Key == "" {
 				m.message = "Jira issue unlinked"
@@ -1838,7 +1838,7 @@ func (m BoardModel) View() string {
 	return s.String()
 }
 
-func (m BoardModel) renderColumn(index int, col models.Column, cards []models.Card, fixedHeight int) string {
+func (m BoardModel) renderColumn(index int, col models.Column, cards []models.TaskNote, fixedHeight int) string {
 	var s strings.Builder
 
 	// Column title
@@ -1922,7 +1922,7 @@ func (m BoardModel) renderColumn(index int, col models.Column, cards []models.Ca
 	return style.Height(fixedHeight).Render(s.String())
 }
 
-func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string {
+func (m BoardModel) renderCard(colIndex, cardIndex int, card models.TaskNote) string {
 	maxWidth := columnWidth - (2 * columnPaddingHorizontal) - cardBorderWidth - (2 * cardPaddingHorizontal)
 
 	var lines []string
@@ -1937,7 +1937,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 	priorityPrefix := ""
 	priorityPrefixWidth := 0
 	if card.Priority > 0 {
-		priorityPrefix = " " + models.CardPriorityLabel(card.Priority) + " "
+		priorityPrefix = " " + models.TaskNotePriorityLabel(card.Priority) + " "
 		priorityPrefixWidth = len(priorityPrefix)
 	}
 
@@ -2097,7 +2097,7 @@ func (m BoardModel) renderCard(colIndex, cardIndex int, card models.Card) string
 // cardLineCount returns the number of rendered lines for a card without doing
 // a full lipgloss render. This mirrors the logic in renderCard() and is used
 // by adjustScrollPosition() to avoid expensive re-renders on every keypress.
-func (m *BoardModel) cardLineCount(colIndex int, card models.Card) int {
+func (m *BoardModel) cardLineCount(colIndex int, card models.TaskNote) int {
 	lines := 1 // title is always present
 	if card.Preview != "" {
 		lines++
@@ -2198,8 +2198,8 @@ func (m *BoardModel) reloadBoardState() {
 		m.clampFilteredCursors()
 	} else {
 		if m.selectedCol < len(m.board.Columns) {
-			if m.selectedCard >= len(m.board.Columns[m.selectedCol].Cards) {
-				m.selectedCard = max(0, len(m.board.Columns[m.selectedCol].Cards)-1)
+			if m.selectedCard >= len(m.board.Columns[m.selectedCol].TaskNotes) {
+				m.selectedCard = max(0, len(m.board.Columns[m.selectedCol].TaskNotes)-1)
 				m.columnCursorPos[m.selectedCol] = m.selectedCard
 			}
 		}
@@ -2221,7 +2221,7 @@ func (m *BoardModel) ensureCardBoardProjects(colIndex, cardIndex int) {
 }
 
 // cardSearchString builds a single string from all card fields for fuzzy matching
-func cardSearchString(card models.Card) string {
+func cardSearchString(card models.TaskNote) string {
 	var parts []string
 	parts = append(parts, card.Title)
 	if card.Preview != "" {
@@ -2264,8 +2264,8 @@ func (m *BoardModel) recomputeFilter() {
 
 	m.filteredIndices = make([][]int, len(m.board.Columns))
 	for colIdx, col := range m.board.Columns {
-		searchStrings := make([]string, len(col.Cards))
-		for i, card := range col.Cards {
+		searchStrings := make([]string, len(col.TaskNotes))
+		for i, card := range col.TaskNotes {
 			searchStrings[i] = cardSearchString(card)
 		}
 		matches := fuzzy.Find(m.filterQuery, searchStrings)
@@ -2280,7 +2280,7 @@ func (m *BoardModel) recomputeFilter() {
 // getVisibleCardIndices returns the real card indices that should be visible,
 // respecting both archive filtering and fuzzy filter.
 func (m *BoardModel) getVisibleCardIndices(colIndex int) []int {
-	allCards := m.board.Columns[colIndex].Cards
+	allCards := m.board.Columns[colIndex].TaskNotes
 
 	// Start with all indices
 	var baseIndices []int
@@ -2308,10 +2308,10 @@ func (m *BoardModel) getVisibleCardIndices(colIndex int) []int {
 }
 
 // getVisibleCards returns the cards to display for a column, respecting the active filter and archive state
-func (m *BoardModel) getVisibleCards(colIndex int) []models.Card {
+func (m *BoardModel) getVisibleCards(colIndex int) []models.TaskNote {
 	indices := m.getVisibleCardIndices(colIndex)
-	allCards := m.board.Columns[colIndex].Cards
-	cards := make([]models.Card, len(indices))
+	allCards := m.board.Columns[colIndex].TaskNotes
+	cards := make([]models.TaskNote, len(indices))
 	for i, idx := range indices {
 		cards[i] = allCards[idx]
 	}
