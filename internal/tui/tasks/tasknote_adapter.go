@@ -16,6 +16,7 @@ func taskNoteToTask(tn models.TaskNote, board models.Board, col models.Column) d
 		IsTaskNote: true,
 		BoardName:  board.Name,
 		ColumnName: col.Name,
+		File:       board.Path,
 		Tags:       make(map[string]string),
 	}
 
