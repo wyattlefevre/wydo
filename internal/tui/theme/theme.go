@@ -43,7 +43,7 @@ var (
 	ListItem         = lipgloss.NewStyle().Foreground(Text).Padding(0, 2)
 	ListItemSelected = lipgloss.NewStyle().Foreground(Warning).Bold(true).Padding(0, 2)
 
-	Project  = lipgloss.NewStyle().Foreground(Secondary)
+	Project  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	Context  = lipgloss.NewStyle().Foreground(Accent)
 	Tag      = lipgloss.NewStyle().Foreground(Warning)
 	Priority = lipgloss.NewStyle().Bold(true).Foreground(Danger)
@@ -56,8 +56,8 @@ var (
 
 var (
 	ModalBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(Primary).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(TextBright).
 			Padding(1, 2)
 
 	ModalTitle = lipgloss.NewStyle().Bold(true).Foreground(Warning)

@@ -1,7 +1,6 @@
 package data
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -35,11 +34,16 @@ type Task struct {
 	Projects       []string
 	Contexts       []string
 	Done           bool
+	Archived       bool
 	Tags           map[string]string
 	CreatedDate    string
 	CompletionDate string
 	Priority       Priority
 	File           string
+	// TaskNote origin — zero values mean a regular todo.txt task
+	IsTaskNote bool
+	BoardName  string
+	ColumnName string
 }
 
 func (t *Task) HasProject(project string) bool {
@@ -178,18 +182,6 @@ func (t Task) String() string {
 	}
 
 	return strings.Join(parts, " ")
-}
-
-func (t Task) Print() {
-	fmt.Printf("ID: %s\n", t.ID)
-	fmt.Printf("Name: %s\n", t.Name)
-	fmt.Printf("Projects: %v\n", t.Projects)
-	fmt.Printf("Contexts: %v\n", t.Contexts)
-	fmt.Printf("Done: %v\n", t.Done)
-	fmt.Printf("Tags: %v\n", t.Tags)
-	fmt.Printf("CreatedDate: %s\n", t.CreatedDate)
-	fmt.Printf("CompletionDate: %s\n", t.CompletionDate)
-	fmt.Printf("Priority: %c\n", t.Priority)
 }
 
 func ParseTask(input string, id string, file string) Task {

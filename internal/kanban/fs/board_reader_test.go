@@ -45,20 +45,20 @@ func TestReadBoard_Cards(t *testing.T) {
 
 	// To Do column should have db-migration
 	todoCol := board.Columns[0]
-	if len(todoCol.Cards) != 1 {
-		t.Fatalf("expected 1 card in To Do, got %d", len(todoCol.Cards))
+	if len(todoCol.TaskNotes) != 1 {
+		t.Fatalf("expected 1 card in To Do, got %d", len(todoCol.TaskNotes))
 	}
-	if todoCol.Cards[0].Title != "DB Migration" {
-		t.Errorf("expected 'DB Migration', got %q", todoCol.Cards[0].Title)
+	if todoCol.TaskNotes[0].Title != "DB Migration" {
+		t.Errorf("expected 'DB Migration', got %q", todoCol.TaskNotes[0].Title)
 	}
 
 	// In Progress should have auth-service
 	inProgressCol := board.Columns[1]
-	if len(inProgressCol.Cards) != 1 {
-		t.Fatalf("expected 1 card in In Progress, got %d", len(inProgressCol.Cards))
+	if len(inProgressCol.TaskNotes) != 1 {
+		t.Fatalf("expected 1 card in In Progress, got %d", len(inProgressCol.TaskNotes))
 	}
-	if inProgressCol.Cards[0].Title != "Auth Service" {
-		t.Errorf("expected 'Auth Service', got %q", inProgressCol.Cards[0].Title)
+	if inProgressCol.TaskNotes[0].Title != "Auth Service" {
+		t.Errorf("expected 'Auth Service', got %q", inProgressCol.TaskNotes[0].Title)
 	}
 }
 
@@ -70,7 +70,7 @@ func TestReadBoard_CardFrontmatter(t *testing.T) {
 	}
 
 	// Auth Service card should have frontmatter
-	card := board.Columns[1].Cards[0] // In Progress -> Auth Service
+	card := board.Columns[1].TaskNotes[0] // In Progress -> Auth Service
 	if len(card.Tags) == 0 {
 		t.Error("expected tags on auth-service card")
 	}
@@ -114,7 +114,7 @@ func TestWriteBoard_ProjectFrontmatter(t *testing.T) {
 		Path:    boardPath,
 		Name:    "sprint",
 		Project: "../../projects/alpha/alpha.md",
-		Columns: []models.Column{{Name: "Backlog", Cards: []models.Card{}}, {Name: "Done", Cards: []models.Card{}}},
+		Columns: []models.Column{{Name: "Backlog", TaskNotes: []models.TaskNote{}}, {Name: "Done", TaskNotes: []models.TaskNote{}}},
 	}
 	if err := WriteBoard(board); err != nil {
 		t.Fatalf("write error: %v", err)
@@ -149,7 +149,7 @@ func TestWriteBoard_ReadBoard_RoundTrip(t *testing.T) {
 
 	// Copy card files
 	for _, col := range original.Columns {
-		for _, card := range col.Cards {
+		for _, card := range col.TaskNotes {
 			srcPath := filepath.Join(boardPath, "cards", card.Filename)
 			dstPath := filepath.Join(tmpBoardPath, "cards", card.Filename)
 			content, _ := os.ReadFile(srcPath)

@@ -20,7 +20,7 @@ func TestSetBoardProject_SetAndClear(t *testing.T) {
 	board := models.Board{
 		Name:    "test-board",
 		Path:    dir,
-		Columns: []models.Column{{Name: "To Do", Cards: []models.Card{}}},
+		Columns: []models.Column{{Name: "To Do", TaskNotes: []models.TaskNote{}}},
 	}
 	if err := fs.WriteBoard(board); err != nil {
 		t.Fatalf("WriteBoard: %v", err)

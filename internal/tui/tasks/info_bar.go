@@ -24,8 +24,8 @@ type InfoBarModel struct {
 	SearchQuery    string
 	Message        string
 	Width          int
-	FileViewMode   FileViewMode
 	MultiWorkspace bool
+	ActivePreset   ViewPreset
 }
 
 // NewInfoBar creates a new info bar
@@ -36,26 +36,80 @@ func NewInfoBar() InfoBarModel {
 }
 
 // SetContext updates the info bar with current state
-func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, fileViewMode FileViewMode, multiWorkspace bool) {
+func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, multiWorkspace bool, activePreset ViewPreset) {
 	m.InputContext = ctx
 	m.FilterState = filter
 	m.SortState = sortState
 	m.GroupState = groupState
 	m.SearchQuery = searchQuery
-	m.FileViewMode = fileViewMode
 	m.MultiWorkspace = multiWorkspace
+	m.ActivePreset = activePreset
 }
 
-// View renders the info bar (3 fixed lines)
+// View renders the info bar as a single line with a bottom border.
 func (m *InfoBarModel) View() string {
-	var lines [3]string
-
-	lines[0] = m.renderModeLine()
-	lines[1] = m.renderFiltersLine()
-	lines[2] = m.renderSearchLine()
-
-	content := strings.Join(lines[:], "\n")
+	left := m.renderStatusLine()
+	right := m.renderPresetTabs()
+	gap := m.Width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	content := left + strings.Repeat(" ", gap) + right
 	return infoBarStyle.Width(m.Width).Render(content)
+}
+
+func (m *InfoBarModel) renderPresetTabs() string {
+	stackStyle := theme.TabInactive
+	cacheStyle := theme.TabInactive
+	if m.ActivePreset == PresetStack {
+		stackStyle = theme.TabActive
+	} else if m.ActivePreset == PresetCache {
+		cacheStyle = theme.TabActive
+	}
+	return stackStyle.Render("1:Stack") + " " + cacheStyle.Render("2:Cache")
+}
+
+// RenderModeBar renders the mode indicator and keybind hints as a full-width bottom bar.
+func (m *InfoBarModel) RenderModeBar(width int) string {
+	left := m.renderModeLine()
+	right := hintStyle.Render(m.RenderHintsRaw())
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	content := left + strings.Repeat(" ", gap) + right
+	return theme.StatusBar.Width(width).Render(content)
+}
+
+// renderStatusLine combines filters, sort, group, view, and search/message into one line.
+func (m *InfoBarModel) renderStatusLine() string {
+	var parts []string
+
+	filterText := "none"
+	if m.FilterState != nil && !m.FilterState.IsEmpty() {
+		filterText = m.FilterState.Summary()
+	}
+	parts = append(parts, filterStyle.Render("Filters: "+filterText))
+
+	sortText := "none"
+	if m.SortState != nil && m.SortState.IsActive() {
+		sortText = m.SortState.String()
+	}
+	parts = append(parts, filterStyle.Render("Sort: "+sortText))
+
+	groupText := "none"
+	if m.GroupState != nil && m.GroupState.IsActive() {
+		groupText = m.GroupState.String()
+	}
+	parts = append(parts, filterStyle.Render("Group: "+groupText))
+
+	if m.Message != "" {
+		parts = append(parts, hintStyle.Render(m.Message))
+	} else if m.SearchQuery != "" {
+		parts = append(parts, searchStyle.Render("Search: \""+m.SearchQuery+"\""))
+	}
+
+	return strings.Join(parts, "  |  ")
 }
 
 func (m *InfoBarModel) renderModeLine() string {
@@ -78,24 +132,24 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 
 	switch m.InputContext.Mode {
 	case ModeNormal:
-		hint := "?:help  /:search  enter:details  space:done  r:rename"
+		hint := "?:help  /:search  enter:details  space:done  r:rename  b:board"
 		if m.MultiWorkspace {
-			hint = "?:help  /:search  enter:details  space:done  r:rename  W:workspace"
+			hint = "?:help  /:search  enter:details  space:done  r:rename  b:board  W:workspace"
 		}
 		return hint
 
 	case ModeFilterSelect:
-		hint := "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  esc:back"
+		hint := "/:search  d:date  p:project  i:priority  t:context  s:status  f:file  esc:back"
 		if m.MultiWorkspace {
-			hint = "/:search  d:date  p:project  P:priority  t:context  s:status  f:file  w:workspace  esc:back"
+			hint = "/:search  d:date  p:project  i:priority  t:context  s:status  f:file  w:workspace  esc:back"
 		}
 		return hint
 
 	case ModeSortSelect:
-		return "d:date  p:project  P:priority  t:context  esc:back"
+		return "d:date  p:project  i:priority  t:context  esc:back"
 
 	case ModeGroupSelect:
-		return "d:date  p:project  P:priority  t:context  f:file  esc:back"
+		return "d:date  p:project  i:priority  t:context  b:board  esc:back"
 
 	case ModeSortDirection, ModeGroupDirection:
 		return "a:ascending  d:descending  esc:back"
@@ -118,6 +172,12 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 	case ModeEditProject, ModeEditContext:
 		return "j/k:navigate  enter:select  space:toggle  esc:cancel"
 
+	case ModeArchive:
+		return "space:select  a:select all  enter:archive  esc:cancel"
+
+	case ModeDelete:
+		return "space:select  a:select all  enter:delete  esc:cancel"
+
 	case ModeConfirmation:
 		return "y/enter:yes  n/esc:no"
 
@@ -128,48 +188,3 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 	return ""
 }
 
-func (m *InfoBarModel) renderFiltersLine() string {
-	var parts []string
-
-	if m.FilterState != nil && !m.FilterState.IsEmpty() {
-		parts = append(parts, filterStyle.Render("Filters: "+m.FilterState.Summary()))
-	}
-
-	if m.SortState != nil && m.SortState.IsActive() {
-		parts = append(parts, filterStyle.Render("Sort: "+m.SortState.String()))
-	}
-
-	if m.GroupState != nil && m.GroupState.IsActive() {
-		parts = append(parts, filterStyle.Render("Group: "+m.GroupState.String()))
-	}
-
-	if m.FileViewMode != FileViewTodoOnly {
-		var viewMode string
-		if m.FileViewMode == FileViewAll {
-			viewMode = "View: todo.txt + done.txt"
-		} else {
-			viewMode = "View: done.txt"
-		}
-		parts = append(parts, lipgloss.NewStyle().
-			Foreground(theme.Secondary).
-			Render(viewMode))
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-
-	return strings.Join(parts, "  |  ")
-}
-
-func (m *InfoBarModel) renderSearchLine() string {
-	if m.Message != "" {
-		return hintStyle.Render(m.Message)
-	}
-
-	if m.SearchQuery != "" {
-		return searchStyle.Render("Search: \"" + m.SearchQuery + "\"")
-	}
-
-	return ""
-}

@@ -136,7 +136,7 @@ func TestCardsForProject(t *testing.T) {
 	scan, _ := scanner.ScanWorkspace(filepath.Join(testdataDir(), "workspace1"))
 	ws, _ := Load(scan)
 
-	alphaCards := ws.Projects.CardsForProject("alpha", ws.Boards)
+	alphaCards := ws.Projects.TaskNotesForProject("alpha", ws.Boards)
 	if len(alphaCards) == 0 {
 		t.Error("expected alpha cards")
 	}
@@ -465,7 +465,7 @@ func TestMergeProject_CardDedup(t *testing.T) {
 	found := false
 	for _, board := range ws.Boards {
 		for _, col := range board.Columns {
-			for _, card := range col.Cards {
+			for _, card := range col.TaskNotes {
 				if card.Title == "Test Card" {
 					found = true
 					for _, p := range card.Projects {

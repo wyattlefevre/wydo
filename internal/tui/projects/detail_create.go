@@ -323,7 +323,7 @@ func (m DetailModel) finishCardCreation(boardPath string) (DetailModel, tea.Cmd)
 		return m, nil
 	}
 
-	card, err := operations.CreateCardFromTask(&board, "", []string{projectName}, []string{}, nil, nil, 0)
+	card, err := operations.CreateTaskNoteFromTask(&board, "", []string{projectName}, []string{}, nil, nil, 0)
 	if err != nil {
 		logs.Logger.Printf("Error creating card: %v", err)
 		return m, nil

@@ -37,6 +37,12 @@ const (
 
 	// Rename mode
 	ModeEditName // 'r' pressed - renaming task name
+
+	// Archive selection mode
+	ModeArchive // 'a' pressed - selecting tasks to archive
+
+	// Delete selection mode
+	ModeDelete // 'd' pressed - selecting tasks to delete
 )
 
 // InputModeContext holds the current mode and related context
@@ -143,6 +149,10 @@ func (c *InputModeContext) String() string {
 		return "Move to Board"
 	case ModeEditName:
 		return "Rename"
+	case ModeArchive:
+		return "Archive"
+	case ModeDelete:
+		return "Delete"
 	default:
 		return "Unknown"
 	}

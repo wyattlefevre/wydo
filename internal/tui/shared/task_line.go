@@ -6,29 +6,33 @@ import (
 	"strings"
 	"time"
 
+	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/lipgloss"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tui/theme"
 )
 
+var boardNameStyle = lipgloss.NewStyle().Foreground(theme.Secondary)
+var columnNameStyle = lipgloss.NewStyle().Foreground(theme.Primary)
+
 // StyledTaskLine renders a task in a simple, readable format.
 // Format: [x] (A) Name +project @context due:date
-func StyledTaskLine(t data.Task) string {
+//
+// width is the available visual width for the entire line. When > 0:
+//   - The task name is truncated to keep the line within width.
+//   - For TaskNotes the board name and column name are right-aligned at the far right.
+//
+// boardNameWidth and columnNameWidth set the minimum widths for those fields (for column alignment).
+// Pass width=0 to skip truncation/alignment (e.g. in non-fixed-width views).
+func StyledTaskLine(t data.Task, width int, boardNameWidth int, columnNameWidth int) string {
 	var parts []string
-
-	// Status checkbox
-	if t.Done {
-		parts = append(parts, theme.Done.Render("[x]"))
-	} else {
-		parts = append(parts, "[ ]")
-	}
 
 	// Priority
 	if t.Priority != 0 {
 		if t.Done {
-			parts = append(parts, theme.Done.Render("("+string(t.Priority)+")"))
+			parts = append(parts, priorityBadgeDone(t.Priority))
 		} else {
-			parts = append(parts, taskPriorityStyle(t.Priority).Render("("+string(t.Priority)+")"))
+			parts = append(parts, priorityBadge(t.Priority))
 		}
 	}
 
@@ -86,32 +90,102 @@ func StyledTaskLine(t data.Task) string {
 		}
 	}
 
-	return strings.Join(parts, " ")
+	left := strings.Join(parts, " ")
+
+	// Build right-aligned suffix
+	var suffix string
+	if t.IsTaskNote {
+		pad := boardNameWidth
+		if pad < len(t.BoardName) {
+			pad = len(t.BoardName)
+		}
+		boardPadded := fmt.Sprintf("%-*s", pad, t.BoardName)
+		colPad := columnNameWidth
+		if colPad < len(t.ColumnName) {
+			colPad = len(t.ColumnName)
+		}
+		colPadded := fmt.Sprintf("%-*s", colPad, t.ColumnName)
+		suffix = "  " + boardNameStyle.Render(boardPadded) + " " + columnNameStyle.Render(colPadded)
+	} else if t.Done {
+		suffix = theme.Done.Render("Done")
+	}
+
+	if suffix == "" {
+		if width > 0 && lipgloss.Width(left) > width {
+			left = xansi.Cut(left, 0, width)
+		}
+		return left
+	}
+
+	if width <= 0 {
+		return left + suffix
+	}
+
+	suffixW := lipgloss.Width(suffix)
+	leftW := lipgloss.Width(left)
+
+	// Minimum 1 space between left content and suffix
+	maxLeft := width - suffixW - 1
+	if maxLeft < 1 {
+		maxLeft = 1
+	}
+	if leftW > maxLeft {
+		left = xansi.Cut(left, 0, maxLeft)
+		leftW = maxLeft
+	}
+
+	gap := width - leftW - suffixW
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + suffix
 }
 
-// AgendaPriorityBadge returns a styled "(A)" badge for use in the agenda view.
+// AgendaPriorityBadge returns a styled badge for use in the agenda view.
 // Callers must ensure p != PriorityNone before calling.
 func AgendaPriorityBadge(p data.Priority) string {
-	return taskPriorityStyle(p).Render("(" + string(p) + ")")
+	return priorityBadge(p)
+}
+
+func priorityColors(p data.Priority) (bg, fg lipgloss.Color) {
+	switch p {
+	case data.PriorityA:
+		return lipgloss.Color("1"), lipgloss.Color("16")   // red
+	case data.PriorityB:
+		return lipgloss.Color("208"), lipgloss.Color("16") // orange
+	case data.PriorityC:
+		return lipgloss.Color("3"), lipgloss.Color("16")   // yellow
+	case data.PriorityD:
+		return lipgloss.Color("2"), lipgloss.Color("16")   // green
+	case data.PriorityE:
+		return lipgloss.Color("4"), lipgloss.Color("15")   // blue
+	default: // F and beyond
+		return lipgloss.Color("54"), lipgloss.Color("15")  // dark purple
+	}
+}
+
+// priorityBadge renders a lualine-style powerline badge for a priority letter.
+func priorityBadge(p data.Priority) string {
+	bg, fg := priorityColors(p)
+	leftCap := lipgloss.NewStyle().Foreground(bg).Render("\ue0b6")
+	body := lipgloss.NewStyle().Bold(true).Background(bg).Foreground(fg).Render(string(p))
+	rightCap := lipgloss.NewStyle().Foreground(bg).Render("\ue0b4")
+	return leftCap + body + rightCap
+}
+
+// priorityBadgeDone renders the same pill shape as priorityBadge but muted for completed tasks.
+func priorityBadgeDone(p data.Priority) string {
+	activeBg, _ := priorityColors(p)
+	bg := theme.Surface
+	leftCap := lipgloss.NewStyle().Foreground(bg).Render("\ue0b6")
+	body := lipgloss.NewStyle().Background(bg).Foreground(activeBg).Render(string(p))
+	rightCap := lipgloss.NewStyle().Foreground(bg).Render("\ue0b4")
+	return leftCap + body + rightCap
 }
 
 // taskPriorityStyle returns a background-badge style for a todo.txt priority (A–F).
 func taskPriorityStyle(p data.Priority) lipgloss.Style {
-	var bg, fg lipgloss.Color
-	switch p {
-	case data.PriorityA:
-		bg, fg = lipgloss.Color("5"), lipgloss.Color("16")
-	case data.PriorityB:
-		bg, fg = lipgloss.Color("1"), lipgloss.Color("16")
-	case data.PriorityC:
-		bg, fg = lipgloss.Color("208"), lipgloss.Color("16")
-	case data.PriorityD:
-		bg, fg = lipgloss.Color("3"), lipgloss.Color("16")
-	case data.PriorityE:
-		bg, fg = lipgloss.Color("2"), lipgloss.Color("16")
-	default: // F and beyond
-		bg, fg = lipgloss.Color("8"), lipgloss.Color("15")
-	}
+	bg, fg := priorityColors(p)
 	return lipgloss.NewStyle().Bold(true).Background(bg).Foreground(fg)
 }
 

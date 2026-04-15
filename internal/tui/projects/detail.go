@@ -55,7 +55,7 @@ type detailRow struct {
 	// Only one populated based on kind:
 	note notes.Note
 	task data.Task
-	card kanbanmodels.Card
+	taskNote kanbanmodels.TaskNote
 }
 
 type detailMode int
@@ -86,7 +86,7 @@ type DetailModel struct {
 	// Pre-computed per-project data (keyed by project name)
 	projectNotes map[string][]notes.Note
 	projectTasks map[string][]data.Task
-	projectCards map[string][]kanbanmodels.Card
+	projectTaskNotes map[string][]kanbanmodels.TaskNote
 	allDescendants []*workspace.Project
 
 	// Raw all-data
@@ -129,7 +129,7 @@ type DetailModel struct {
 // detailURLEntry is a URL with its owning project name.
 type detailURLEntry struct {
 	projectName string
-	url         kanbanmodels.CardURL
+	url         kanbanmodels.TaskNoteURL
 }
 
 type noteEditorFinishedMsg struct{ err error }
@@ -287,14 +287,14 @@ func (p projectURLPicker) View() string {
 	return lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Center, box)
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards []kanbanmodels.Card, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allContexts []string) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskNotes []kanbanmodels.TaskNote, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allContexts []string) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
 	cardColumn := make(map[string]string)
 	for _, b := range allBoards {
 		for _, col := range b.Columns {
-			for _, c := range col.Cards {
-				cardBoard[c.Filename] = b
-				cardColumn[c.Filename] = col.Name
+			for _, tn := range col.TaskNotes {
+				cardBoard[tn.Filename] = b
+				cardColumn[tn.Filename] = col.Name
 			}
 		}
 	}
@@ -319,22 +319,22 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, cards
 
 	m.projectNotes = make(map[string][]notes.Note)
 	m.projectTasks = make(map[string][]data.Task)
-	m.projectCards = make(map[string][]kanbanmodels.Card)
+	m.projectTaskNotes = make(map[string][]kanbanmodels.TaskNote)
 
 	if registry != nil {
 		m.allDescendants = collectAllDescendants(registry, name)
 		m.projectNotes[name] = prependIndexNote(registry.Get(name), registry.NotesForProject(name, allNotes))
 		m.projectTasks[name] = registry.TasksForProject(name, allTasks)
-		m.projectCards[name] = registry.CardsForProject(name, allBoards)
+		m.projectTaskNotes[name] = registry.TaskNotesForProject(name, allBoards)
 		for _, desc := range m.allDescendants {
 			m.projectNotes[desc.Name] = prependIndexNote(desc, registry.NotesForProject(desc.Name, allNotes))
 			m.projectTasks[desc.Name] = registry.TasksForProject(desc.Name, allTasks)
-			m.projectCards[desc.Name] = registry.CardsForProject(desc.Name, allBoards)
+			m.projectTaskNotes[desc.Name] = registry.TaskNotesForProject(desc.Name, allBoards)
 		}
 	} else {
 		m.projectNotes[name] = prependIndexNote(project, n)
 		m.projectTasks[name] = tasks
-		m.projectCards[name] = cards
+		m.projectTaskNotes[name] = taskNotes
 	}
 
 	m.rebuildAllColumns()
@@ -413,8 +413,8 @@ func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project,
 			*rows = append(*rows, detailRow{kind: rowKindTask, depth: depth, projectName: p.Name, task: t})
 		}
 	case colCards:
-		for _, c := range m.projectCards[p.Name] {
-			*rows = append(*rows, detailRow{kind: rowKindCard, depth: depth, projectName: p.Name, card: c})
+		for _, c := range m.projectTaskNotes[p.Name] {
+			*rows = append(*rows, detailRow{kind: rowKindCard, depth: depth, projectName: p.Name, taskNote: c})
 		}
 	}
 
@@ -446,8 +446,8 @@ func detailProjectNames(m *DetailModel) []string {
 }
 
 // detailExistingSubURLs returns current URLs for all physical sub-projects.
-func detailExistingSubURLs(m *DetailModel) map[string][]kanbanmodels.CardURL {
-	result := make(map[string][]kanbanmodels.CardURL)
+func detailExistingSubURLs(m *DetailModel) map[string][]kanbanmodels.TaskNoteURL {
+	result := make(map[string][]kanbanmodels.TaskNoteURL)
 	for _, desc := range m.allDescendants {
 		if desc.DirPath == "" {
 			continue
@@ -742,7 +742,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 				return messages.FocusTaskMsg{TaskID: task.ID}
 			}
 		case rowKindCard:
-			if b, ok := m.cardBoard[row.card.Filename]; ok {
+			if b, ok := m.cardBoard[row.taskNote.Filename]; ok {
 				return m, func() tea.Msg {
 					return messages.OpenBoardMsg{BoardPath: b.Path}
 				}
@@ -1110,17 +1110,17 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		}
 
 	case rowKindTask:
-		taskLine := shared.StyledTaskLine(row.task)
+		taskLine := shared.StyledTaskLine(row.task, 0, 0, 0)
 		rendered = taskLine
 
 	case rowKindCard:
-		title := row.card.Title
+		title := row.taskNote.Title
 		if title == "" {
-			title = row.card.Filename
+			title = row.taskNote.Filename
 		}
-		colName := m.cardColumn[row.card.Filename]
+		colName := m.cardColumn[row.taskNote.Filename]
 		isDone := strings.EqualFold(colName, "done")
-		jiraKey := row.card.JiraKey
+		jiraKey := row.taskNote.JiraKey
 		if colName != "" {
 			// Reserve space for right-aligned jira+status.
 			statusStr := " " + colName
@@ -1205,7 +1205,7 @@ func (m *DetailModel) subtreeCount(projName string, col colKind) int {
 		case colTasks:
 			return len(m.projectTasks[projName])
 		case colCards:
-			return len(m.projectCards[projName])
+			return len(m.projectTaskNotes[projName])
 		}
 		return 0
 	}
@@ -1218,7 +1218,7 @@ func (m *DetailModel) subtreeCount(projName string, col colKind) int {
 		case colTasks:
 			n = len(m.projectTasks[name])
 		case colCards:
-			n = len(m.projectCards[name])
+			n = len(m.projectTaskNotes[name])
 		}
 		for _, child := range m.registry.ChildrenOf(name) {
 			n += count(child.Name)
@@ -1241,7 +1241,7 @@ func (m *DetailModel) totalColCount(col colKind) int {
 			total += len(v)
 		}
 	case colCards:
-		for _, v := range m.projectCards {
+		for _, v := range m.projectTaskNotes {
 			total += len(v)
 		}
 	}
@@ -1261,7 +1261,7 @@ func (m *DetailModel) totalColDoneCount(col colKind) int {
 			}
 		}
 	case colCards:
-		for _, cards := range m.projectCards {
+		for _, cards := range m.projectTaskNotes {
 			for _, c := range cards {
 				if strings.EqualFold(m.cardColumn[c.Filename], "done") {
 					total++
@@ -1285,7 +1285,7 @@ func (m *DetailModel) subtreeDoneCount(projName string, col colKind) int {
 				}
 			}
 		case colCards:
-			for _, c := range m.projectCards[name] {
+			for _, c := range m.projectTaskNotes[name] {
 				if strings.EqualFold(m.cardColumn[c.Filename], "done") {
 					n++
 				}

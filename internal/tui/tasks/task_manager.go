@@ -2,6 +2,9 @@ package tasks
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,31 +23,31 @@ import (
 )
 
 var (
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent).MarginTop(1)
+	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
 	cursorStyle      = theme.Cursor
 )
 
-// FileViewMode determines which file(s) to display tasks from
-type FileViewMode int
-
-const (
-	FileViewAll FileViewMode = iota
-	FileViewTodoOnly
-	FileViewDoneOnly
-)
+// applyRowBackground applies a background color to an already ANSI-styled string.
+// It re-emits the background sequence after every internal reset so the highlight
+// covers the entire row, including spans that have their own foreground colors.
+func applyRowBackground(s string, width int) string {
+	const (
+		// \x1b[48;5;236m — ANSI 256-color background for theme.Surface (color 236)
+		bgSeq = "\x1b[48;5;236m"
+		reset = "\x1b[0m"
+	)
+	result := bgSeq + strings.ReplaceAll(s, reset, reset+bgSeq)
+	w := lipgloss.Width(result)
+	if w < width {
+		result += strings.Repeat(" ", width-w)
+	}
+	return result + reset
+}
 
 // TaskUpdateMsg is sent when a task is updated
 type TaskUpdateMsg struct {
 	Task data.Task
 }
-
-// TaskEditorOpenMsg is sent to open the task editor
-type TaskEditorOpenMsg struct {
-	Task *data.Task
-}
-
-// ToggleFileViewMsg is sent to cycle file view mode
-type ToggleFileViewMsg struct{}
 
 // StartArchiveMsg is sent to start the archive flow
 type StartArchiveMsg struct{}
@@ -64,10 +67,28 @@ type ArchiveCompleteMsg struct {
 	Count int
 }
 
+// DeleteSelectionRequestMsg is sent when selected tasks should be permanently deleted
+type DeleteSelectionRequestMsg struct {
+	IDs []string
+}
+
+// DeleteCompleteMsg is sent when a bulk delete operation completes
+type DeleteCompleteMsg struct {
+	Count int
+}
+
 // MoveTaskToBoardMsg is sent when a task should be moved to a kanban board
 type MoveTaskToBoardMsg struct {
 	Task      data.Task
 	BoardPath string
+}
+
+// taskNoteEditorFinishedMsg is sent when the editor closes after editing a tasknote from the task view
+type taskNoteEditorFinishedMsg struct{ err error }
+
+// ArchiveSelectionRequestMsg is sent when selected tasks should be archived
+type ArchiveSelectionRequestMsg struct {
+	IDs []string
 }
 
 // TaskManagerModel manages the task list view with filtering, sorting, and grouping
@@ -89,6 +110,7 @@ type TaskManagerModel struct {
 	filterState  FilterState
 	sortState    SortState
 	groupState   GroupState
+	activePreset ViewPreset
 
 	// Sub-components
 	infoBar           InfoBarModel
@@ -102,8 +124,11 @@ type TaskManagerModel struct {
 	// Direct edit state
 	directEditTaskID string
 
-	// File view mode
-	fileViewMode FileViewMode
+	// Archive mode selection
+	archiveSelection map[string]bool
+
+	// Delete mode selection
+	deleteSelection map[string]bool
 
 	// Pending delete (for confirmation modal)
 	pendingDeleteTaskID string
@@ -138,15 +163,14 @@ func NewTaskManagerModel(taskSvc service.TaskService, workspaceRoots []string, b
 		inputContext:    NewInputModeContext(),
 		filterState:     NewFilterState(),
 		sortState:       NewSortState(),
-		groupState:      GroupState{Field: GroupByFile, Ascending: false},
-		infoBar:         NewInfoBar(),
-		fileViewMode:    FileViewAll,
+		groupState: GroupState{Field: GroupByNone, Ascending: false},
+		infoBar:    NewInfoBar(),
 	}
 	m.loadTasks()
 	return m
 }
 
-// SetSize updates the dimensions
+// SetSize updates the dimensions.
 func (m *TaskManagerModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
@@ -182,6 +206,19 @@ func (m *TaskManagerModel) loadTasks() {
 		logs.Logger.Printf("Error loading tasks: %v", err)
 		return
 	}
+
+	// Append TaskNotes from all boards
+	for _, board := range m.boards {
+		for _, col := range board.Columns {
+			for _, tn := range col.TaskNotes {
+				if tn.Archived {
+					continue
+				}
+				tasks = append(tasks, taskNoteToTask(tn, board, col))
+			}
+		}
+	}
+
 	m.tasks = tasks
 	m.allProjects = ExtractUniqueProjects(tasks)
 	m.allContexts = ExtractUniqueContexts(tasks)
@@ -212,10 +249,6 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		return m.handleTextInputResult(msg)
 	case TaskEditorResultMsg:
 		return m.handleEditorResult(msg)
-	case ToggleFileViewMsg:
-		m.cycleFileViewMode()
-		m.refreshDisplayTasks()
-		return m, nil
 	case StartArchiveMsg:
 		return m.handleStartArchive()
 	case ConfirmationResultMsg:
@@ -223,7 +256,17 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 	case ArchiveCompleteMsg:
 		m.confirmationModal = nil
 		m.loadTasks()
-		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks to done.txt", msg.Count), messages.LevelSuccess)
+		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks", msg.Count), messages.LevelSuccess)
+	case DeleteCompleteMsg:
+		m.confirmationModal = nil
+		m.loadTasks()
+		return m, messages.StatusCmd(fmt.Sprintf("Deleted %d tasks", msg.Count), messages.LevelSuccess)
+	case taskNoteEditorFinishedMsg:
+		if msg.err != nil {
+			return m, messages.StatusCmd(fmt.Sprintf("Editor error: %v", msg.err), messages.LevelError)
+		}
+		m.loadTasks()
+		return m, messages.StatusCmd("Task note updated", messages.LevelSuccess)
 	}
 
 	// Handle inline search mode (before other sub-components)
@@ -312,6 +355,10 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 			return m.handleSortDirection(msg)
 		case ModeGroupDirection:
 			return m.handleGroupDirection(msg)
+		case ModeArchive:
+			return m.handleArchiveMode(msg)
+		case ModeDelete:
+			return m.handleDeleteMode(msg)
 		}
 	}
 
@@ -320,16 +367,7 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 
 // View renders the task manager
 func (m TaskManagerModel) View() string {
-	var b strings.Builder
-
-	// Update info bar with current state
-	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, m.fileViewMode, len(m.workspaceRoots) > 1)
-
-	// Info bar (always visible)
-	b.WriteString(m.infoBar.View())
-	b.WriteString("\n\n")
-
-	// Sub-component overlays (except search - which is inline)
+	// Sub-components that replace the full view (not overlaid)
 	if m.projectPicker != nil {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.projectPicker.View())
 	}
@@ -338,7 +376,6 @@ func (m TaskManagerModel) View() string {
 	}
 	if m.confirmationModal != nil {
 		modal := m.confirmationModal.View()
-		// Center the modal on screen
 		return lipgloss.Place(
 			m.infoBar.Width, 30,
 			lipgloss.Center, lipgloss.Center,
@@ -347,17 +384,53 @@ func (m TaskManagerModel) View() string {
 		)
 	}
 	if m.fuzzyPicker != nil {
-		b.WriteString(m.fuzzyPicker.View())
-		return b.String()
+		return m.renderTaskList() + m.fuzzyPicker.View()
 	}
 	if m.textInput != nil {
-		b.WriteString(m.textInput.View())
-		return b.String()
+		return m.renderTaskListFull()
 	}
+
+	// Task editor: sub-pickers replace the view; main editor box overlays the background (via app.go)
 	if m.taskEditor != nil {
-		b.WriteString(m.taskEditor.View())
-		return b.String()
+		if m.taskEditor.HasActiveSubComponent() {
+			return m.taskEditor.View()
+		}
+		return m.renderTaskListFull()
 	}
+
+	return m.renderTaskListFull()
+}
+
+// OverlayView returns the box that should be composited over the full screen by the caller,
+// or "" if no screen-level overlay is active.
+func (m TaskManagerModel) OverlayView() string {
+	if m.textInput != nil {
+		return m.textInput.View()
+	}
+	if m.taskEditor != nil && !m.taskEditor.HasActiveSubComponent() {
+		return m.taskEditor.View()
+	}
+	return ""
+}
+
+// renderTaskListHeader returns just the info bar line (used when a text input replaces the body).
+func (m TaskManagerModel) renderTaskListHeader() string {
+	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1, m.activePreset)
+	return m.infoBar.View() + "\n"
+}
+
+// renderTaskList returns the info bar without the mode bar (used when a picker appends below it).
+func (m TaskManagerModel) renderTaskList() string {
+	return m.renderTaskListHeader()
+}
+
+// renderTaskListFull builds the complete task list view: info bar + tasks + mode bar.
+func (m TaskManagerModel) renderTaskListFull() string {
+	var b strings.Builder
+
+	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1, m.activePreset)
+	b.WriteString(m.infoBar.View())
+	b.WriteString("\n")
 
 	// Inline search line (when active)
 	if m.searchActive {
@@ -373,7 +446,38 @@ func (m TaskManagerModel) View() string {
 		b.WriteString(m.renderFlatTasks())
 	}
 
-	return shared.CenterContent(b.String(), m.height)
+	// Pin mode bar to bottom
+	content := strings.TrimRight(b.String(), "\n")
+	modeBar := m.infoBar.RenderModeBar(m.width)
+	modeBarLines := strings.Count(modeBar, "\n") + 1
+	contentLines := strings.Count(content, "\n") + 1
+	if content == "" {
+		contentLines = 0
+	}
+	if padding := m.height - contentLines - modeBarLines; padding > 0 {
+		content += strings.Repeat("\n", padding)
+	}
+	return content + "\n" + modeBar
+}
+
+func maxBoardNameLen(tasks []data.Task) int {
+	max := 0
+	for _, t := range tasks {
+		if t.IsTaskNote && len(t.BoardName) > max {
+			max = len(t.BoardName)
+		}
+	}
+	return max
+}
+
+func maxColumnNameLen(tasks []data.Task) int {
+	max := 0
+	for _, t := range tasks {
+		if t.IsTaskNote && len(t.ColumnName) > max {
+			max = len(t.ColumnName)
+		}
+	}
+	return max
 }
 
 func (m *TaskManagerModel) renderFlatTasks() string {
@@ -390,13 +494,43 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 		end = len(m.displayTasks)
 	}
 
+	bnw := maxBoardNameLen(m.displayTasks)
+	cnw := maxColumnNameLen(m.displayTasks)
+
 	for i := m.scrollOffset; i < end; i++ {
 		task := m.displayTasks[i]
-		prefix := "  "
-		if i == m.cursor {
-			prefix = cursorStyle.Render("> ")
+		var prefix string
+		if m.inputContext.Mode == ModeArchive {
+			box := "[ ]"
+			if m.archiveSelection[task.ID] {
+				box = "[x]"
+			}
+			if i == m.cursor {
+				prefix = cursorStyle.Render(box+" ")
+			} else {
+				prefix = box + " "
+			}
+		} else if m.inputContext.Mode == ModeDelete {
+			box := "[ ]"
+			if m.deleteSelection[task.ID] {
+				box = "[x]"
+			}
+			if i == m.cursor {
+				prefix = cursorStyle.Render(box+" ")
+			} else {
+				prefix = box + " "
+			}
+		} else {
+			prefix = "  "
+			if i == m.cursor {
+				prefix = cursorStyle.Render("> ")
+			}
 		}
-		b.WriteString(prefix + shared.StyledTaskLine(task) + "\n")
+		line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw, cnw)
+		if i == m.cursor {
+			line = applyRowBackground(line, m.width)
+		}
+		b.WriteString(line + "\n")
 	}
 
 	return b.String()
@@ -404,6 +538,14 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 
 func (m *TaskManagerModel) renderGroupedTasks() string {
 	var b strings.Builder
+
+	// Collect all tasks across groups to compute consistent board name width
+	var allGroupedTasks []data.Task
+	for _, group := range m.taskGroups {
+		allGroupedTasks = append(allGroupedTasks, group.Tasks...)
+	}
+	bnw := maxBoardNameLen(allGroupedTasks)
+	cnw := maxColumnNameLen(allGroupedTasks)
 
 	visible := m.visibleTaskRows()
 	linesRendered := 0
@@ -426,7 +568,18 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 
 		// Emit group header if any task in this group is visible
 		if taskIndex >= m.scrollOffset || (groupStart < m.scrollOffset && groupEnd > m.scrollOffset) {
-			b.WriteString(groupHeaderStyle.Render("-- " + group.Label + " --"))
+			// Blank separator before header (skip at very top of viewport)
+			if linesRendered > 0 {
+				if linesRendered >= visible {
+					break
+				}
+				b.WriteString("\n")
+				linesRendered++
+			}
+			if linesRendered >= visible {
+				break
+			}
+			b.WriteString(groupHeaderStyle.Render(group.Label))
 			b.WriteString("\n")
 			linesRendered++
 		}
@@ -436,11 +589,38 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 				break
 			}
 			if taskIndex >= m.scrollOffset {
-				prefix := "  "
-				if taskIndex == m.cursor {
-					prefix = cursorStyle.Render("> ")
+				var prefix string
+				if m.inputContext.Mode == ModeArchive {
+					box := "[ ]"
+					if m.archiveSelection[task.ID] {
+						box = "[x]"
+					}
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render(box + " ")
+					} else {
+						prefix = box + " "
+					}
+				} else if m.inputContext.Mode == ModeDelete {
+					box := "[ ]"
+					if m.deleteSelection[task.ID] {
+						box = "[x]"
+					}
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render(box + " ")
+					} else {
+						prefix = box + " "
+					}
+				} else {
+					prefix = "  "
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render("> ")
+					}
 				}
-				b.WriteString(prefix + shared.StyledTaskLine(task) + "\n")
+				line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw, cnw)
+				if taskIndex == m.cursor {
+					line = applyRowBackground(line, m.width)
+				}
+				b.WriteString(line + "\n")
 				linesRendered++
 			}
 			taskIndex++
@@ -460,10 +640,6 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		m.moveCursor(-1)
 	case "enter":
 		return m.openTaskEditor()
-	case "d":
-		return m.startDirectDueDateEdit()
-	case "s":
-		return m.startDirectScheduledDateEdit()
 	case "t":
 		return m.startDirectContextEdit()
 	case "p":
@@ -477,7 +653,7 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "f":
 		m.inputContext.TransitionTo(ModeFilterSelect)
 		m.inputContext.Category = "filter"
-	case "S":
+	case "s":
 		m.inputContext.TransitionTo(ModeSortSelect)
 		m.inputContext.Category = "sort"
 	case "g":
@@ -495,12 +671,53 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.toggleTaskDone()
 	case "n":
 		return m.startNewTask()
-	case "D":
-		return m.handleStartDelete()
 	case "u":
 		return m.handleOpenURL()
 	case "m":
 		return m.startMoveToBoard()
+	case "b":
+		task := m.selectedTask()
+		if task == nil || !task.IsTaskNote {
+			return m, messages.StatusCmd("Not a task note", messages.LevelError)
+		}
+		parts := strings.SplitN(task.ID, ":", 3)
+		if len(parts) < 3 {
+			return m, messages.StatusCmd("Invalid task note ID", messages.LevelError)
+		}
+		filename := parts[2]
+		for _, b := range m.boards {
+			if b.Name == task.BoardName {
+				for ci, col := range b.Columns {
+					for ki, card := range col.TaskNotes {
+						if card.Filename == filename {
+							return m, func() tea.Msg {
+								return messages.OpenBoardMsg{
+									BoardPath: b.Path,
+									ColIndex:  ci,
+									CardIndex: ki,
+								}
+							}
+						}
+					}
+				}
+				return m, func() tea.Msg {
+					return messages.OpenBoardMsg{BoardPath: b.Path}
+				}
+			}
+		}
+		return m, messages.StatusCmd("Board not found: "+task.BoardName, messages.LevelError)
+	case "a":
+		m.archiveSelection = make(map[string]bool)
+		m.inputContext.TransitionTo(ModeArchive)
+	case "d":
+		m.deleteSelection = make(map[string]bool)
+		m.inputContext.TransitionTo(ModeDelete)
+	case "1":
+		m.togglePreset(PresetStack)
+		return m, nil
+	case "2":
+		m.togglePreset(PresetCache)
+		return m, nil
 	}
 	return m, nil
 }
@@ -513,12 +730,13 @@ func (m TaskManagerModel) handleFilterSelect(msg tea.KeyMsg) (TaskManagerModel, 
 		return m.startDateFilter()
 	case "p":
 		return m.startProjectFilter()
-	case "P":
+	case "i":
 		m.cyclePriorityFilter()
 		m.inputContext.Reset()
 	case "t", "c":
 		return m.startContextFilter()
 	case "s":
+		m.activePreset = PresetNone
 		m.filterState.CycleStatusFilter()
 		m.refreshDisplayTasks()
 		m.inputContext.Reset()
@@ -540,7 +758,7 @@ func (m TaskManagerModel) handleSortSelect(msg tea.KeyMsg) (TaskManagerModel, te
 	case "p":
 		m.inputContext.Field = "project"
 		m.inputContext.TransitionTo(ModeSortDirection)
-	case "P":
+	case "i":
 		m.inputContext.Field = "priority"
 		m.inputContext.TransitionTo(ModeSortDirection)
 	case "t", "c":
@@ -558,15 +776,15 @@ func (m TaskManagerModel) handleGroupSelect(msg tea.KeyMsg) (TaskManagerModel, t
 	case "p":
 		m.inputContext.Field = "project"
 		m.inputContext.TransitionTo(ModeGroupDirection)
-	case "P":
+	case "i":
 		m.inputContext.Field = "priority"
 		m.inputContext.TransitionTo(ModeGroupDirection)
 	case "t", "c":
 		m.inputContext.Field = "context"
 		m.inputContext.TransitionTo(ModeGroupDirection)
-	case "f":
-		m.inputContext.Field = "file"
-		m.inputContext.TransitionTo(ModeGroupDirection)
+	case "b":
+		m.inputContext.Field = "board"
+		m.applyGroupField(true) // always ascending, no direction prompt
 	}
 	return m, nil
 }
@@ -587,6 +805,90 @@ func (m TaskManagerModel) handleGroupDirection(msg tea.KeyMsg) (TaskManagerModel
 		m.applyGroupField(true)
 	case "d":
 		m.applyGroupField(false)
+	}
+	return m, nil
+}
+
+func (m TaskManagerModel) handleArchiveMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.moveCursor(1)
+	case "k", "up":
+		m.moveCursor(-1)
+	case " ":
+		task := m.selectedTask()
+		if task != nil {
+			m.archiveSelection[task.ID] = !m.archiveSelection[task.ID]
+			if !m.archiveSelection[task.ID] {
+				delete(m.archiveSelection, task.ID)
+			}
+		}
+	case "a":
+		// Select all if any unselected; deselect all if all selected
+		allSelected := len(m.archiveSelection) == len(m.displayTasks) && len(m.displayTasks) > 0
+		if allSelected {
+			m.archiveSelection = make(map[string]bool)
+		} else {
+			for _, t := range m.displayTasks {
+				m.archiveSelection[t.ID] = true
+			}
+		}
+	case "enter":
+		count := len(m.archiveSelection)
+		if count == 0 {
+			return m, messages.StatusCmd("No tasks selected to archive", messages.LevelWarning)
+		}
+		m.confirmationModal = NewConfirmationModal(
+			fmt.Sprintf("Archive %d task(s)?", count),
+			"Selected tasks will be moved to archive/tasks/todo.txt",
+			50,
+		)
+		m.inputContext.TransitionTo(ModeConfirmation)
+	case "esc":
+		m.archiveSelection = nil
+		m.inputContext.Reset()
+	}
+	return m, nil
+}
+
+func (m TaskManagerModel) handleDeleteMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.moveCursor(1)
+	case "k", "up":
+		m.moveCursor(-1)
+	case " ":
+		task := m.selectedTask()
+		if task != nil && !task.IsTaskNote {
+			m.deleteSelection[task.ID] = !m.deleteSelection[task.ID]
+			if !m.deleteSelection[task.ID] {
+				delete(m.deleteSelection, task.ID)
+			}
+		}
+	case "a":
+		// Select all if any unselected; deselect all if all selected
+		allSelected := len(m.deleteSelection) == len(m.displayTasks) && len(m.displayTasks) > 0
+		if allSelected {
+			m.deleteSelection = make(map[string]bool)
+		} else {
+			for _, t := range m.displayTasks {
+				m.deleteSelection[t.ID] = true
+			}
+		}
+	case "enter":
+		count := len(m.deleteSelection)
+		if count == 0 {
+			return m, messages.StatusCmd("No tasks selected to delete", messages.LevelWarning)
+		}
+		m.confirmationModal = NewConfirmationModal(
+			fmt.Sprintf("Delete %d task(s)?", count),
+			"This will permanently remove the selected tasks.",
+			50,
+		)
+		m.inputContext.TransitionTo(ModeConfirmation)
+	case "esc":
+		m.deleteSelection = nil
+		m.inputContext.Reset()
 	}
 	return m, nil
 }
@@ -690,6 +992,12 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 
 	// Go back or reset
 	if m.inputContext.Mode != ModeNormal {
+		if m.inputContext.Mode == ModeArchive {
+			m.archiveSelection = nil
+		}
+		if m.inputContext.Mode == ModeDelete {
+			m.deleteSelection = nil
+		}
 		m.inputContext.Back()
 		if m.inputContext.Mode == ModeNormal {
 			m.inputContext.Reset()
@@ -697,11 +1005,11 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 
-	// In normal mode, clear filters and file view mode, restore default grouping
+	// In normal mode, clear filters, restore default grouping
+	m.activePreset = PresetNone
 	m.filterState.Reset()
 	m.sortState.Reset()
-	m.groupState = GroupState{Field: GroupByFile, Ascending: true}
-	m.fileViewMode = FileViewAll
+	m.groupState = GroupState{Field: GroupByNone, Ascending: true}
 	m.refreshDisplayTasks()
 	return m, nil
 }
@@ -725,7 +1033,7 @@ func (m TaskManagerModel) startSearch() (TaskManagerModel, tea.Cmd) {
 func (m TaskManagerModel) startNewTask() (TaskManagerModel, tea.Cmd) {
 	// Prompt for task name using text input
 	m.textInput = NewTextInput("New Task Name", "Enter task description...", nil)
-	m.textInput.SetWidth(m.width)
+	m.textInput.SetWidth(60)
 	m.inputContext.TransitionTo(ModeCreateTask)
 	return m, m.textInput.Focus()
 }
@@ -810,28 +1118,44 @@ func (m TaskManagerModel) startWorkspaceFilter() (TaskManagerModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m *TaskManagerModel) cyclePriorityFilter() {
-	priorities := []data.Priority{
-		data.PriorityA, data.PriorityB, data.PriorityC,
-		data.PriorityD, data.PriorityE, data.PriorityF,
-	}
+func (m *TaskManagerModel) applyPreset(preset ViewPreset) {
+	m.filterState.Reset()
+	m.sortState.Reset()
+	m.activePreset = preset
 
-	if len(m.filterState.PriorityFilter) == 0 {
-		m.filterState.PriorityFilter = []data.Priority{data.PriorityA}
+	switch preset {
+	case PresetStack:
+		m.filterState.StatusFilter = StatusPending
+		m.filterState.PriorityPresence = PriorityPresenceHas
+		m.sortState = SortState{Field: SortByPriority, Ascending: true}
+	case PresetCache:
+		m.filterState.StatusFilter = StatusPending
+		m.filterState.PriorityPresence = PriorityPresenceNone
+		m.sortState = SortState{Field: SortByDueDate, Ascending: true}
+	}
+	m.refreshDisplayTasks()
+}
+
+func (m *TaskManagerModel) togglePreset(preset ViewPreset) {
+	if m.activePreset == preset {
+		m.filterState.Reset()
+		m.sortState.Reset()
+		m.activePreset = PresetNone
+		m.refreshDisplayTasks()
 	} else {
-		current := m.filterState.PriorityFilter[0]
-		nextIdx := -1
-		for i, p := range priorities {
-			if p == current {
-				nextIdx = i + 1
-				break
-			}
-		}
-		if nextIdx >= len(priorities) {
-			m.filterState.PriorityFilter = nil
-		} else {
-			m.filterState.PriorityFilter = []data.Priority{priorities[nextIdx]}
-		}
+		m.applyPreset(preset)
+	}
+}
+
+func (m *TaskManagerModel) cyclePriorityFilter() {
+	m.activePreset = PresetNone
+	switch m.filterState.PriorityPresence {
+	case PriorityPresenceAny:
+		m.filterState.PriorityPresence = PriorityPresenceHas
+	case PriorityPresenceHas:
+		m.filterState.PriorityPresence = PriorityPresenceNone
+	case PriorityPresenceNone:
+		m.filterState.PriorityPresence = PriorityPresenceAny
 	}
 	m.refreshDisplayTasks()
 }
@@ -849,6 +1173,7 @@ func (m *TaskManagerModel) applySortField(ascending bool) {
 		field = SortByContext
 	}
 
+	m.activePreset = PresetNone
 	m.sortState.Field = field
 	m.sortState.Ascending = ascending
 	m.refreshDisplayTasks()
@@ -866,8 +1191,8 @@ func (m *TaskManagerModel) applyGroupField(ascending bool) {
 		field = GroupByPriority
 	case "context":
 		field = GroupByContext
-	case "file":
-		field = GroupByFile
+	case "board":
+		field = GroupByBoard
 	}
 
 	m.groupState.Field = field
@@ -876,10 +1201,35 @@ func (m *TaskManagerModel) applyGroupField(ascending bool) {
 	m.inputContext.Reset()
 }
 
+func openTaskNoteEditorCmd(boardPath, filename string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+	cardPath := filepath.Join(boardPath, "cards", filename)
+	c := exec.Command(editor, cardPath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return taskNoteEditorFinishedMsg{err: err}
+	})
+}
+
 func (m TaskManagerModel) openTaskEditor() (TaskManagerModel, tea.Cmd) {
 	task := m.selectedTask()
 	if task == nil {
 		return m, nil
+	}
+	if task.IsTaskNote {
+		parts := strings.SplitN(task.ID, ":", 3)
+		if len(parts) < 3 {
+			return m, messages.StatusCmd("Invalid task note ID", messages.LevelError)
+		}
+		filename := parts[2]
+		for _, b := range m.boards {
+			if b.Name == task.BoardName {
+				return m, openTaskNoteEditorCmd(b.Path, filename)
+			}
+		}
+		return m, messages.StatusCmd("Board not found: "+task.BoardName, messages.LevelError)
 	}
 
 	m.taskEditor = NewTaskEditor(task, m.allProjectItems, m.allContexts)
@@ -894,6 +1244,9 @@ func (m TaskManagerModel) toggleTaskDone() (TaskManagerModel, tea.Cmd) {
 	task := m.selectedTask()
 	if task == nil {
 		logs.Logger.Println("no selected task")
+		return m, nil
+	}
+	if task.IsTaskNote {
 		return m, nil
 	}
 
@@ -915,12 +1268,16 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 
 	switch m.pickerContext {
 	case "filter-project":
+		m.activePreset = PresetNone
 		m.filterState.ProjectFilter = msg.Selected
 	case "filter-context":
+		m.activePreset = PresetNone
 		m.filterState.ContextFilter = msg.Selected
 	case "filter-file":
+		m.activePreset = PresetNone
 		m.filterState.FileFilter = msg.Selected
 	case "filter-workspace":
+		m.activePreset = PresetNone
 		m.filterState.WorkspaceFilter = msg.Selected
 	case "edit-project":
 		task := m.findTaskByID(m.directEditTaskID)
@@ -1031,8 +1388,19 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 	// Apply workspace filter (needs roots context, separate from ApplyFilters)
 	filtered = ApplyWorkspaceFilter(filtered, m.filterState.WorkspaceFilter, m.workspaceRoots)
 
-	// Apply file view filter
-	filtered = m.applyFileViewFilter(filtered)
+	// Exclude archived tasks from the default view.
+	// NOTE: must NOT use filtered[:0] here — filtered may share its backing array
+	// with m.tasks/s.tasks. Filter-in-place would corrupt s.tasks, causing
+	// WriteAllTasks to write duplicate tasks on the next update.
+	{
+		var nonArchived []data.Task
+		for _, t := range filtered {
+			if !t.Archived {
+				nonArchived = append(nonArchived, t)
+			}
+		}
+		filtered = nonArchived
+	}
 
 	// Apply sort
 	sorted := ApplySort(filtered, m.sortState)
@@ -1079,9 +1447,9 @@ func (m *TaskManagerModel) selectedTask() *data.Task {
 }
 
 // visibleTaskRows returns the number of task lines that fit in the viewport.
-// The info bar uses 4 lines (3 content + border), gap uses 1 line, hints use 1 line.
+// The info bar uses 2 lines (1 content + border), mode bar uses 2 lines (border + content).
 func (m *TaskManagerModel) visibleTaskRows() int {
-	used := 6 // info bar (4) + gap (1) + hints (1)
+	used := 4 // info bar (2) + mode bar (2)
 	if m.searchActive {
 		used++ // search input line
 	}
@@ -1093,6 +1461,7 @@ func (m *TaskManagerModel) visibleTaskRows() int {
 }
 
 // ensureCursorVisible adjusts scrollOffset so the cursor is within the visible window.
+// In grouped mode it accounts for group header rows via countVisualRows.
 func (m *TaskManagerModel) ensureCursorVisible() {
 	visible := m.visibleTaskRows()
 	if m.scrollOffset < 0 {
@@ -1100,18 +1469,62 @@ func (m *TaskManagerModel) ensureCursorVisible() {
 	}
 	if m.cursor < m.scrollOffset {
 		m.scrollOffset = m.cursor
+		return
 	}
-	if m.cursor >= m.scrollOffset+visible {
-		m.scrollOffset = m.cursor - visible + 1
+	for m.scrollOffset < m.cursor {
+		if m.countVisualRows(m.scrollOffset, m.cursor+1) <= visible {
+			break
+		}
+		m.scrollOffset++
 	}
+}
+
+// countVisualRows returns the number of visual rows needed to display tasks [start, end)
+// accounting for group headers and blank separator lines in grouped mode.
+func (m *TaskManagerModel) countVisualRows(start, end int) int {
+	if end <= start {
+		return 0
+	}
+	if !m.groupState.IsActive() || len(m.taskGroups) == 0 {
+		return end - start
+	}
+	rows := 0
+	taskIndex := 0
+	firstGroup := true
+	for _, group := range m.taskGroups {
+		groupEnd := taskIndex + len(group.Tasks)
+		if groupEnd <= start {
+			taskIndex = groupEnd
+			continue
+		}
+		if taskIndex >= end {
+			break
+		}
+		showHeader := taskIndex >= start || (taskIndex < start && groupEnd > start)
+		if showHeader {
+			if !firstGroup {
+				rows++ // blank separator before header
+			}
+			rows++ // header row
+			firstGroup = false
+		}
+		for i := range group.Tasks {
+			idx := taskIndex + i
+			if idx >= start && idx < end {
+				rows++
+			}
+		}
+		taskIndex = groupEnd
+	}
+	return rows
 }
 
 // handleStartArchive initiates the archive flow
 func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
-	// Count completed tasks not yet in done.txt
+	// Count completed tasks not yet archived
 	count := 0
 	for _, task := range m.tasks {
-		if task.Done && !strings.HasSuffix(task.File, "done.txt") {
+		if task.Done && !task.Archived {
 			count++
 		}
 	}
@@ -1123,7 +1536,7 @@ func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
 	// Show confirmation modal
 	m.confirmationModal = NewConfirmationModal(
 		fmt.Sprintf("Archive %d completed task(s)?", count),
-		"This will move completed tasks from todo.txt to done.txt",
+		"This will move completed tasks to archive/tasks/todo.txt",
 		50,
 	)
 	m.inputContext.TransitionTo(ModeConfirmation)
@@ -1187,6 +1600,8 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 
 	if !msg.Confirmed {
 		m.pendingDeleteTaskID = ""
+		m.archiveSelection = nil
+		m.deleteSelection = nil
 		return m, nil
 	}
 
@@ -1199,10 +1614,34 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		}
 	}
 
-	// Archive flow
+	// Archive-selection flow
+	if len(m.archiveSelection) > 0 {
+		ids := make([]string, 0, len(m.archiveSelection))
+		for id := range m.archiveSelection {
+			ids = append(ids, id)
+		}
+		m.archiveSelection = nil
+		return m, func() tea.Msg {
+			return ArchiveSelectionRequestMsg{IDs: ids}
+		}
+	}
+
+	// Delete-selection flow
+	if len(m.deleteSelection) > 0 {
+		ids := make([]string, 0, len(m.deleteSelection))
+		for id := range m.deleteSelection {
+			ids = append(ids, id)
+		}
+		m.deleteSelection = nil
+		return m, func() tea.Msg {
+			return DeleteSelectionRequestMsg{IDs: ids}
+		}
+	}
+
+	// Legacy archive-all flow (StartArchiveMsg path)
 	count := 0
 	for _, task := range m.tasks {
-		if task.Done && !strings.HasSuffix(task.File, "done.txt") {
+		if task.Done && !task.Archived {
 			count++
 		}
 	}
@@ -1218,30 +1657,6 @@ func (m *TaskManagerModel) IsInModalState() bool {
 		return true
 	}
 	return m.inputContext.Mode != ModeNormal
-}
-
-// cycleFileViewMode cycles through file view modes: All -> TodoOnly -> DoneOnly -> All
-func (m *TaskManagerModel) cycleFileViewMode() {
-	m.fileViewMode = (m.fileViewMode + 1) % 3
-	m.cursor = 0       // Reset cursor position
-	m.scrollOffset = 0 // Reset scroll position
-}
-
-// applyFileViewFilter filters tasks based on the current file view mode
-func (m *TaskManagerModel) applyFileViewFilter(tasks []data.Task) []data.Task {
-	if m.fileViewMode == FileViewAll {
-		return tasks
-	}
-
-	var filtered []data.Task
-	for _, task := range tasks {
-		if m.fileViewMode == FileViewTodoOnly && !task.Done {
-			filtered = append(filtered, task)
-		} else if m.fileViewMode == FileViewDoneOnly && task.Done {
-			filtered = append(filtered, task)
-		}
-	}
-	return filtered
 }
 
 // Direct edit handlers

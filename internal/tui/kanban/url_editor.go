@@ -25,7 +25,7 @@ const (
 // When projectNames is empty (card URL editor), projectName is always "".
 type urlItem struct {
 	projectName string
-	url         models.CardURL
+	url         models.TaskNoteURL
 }
 
 // URLEditorModel is a list editor modal for managing a card's URLs.
@@ -45,7 +45,7 @@ type URLEditorModel struct {
 }
 
 // NewURLEditorModel creates a new URL editor with the given URLs (card/single-project use).
-func NewURLEditorModel(urls []models.CardURL) URLEditorModel {
+func NewURLEditorModel(urls []models.TaskNoteURL) URLEditorModel {
 	items := make([]urlItem, len(urls))
 	for i, u := range urls {
 		items[i] = urlItem{url: u}
@@ -58,7 +58,7 @@ func NewURLEditorModel(urls []models.CardURL) URLEditorModel {
 
 // NewURLEditorModelWithProjects creates a URL editor showing URLs across root and sub-projects.
 // projectNames has the root project first; existingSubURLs maps sub-project name → current URLs.
-func NewURLEditorModelWithProjects(rootURLs []models.CardURL, projectNames []string, existingSubURLs map[string][]models.CardURL) URLEditorModel {
+func NewURLEditorModelWithProjects(rootURLs []models.TaskNoteURL, projectNames []string, existingSubURLs map[string][]models.TaskNoteURL) URLEditorModel {
 	var items []urlItem
 	rootName := ""
 	if len(projectNames) > 0 {
@@ -194,7 +194,7 @@ func (m URLEditorModel) updateAddLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd,
 		if len(m.projectNames) > 0 {
 			rootName = m.projectNames[0]
 		}
-		m.insertIntoProject(rootName, models.CardURL{URL: m.pendingURL, Label: m.pendingLabel})
+		m.insertIntoProject(rootName, models.TaskNoteURL{URL: m.pendingURL, Label: m.pendingLabel})
 		m.pendingURL = ""
 		m.pendingLabel = ""
 		m.mode = urlEditorNav
@@ -223,7 +223,7 @@ func (m URLEditorModel) updateSelectProject(msg tea.KeyMsg) (URLEditorModel, tea
 		}
 	case "enter":
 		projName := m.projectNames[m.projectCursor]
-		m.insertIntoProject(projName, models.CardURL{URL: m.pendingURL, Label: m.pendingLabel})
+		m.insertIntoProject(projName, models.TaskNoteURL{URL: m.pendingURL, Label: m.pendingLabel})
 		m.pendingURL = ""
 		m.pendingLabel = ""
 		m.mode = urlEditorNav
@@ -237,7 +237,7 @@ func (m URLEditorModel) updateSelectProject(msg tea.KeyMsg) (URLEditorModel, tea
 
 // insertIntoProject appends a URL after the last existing item for the given project
 // (or at the end if the project has no items yet), then sets cursor to the new item.
-func (m *URLEditorModel) insertIntoProject(projectName string, url models.CardURL) {
+func (m *URLEditorModel) insertIntoProject(projectName string, url models.TaskNoteURL) {
 	item := urlItem{projectName: projectName, url: url}
 	insertIdx := len(m.items)
 	for i := len(m.items) - 1; i >= 0; i-- {
@@ -291,12 +291,12 @@ func (m URLEditorModel) updateEditLabel(msg tea.KeyMsg) (URLEditorModel, tea.Cmd
 }
 
 // GetURLs returns the URLs belonging to the root project (or all URLs for single-project use).
-func (m URLEditorModel) GetURLs() []models.CardURL {
+func (m URLEditorModel) GetURLs() []models.TaskNoteURL {
 	rootName := ""
 	if len(m.projectNames) > 0 {
 		rootName = m.projectNames[0]
 	}
-	var result []models.CardURL
+	var result []models.TaskNoteURL
 	for _, it := range m.items {
 		if it.projectName == rootName {
 			result = append(result, it.url)
@@ -308,12 +308,12 @@ func (m URLEditorModel) GetURLs() []models.CardURL {
 // GetSubProjectURLs returns all non-root URLs grouped by project name.
 // Includes an entry (possibly empty) for every managed sub-project so callers can
 // write back even when all URLs for a project were deleted.
-func (m URLEditorModel) GetSubProjectURLs() map[string][]models.CardURL {
+func (m URLEditorModel) GetSubProjectURLs() map[string][]models.TaskNoteURL {
 	if len(m.projectNames) == 0 {
 		return nil
 	}
 	rootName := m.projectNames[0]
-	result := make(map[string][]models.CardURL)
+	result := make(map[string][]models.TaskNoteURL)
 	for _, name := range m.projectNames[1:] {
 		result[name] = nil // ensure key exists even if no URLs remain
 	}

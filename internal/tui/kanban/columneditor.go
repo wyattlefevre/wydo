@@ -260,7 +260,7 @@ func (m ColumnEditorModel) updateAdd(msg tea.KeyMsg) (ColumnEditorModel, tea.Cmd
 		// Create new column
 		newColumn := models.Column{
 			Name:  newName,
-			Cards: []models.Card{},
+			TaskNotes: []models.TaskNote{},
 		}
 
 		// Insert at position
@@ -294,17 +294,17 @@ func (m ColumnEditorModel) updateConfirmDelete(msg tea.KeyMsg) (ColumnEditorMode
 			column := m.columns[m.cursorPos]
 
 			// Migrate cards to adjacent column if any exist
-			if len(column.Cards) > 0 {
+			if len(column.TaskNotes) > 0 {
 				targetIndex := m.cursorPos - 1 // Try left
 				if targetIndex < 0 {
 					targetIndex = m.cursorPos + 1 // Use right if leftmost
 				}
 
 				if targetIndex >= 0 && targetIndex < len(m.columns) {
-					// Move all cards to target column
-					m.columns[targetIndex].Cards = append(
-						m.columns[targetIndex].Cards,
-						column.Cards...,
+					// Move all task notes to target column
+					m.columns[targetIndex].TaskNotes = append(
+						m.columns[targetIndex].TaskNotes,
+						column.TaskNotes...,
 					)
 				}
 			}
@@ -351,7 +351,7 @@ func (m ColumnEditorModel) View() string {
 
 	// Column list
 	for i, col := range m.columns {
-		cardCount := len(col.Cards)
+		cardCount := len(col.TaskNotes)
 		isDone := m.board.IsDoneColumn(col.Name)
 
 		line := fmt.Sprintf("%d. %s (%d cards)", i+1, col.Name, cardCount)
@@ -390,7 +390,7 @@ func (m ColumnEditorModel) View() string {
 		help = helpStyle.Render("enter: confirm • esc: cancel")
 	case columnEditorModeConfirmDelete:
 		if m.cursorPos < len(m.columns) {
-			cardCount := len(m.columns[m.cursorPos].Cards)
+			cardCount := len(m.columns[m.cursorPos].TaskNotes)
 			if cardCount > 0 {
 				help = warningStyle.Render(fmt.Sprintf("Delete column and move %d cards to adjacent column? (y/n)", cardCount))
 			} else {

@@ -58,7 +58,7 @@ func (m PriorityInputModel) View() string {
 	s.WriteString("\n\n")
 
 	if m.priority > 0 {
-		label := kanbanmodels.CardPriorityLabel(m.priority)
+		label := kanbanmodels.TaskNotePriorityLabel(m.priority)
 		s.WriteString(fmt.Sprintf("Priority: %s", kanbanPriorityStyle(m.priority).Render(" "+label+" ")))
 	} else {
 		s.WriteString(helpStyle.Render("Priority: (none)"))

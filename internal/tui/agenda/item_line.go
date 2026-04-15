@@ -79,8 +79,8 @@ func itemTitleNoPrefix(item agendapkg.AgendaItem) string {
 			return item.Task.Name
 		}
 	case agendapkg.SourceCard:
-		if item.Card != nil {
-			return item.Card.Title
+		if item.TaskNote != nil {
+			return item.TaskNote.Title
 		}
 	case agendapkg.SourceNote:
 		if item.Note != nil {
@@ -115,7 +115,7 @@ func itemContextText(item agendapkg.AgendaItem) string {
 			return strings.Join(projs, " ")
 		}
 	case agendapkg.SourceCard:
-		if item.Card != nil {
+		if item.TaskNote != nil {
 			return "[" + item.BoardName + " > " + item.ColumnName + "]"
 		}
 	case agendapkg.SourceNote:
@@ -139,7 +139,7 @@ func itemContext(item agendapkg.AgendaItem) string {
 			return projectStyle.Render(strings.Join(projs, " "))
 		}
 	case agendapkg.SourceCard:
-		if item.Card != nil {
+		if item.TaskNote != nil {
 			return boardInfoStyle.Render("[" + item.BoardName + " > " + item.ColumnName + "]")
 		}
 	case agendapkg.SourceNote:

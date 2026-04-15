@@ -15,70 +15,65 @@ func makeTasks() []data.Task {
 	}
 }
 
-func TestFileViewAll_ShowsBothPendingAndDone(t *testing.T) {
-	m := &TaskManagerModel{fileViewMode: FileViewAll}
-	tasks := makeTasks()
-	result := m.applyFileViewFilter(tasks)
-	if len(result) != 4 {
-		t.Errorf("FileViewAll: expected 4 tasks, got %d", len(result))
+func makeTasksWithArchived() []data.Task {
+	return []data.Task{
+		{ID: "1", Name: "pending task", Done: false, Archived: false},
+		{ID: "2", Name: "done task", Done: true, Archived: false},
+		{ID: "3", Name: "archived task", Done: true, Archived: true},
+		{ID: "4", Name: "archived pending", Done: false, Archived: true},
 	}
 }
 
-func TestFileViewTodoOnly_ExcludesDone(t *testing.T) {
-	m := &TaskManagerModel{fileViewMode: FileViewTodoOnly}
-	tasks := makeTasks()
-	result := m.applyFileViewFilter(tasks)
-	if len(result) != 2 {
-		t.Errorf("FileViewTodoOnly: expected 2 tasks, got %d", len(result))
+func TestArchivedTasksExcludedByDefault(t *testing.T) {
+	m := &TaskManagerModel{tasks: makeTasksWithArchived()}
+	m.refreshDisplayTasks()
+	for _, task := range m.displayTasks {
+		if task.Archived {
+			t.Errorf("expected archived tasks excluded, got %q", task.Name)
+		}
 	}
-	for _, task := range result {
-		if task.Done {
-			t.Errorf("FileViewTodoOnly: got done task %q", task.Name)
+	if len(m.displayTasks) != 2 {
+		t.Errorf("expected 2 non-archived tasks, got %d", len(m.displayTasks))
+	}
+}
+
+// TestRefreshDisplayTasksDoesNotCorruptSourceSlice is a regression test for the
+// duplication bug. refreshDisplayTasks used filtered[:0] (filter-in-place), which
+// shares the backing array with m.tasks/s.tasks. When archived tasks were present,
+// the loop overwrote the archived-task slots with later non-archived tasks, silently
+// corrupting s.tasks. WriteAllTasks would then write the duplicate entries to disk.
+func TestRefreshDisplayTasksDoesNotCorruptSourceSlice(t *testing.T) {
+	original := makeTasksWithArchived()
+	// Keep an independent copy to compare against
+	snapshot := make([]data.Task, len(original))
+	copy(snapshot, original)
+
+	m := &TaskManagerModel{tasks: original}
+	m.refreshDisplayTasks()
+
+	// m.tasks must not have been mutated by refreshDisplayTasks
+	if len(m.tasks) != len(snapshot) {
+		t.Fatalf("m.tasks length changed: got %d, want %d", len(m.tasks), len(snapshot))
+	}
+	for i := range snapshot {
+		if m.tasks[i].ID != snapshot[i].ID || m.tasks[i].Name != snapshot[i].Name {
+			t.Errorf("m.tasks[%d] corrupted: got {ID:%s Name:%q}, want {ID:%s Name:%q}",
+				i, m.tasks[i].ID, m.tasks[i].Name, snapshot[i].ID, snapshot[i].Name)
 		}
 	}
 }
 
-func TestFileViewDoneOnly_ExcludesPending(t *testing.T) {
-	m := &TaskManagerModel{fileViewMode: FileViewDoneOnly}
-	tasks := makeTasks()
-	result := m.applyFileViewFilter(tasks)
-	if len(result) != 2 {
-		t.Errorf("FileViewDoneOnly: expected 2 tasks, got %d", len(result))
-	}
-	for _, task := range result {
-		if !task.Done {
-			t.Errorf("FileViewDoneOnly: got pending task %q", task.Name)
-		}
-	}
-}
-
-func TestStatusFilterDone_WithFileViewAll_ShowsDoneTasks(t *testing.T) {
+func TestStatusFilterDone_ShowsDoneTasks(t *testing.T) {
 	tasks := makeTasks()
 	state := FilterState{StatusFilter: StatusDone}
 	filtered := ApplyFilters(tasks, state)
 
-	m := &TaskManagerModel{fileViewMode: FileViewAll}
-	result := m.applyFileViewFilter(filtered)
-
-	if len(result) != 2 {
-		t.Errorf("StatusDone + FileViewAll: expected 2 tasks, got %d", len(result))
+	if len(filtered) != 2 {
+		t.Errorf("StatusDone: expected 2 tasks, got %d", len(filtered))
 	}
-	for _, task := range result {
+	for _, task := range filtered {
 		if !task.Done {
-			t.Errorf("StatusDone + FileViewAll: got pending task %q", task.Name)
+			t.Errorf("StatusDone: got pending task %q", task.Name)
 		}
-	}
-}
-
-func TestStatusFilterDone_WithFileViewTodoOnly_ShowsNothing(t *testing.T) {
-	tasks := makeTasks()
-	state := FilterState{StatusFilter: StatusDone}
-	filtered := ApplyFilters(tasks, state)
-
-	m := &TaskManagerModel{fileViewMode: FileViewTodoOnly}
-	result := m.applyFileViewFilter(filtered)
-
-	if len(result) != 0 {
-		t.Errorf("StatusDone + FileViewTodoOnly: expected 0 tasks, got %d", len(result))
 	}
 }

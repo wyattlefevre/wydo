@@ -2,7 +2,7 @@ package models
 
 import "testing"
 
-func TestCardPriorityLabel(t *testing.T) {
+func TestTaskNotePriorityLabel(t *testing.T) {
 	tests := []struct {
 		input int
 		want  string
@@ -18,14 +18,14 @@ func TestCardPriorityLabel(t *testing.T) {
 		{-1, ""},
 	}
 	for _, tt := range tests {
-		got := CardPriorityLabel(tt.input)
+		got := TaskNotePriorityLabel(tt.input)
 		if got != tt.want {
-			t.Errorf("CardPriorityLabel(%d) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("TaskNotePriorityLabel(%d) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
 
-func TestCardPriorityFromLetter(t *testing.T) {
+func TestTaskNotePriorityFromLetter(t *testing.T) {
 	tests := []struct {
 		input string
 		want  int
@@ -48,18 +48,18 @@ func TestCardPriorityFromLetter(t *testing.T) {
 		{"1", 0},
 	}
 	for _, tt := range tests {
-		got := CardPriorityFromLetter(tt.input)
+		got := TaskNotePriorityFromLetter(tt.input)
 		if got != tt.want {
-			t.Errorf("CardPriorityFromLetter(%q) = %d, want %d", tt.input, got, tt.want)
+			t.Errorf("TaskNotePriorityFromLetter(%q) = %d, want %d", tt.input, got, tt.want)
 		}
 	}
 }
 
 func TestCardPriorityRoundTrip(t *testing.T) {
-	// CardPriorityLabel -> CardPriorityFromLetter must be identity for 1-6
+	// TaskNotePriorityLabel -> TaskNotePriorityFromLetter must be identity for 1-6
 	for p := 1; p <= 6; p++ {
-		label := CardPriorityLabel(p)
-		got := CardPriorityFromLetter(label)
+		label := TaskNotePriorityLabel(p)
+		got := TaskNotePriorityFromLetter(label)
 		if got != p {
 			t.Errorf("round-trip failed for %d: label=%q, back=%d", p, label, got)
 		}

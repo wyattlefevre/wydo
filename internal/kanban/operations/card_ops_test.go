@@ -2,7 +2,7 @@ package operations
 
 import "testing"
 
-func TestTaskPriorityToCardPriority(t *testing.T) {
+func TestTaskPriorityToTaskNotePriority(t *testing.T) {
 	tests := []struct {
 		input rune
 		want  int
@@ -21,9 +21,9 @@ func TestTaskPriorityToCardPriority(t *testing.T) {
 		{'a', 0}, // lowercase not supported in todo.txt format
 	}
 	for _, tt := range tests {
-		got := TaskPriorityToCardPriority(tt.input)
+		got := TaskPriorityToTaskNotePriority(tt.input)
 		if got != tt.want {
-			t.Errorf("TaskPriorityToCardPriority(%q) = %d, want %d", tt.input, got, tt.want)
+			t.Errorf("TaskPriorityToTaskNotePriority(%q) = %d, want %d", tt.input, got, tt.want)
 		}
 	}
 }

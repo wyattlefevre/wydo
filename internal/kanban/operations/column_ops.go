@@ -58,8 +58,8 @@ func AddColumn(board *models.Board, name string, position int) error {
 	}
 
 	newColumn := models.Column{
-		Name:  validatedName,
-		Cards: []models.Card{},
+		Name:      validatedName,
+		TaskNotes: []models.TaskNote{},
 	}
 
 	board.Columns = append(board.Columns[:position], append([]models.Column{newColumn}, board.Columns[position:]...)...)
@@ -83,16 +83,16 @@ func DeleteColumn(board *models.Board, columnIndex int) error {
 		return fmt.Errorf("cannot delete the last column")
 	}
 
-	if len(column.Cards) > 0 {
+	if len(column.TaskNotes) > 0 {
 		targetIndex := columnIndex - 1
 		if targetIndex < 0 {
 			targetIndex = columnIndex + 1
 		}
 
 		if targetIndex >= 0 && targetIndex < len(board.Columns) {
-			board.Columns[targetIndex].Cards = append(
-				board.Columns[targetIndex].Cards,
-				column.Cards...,
+			board.Columns[targetIndex].TaskNotes = append(
+				board.Columns[targetIndex].TaskNotes,
+				column.TaskNotes...,
 			)
 		}
 	}

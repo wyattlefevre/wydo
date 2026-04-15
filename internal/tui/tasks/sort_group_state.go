@@ -79,7 +79,7 @@ const (
 	GroupByProject
 	GroupByPriority
 	GroupByContext
-	GroupByFile
+	GroupByBoard
 )
 
 // GroupState holds grouping configuration
@@ -123,8 +123,8 @@ func (g *GroupState) String() string {
 		field = "priority"
 	case GroupByContext:
 		field = "context"
-	case GroupByFile:
-		field = "file"
+	case GroupByBoard:
+		field = "board"
 	}
 
 	dir := "asc"
@@ -279,7 +279,11 @@ func ApplyGroups(tasks []data.Task, state GroupState, roots []string) []TaskGrou
 	for _, key := range groupOrder {
 		label := key
 		if label == "" {
-			label = "(none)"
+			if state.Field == GroupByBoard {
+				label = "no board"
+			} else {
+				label = "(none)"
+			}
 		}
 		result = append(result, TaskGroup{
 			Label: label,
@@ -317,15 +321,33 @@ func getGroupKeys(task data.Task, field GroupField, roots []string) []string {
 		}
 		return task.Contexts
 
-	case GroupByFile:
-		return []string{RelativeFilePath(task.File, roots)}
+	case GroupByBoard:
+		if !task.IsTaskNote || task.BoardName == "" {
+			return []string{""}
+		}
+		return []string{task.BoardName}
+
 	}
 
 	return []string{""}
 }
 
 func compareGroupKeys(a, b string, field GroupField) int {
-	// Empty keys sort to the end
+	// For board grouping: empty (no board = regular tasks) sorts FIRST
+	if field == GroupByBoard {
+		if a == "" && b == "" {
+			return 0
+		}
+		if a == "" {
+			return -1
+		}
+		if b == "" {
+			return 1
+		}
+		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+	}
+
+	// All other fields: empty sorts to end
 	if a == "" && b == "" {
 		return 0
 	}

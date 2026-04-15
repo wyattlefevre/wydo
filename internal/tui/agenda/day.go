@@ -283,7 +283,7 @@ func (m DayModel) View() string {
 		var allTasks, allCards, allNotes, allProjectDates, allCompleted []agendapkg.AgendaItem
 		for _, bucket := range m.buckets {
 			allTasks = append(allTasks, bucket.Tasks...)
-			allCards = append(allCards, bucket.Cards...)
+			allCards = append(allCards, bucket.TaskNotes...)
 			allNotes = append(allNotes, bucket.Notes...)
 			allProjectDates = append(allProjectDates, bucket.ProjectDates...)
 			allCompleted = append(allCompleted, bucket.AllCompletedItems()...)

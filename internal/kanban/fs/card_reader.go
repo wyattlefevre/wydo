@@ -14,23 +14,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ReadCard reads a card file and parses its frontmatter and content
-func ReadCard(cardPath string) (models.Card, error) {
+// ReadTaskNote reads a task note file and parses its frontmatter and content
+func ReadTaskNote(cardPath string) (models.TaskNote, error) {
 	content, err := os.ReadFile(cardPath)
 	if err != nil {
-		return models.Card{}, err
+		return models.TaskNote{}, err
 	}
 
 	filename := filepath.Base(cardPath)
 	result, err := ParseFrontmatter(content)
 	if err != nil {
-		return models.Card{}, err
+		return models.TaskNote{}, err
 	}
 
 	title := extractTitle(result.Body)
 	preview := extractPreview(result.Body)
 
-	return models.Card{
+	return models.TaskNote{
 		Filename:      filename,
 		Title:         title,
 		Tags:          result.Tags,
@@ -42,23 +42,23 @@ func ReadCard(cardPath string) (models.Card, error) {
 		ScheduledDate: result.ScheduledDate,
 		DateCompleted: result.DateCompleted,
 		Priority:      result.Priority,
-		Archived:      result.Archived,
+		Column:        result.Column,
 		TmuxSession:   result.TmuxSession,
 		JiraKey:       result.JiraKey,
 		JiraStatus:    result.JiraStatus,
 	}, nil
 }
 
-// FrontmatterResult holds parsed YAML frontmatter fields from a card
+// FrontmatterResult holds parsed YAML frontmatter fields from a task note
 type FrontmatterResult struct {
 	Tags          []string
 	Projects      []string
-	URLs          []models.CardURL
+	URLs          []models.TaskNoteURL
 	DueDate       *time.Time
 	ScheduledDate *time.Time
 	DateCompleted *time.Time
 	Priority      int
-	Archived      bool
+	Column        string
 	TmuxSession   string
 	JiraKey       string
 	JiraStatus    string
@@ -92,18 +92,18 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 	// Parse frontmatter
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
 	var frontmatter struct {
-		Tags          []string         `yaml:"tags"`
-		Projects      []string         `yaml:"projects"`
-		URL           string           `yaml:"url"`
-		URLs          []models.CardURL `yaml:"urls"`
-		Due           string           `yaml:"due"`
-		Scheduled     string           `yaml:"scheduled"`
-		DateCompleted string           `yaml:"date_completed"`
-		Priority      interface{}      `yaml:"priority"`
-		Archived      bool             `yaml:"archived"`
-		TmuxSession   string           `yaml:"tmux_session"`
-		JiraKey       string           `yaml:"jira_key,omitempty"`
-		JiraStatus    string           `yaml:"jira_status,omitempty"`
+		Tags          []string             `yaml:"tags"`
+		Projects      []string             `yaml:"projects"`
+		URL           string               `yaml:"url"`
+		URLs          []models.TaskNoteURL `yaml:"urls"`
+		Due           string               `yaml:"due"`
+		Scheduled     string               `yaml:"scheduled"`
+		DateCompleted string               `yaml:"date_completed"`
+		Priority      interface{}          `yaml:"priority"`
+		Column        string               `yaml:"column"`
+		TmuxSession   string               `yaml:"tmux_session"`
+		JiraKey       string               `yaml:"jira_key,omitempty"`
+		JiraStatus    string               `yaml:"jira_status,omitempty"`
 	}
 
 	if err := yaml.Unmarshal(frontmatterBytes, &frontmatter); err != nil {
@@ -144,11 +144,11 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 	}
 
 	// Resolve URLs: prefer new urls: list, fall back to legacy url: string
-	var urls []models.CardURL
+	var urls []models.TaskNoteURL
 	if len(frontmatter.URLs) > 0 {
 		urls = frontmatter.URLs
 	} else if frontmatter.URL != "" {
-		urls = []models.CardURL{{URL: frontmatter.URL}}
+		urls = []models.TaskNoteURL{{URL: frontmatter.URL}}
 	}
 
 	return FrontmatterResult{
@@ -159,7 +159,7 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		ScheduledDate: scheduledDate,
 		DateCompleted: dateCompleted,
 		Priority:      parsePriorityField(frontmatter.Priority),
-		Archived:      frontmatter.Archived,
+		Column:        frontmatter.Column,
 		TmuxSession:   frontmatter.TmuxSession,
 		JiraKey:       frontmatter.JiraKey,
 		JiraStatus:    frontmatter.JiraStatus,
@@ -176,7 +176,7 @@ func parsePriorityField(raw interface{}) int {
 			return v
 		}
 	case string:
-		return models.CardPriorityFromLetter(v)
+		return models.TaskNotePriorityFromLetter(v)
 	}
 	return 0
 }

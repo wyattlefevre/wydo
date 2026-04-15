@@ -33,40 +33,32 @@ func (e *ParseTaskMismatchError) Error() string {
 
 func UpdateTask(tasks []Task, updatedTask Task) []Task {
 	logs.Logger.Printf("Update Task: %s\n", updatedTask)
-	found := false
 	for i, t := range tasks {
 		if t.ID == updatedTask.ID {
 			logs.Logger.Println("task found. updating...")
 			tasks[i] = updatedTask
-			found = true
-			break
+			return tasks
 		}
 	}
-	if !found {
-		logs.Logger.Println("task not found. adding new task...")
-		tasks = append(tasks, updatedTask)
-	}
+	logs.Logger.Printf("ERROR: UpdateTask: task ID %s not found — skipping to prevent duplicate creation\n", updatedTask.ID)
 	return tasks
 }
 
-// LoadTasksFromDir loads all .txt files from a tasks/ directory
-func LoadTasksFromDir(dirPath string, files []string, allowMismatch bool) ([]Task, error) {
-	var allTasks []Task
-	for _, filename := range files {
-		filePath := filepath.Join(dirPath, filename)
-		tasks, err := loadTaskFile(filePath, allowMismatch, make(map[string]Project))
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			if _, ok := err.(*ParseTaskMismatchError); ok {
-				return nil, err
-			}
-			return nil, fmt.Errorf("error reading %s: %v", filePath, err)
+// LoadTasksFromDir loads todo.txt from a tasks/ directory.
+// Returns empty (no error) if todo.txt does not exist yet.
+func LoadTasksFromDir(dirPath string, allowMismatch bool) ([]Task, error) {
+	filePath := filepath.Join(dirPath, "todo.txt")
+	tasks, err := loadTaskFile(filePath, allowMismatch, make(map[string]Project))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		allTasks = append(allTasks, tasks...)
+		if _, ok := err.(*ParseTaskMismatchError); ok {
+			return nil, err
+		}
+		return nil, fmt.Errorf("error reading %s: %v", filePath, err)
 	}
-	return allTasks, nil
+	return tasks, nil
 }
 
 // WriteTasksToFile writes tasks that belong to a specific file
@@ -161,15 +153,17 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 	taskList := []Task{}
 
 	scanner := bufio.NewScanner(file)
-	lineNum := 0
+	nonEmptyCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()
-		lineNum++
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		hashId := HashTaskLine(fmt.Sprintf("%d:%s", lineNum, filePath))
+		nonEmptyCount++
+		hashId := HashTaskLine(fmt.Sprintf("%d:%s", nonEmptyCount, filePath))
 		task := ParseTask(line, hashId, filePath)
+		// Mark as archived if the file lives inside an archive/ directory
+		task.Archived = filepath.Base(filepath.Dir(filepath.Dir(filePath))) == "archive"
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
 				projects[project] = Project{Name: project}

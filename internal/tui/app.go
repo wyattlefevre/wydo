@@ -23,7 +23,6 @@ import (
 	notesview "wydo/internal/tui/notes"
 	projectsview "wydo/internal/tui/projects"
 	"wydo/internal/tui/shared"
-	stackview "wydo/internal/tui/stack"
 	taskview "wydo/internal/tui/tasks"
 	"wydo/internal/tui/theme"
 	"wydo/internal/workspace"
@@ -50,7 +49,6 @@ type AppModel struct {
 	taskManagerView     taskview.TaskManagerModel
 	projectsView projectsview.CombinedModel
 	notesView           notesview.NotesModel
-	stackView           stackview.StackModel
 	showHelp       bool
 	exitConfirming bool
 	width          int
@@ -84,10 +82,8 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		}
 	}
 
-	view := ViewStack
+	view := ViewTaskManager
 	switch cfg.DefaultView {
-	case "stack":
-		view = ViewStack
 	case "day":
 		view = ViewAgendaDay
 	case "week":
@@ -138,7 +134,6 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 		taskManagerView: taskview.NewTaskManagerModel(taskSvc, cfg.Workspaces, allBoards, collectAllProjects(workspaces)),
 		projectsView:    projectsview.NewCombinedModel(workspaces),
 		notesView:       notesview.NewNotesModel(workspaces),
-		stackView:       stackview.NewStackModel(workspaces, taskSvc, allBoards),
 	}
 
 	// If a specific board was requested, find and open it directly
@@ -190,7 +185,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetSize(contentWidth, contentHeight)
 		m.projectsView.SetSize(msg.Width, contentHeight)
 		m.notesView.SetSize(msg.Width, contentHeight)
-		m.stackView.SetSize(contentWidth, contentHeight)
 		return m, nil
 
 	case OpenBoardMsg:
@@ -213,7 +207,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				proj := ws.Projects.Get(msg.ProjectName)
 				projNotes := ws.Projects.NotesForProject(msg.ProjectName, ws.Notes)
 				projTasks := ws.Projects.TasksForProject(msg.ProjectName, ws.Tasks)
-				projCards := ws.Projects.CardsForProject(msg.ProjectName, ws.Boards)
+				projCards := ws.Projects.TaskNotesForProject(msg.ProjectName, ws.Boards)
 				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
 				children := ws.Projects.ChildrenOf(msg.ProjectName)
 				var indexPreview string
@@ -260,9 +254,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewNotes:
 			m.refreshData()
 			m.notesView.SetData(m.workspaces)
-		case ViewStack:
-			m.refreshData()
-			m.stackView.SetData(m.workspaces, m.taskSvc, m.boards)
 		}
 		return m, nil
 
@@ -275,13 +266,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskview.TaskUpdateMsg:
 		// A task was updated in the task manager — persist it
 		if msg.Task.File == "" {
-			if _, err := m.taskSvc.Add(msg.Task.String()); err != nil {
+			added, err := m.taskSvc.Add(msg.Task.String())
+			if err != nil {
 				logs.Logger.Printf("Error adding new task: %v", err)
 			}
-		} else {
-			if err := m.taskSvc.Update(msg.Task); err != nil {
-				logs.Logger.Printf("Error updating task: %v", err)
+			m.taskManagerView.SetData(m.taskSvc)
+			if added != nil {
+				return m, m.setStatus(fmt.Sprintf("%q added to %s", msg.Task.Name, added.File), LevelSuccess)
 			}
+			return m, nil
+		}
+		if err := m.taskSvc.Update(msg.Task); err != nil {
+			logs.Logger.Printf("Error updating task: %v", err)
 		}
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, nil
@@ -313,7 +309,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		priority := operations.TaskPriorityToCardPriority(rune(msg.Task.Priority))
+		priority := operations.TaskPriorityToTaskNotePriority(rune(msg.Task.Priority))
 
 		// Merge board projects into task projects
 		projects := msg.Task.Projects
@@ -331,7 +327,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Create the card
-		_, err = operations.CreateCardFromTask(&board, msg.Task.Name, projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
+		_, err = operations.CreateTaskNoteFromTask(&board, msg.Task.Name, projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
 		if err != nil {
 			return m, m.setStatus(fmt.Sprintf("Error creating card: %v", err), LevelError)
 		}
@@ -346,8 +342,30 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskManagerView.SetData(m.taskSvc)
 		return m, m.setStatus(fmt.Sprintf("Moved \"%s\" to board \"%s\"", msg.Task.Name, board.Name), LevelSuccess)
 
+	case taskview.ArchiveSelectionRequestMsg:
+		// Archive specifically selected tasks
+		if err := m.taskSvc.ArchiveByIDs(msg.IDs); err != nil {
+			logs.Logger.Printf("Error archiving selected tasks: %v", err)
+			return m, nil
+		}
+		m.taskManagerView.SetData(m.taskSvc)
+		return m, func() tea.Msg {
+			return taskview.ArchiveCompleteMsg{Count: len(msg.IDs)}
+		}
+
+	case taskview.DeleteSelectionRequestMsg:
+		// Permanently delete specifically selected tasks in one write+reload
+		if err := m.taskSvc.DeleteByIDs(msg.IDs); err != nil {
+			logs.Logger.Printf("Error deleting tasks: %v", err)
+			return m, nil
+		}
+		m.taskManagerView.SetData(m.taskSvc)
+		return m, func() tea.Msg {
+			return taskview.DeleteCompleteMsg{Count: len(msg.IDs)}
+		}
+
 	case taskview.ArchiveRequestMsg:
-		// Archive completed tasks
+		// Archive all completed tasks
 		if err := m.taskSvc.Archive(); err != nil {
 			logs.Logger.Printf("Error archiving tasks: %v", err)
 			return m, nil
@@ -483,11 +501,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.taskManagerView.SetBoards(m.boards)
 				}
 				return m, nil
-			case "S":
-				m.refreshData()
-				m.currentView = ViewStack
-				m.stackView.SetData(m.workspaces, m.taskSvc, m.boards)
-				return m, nil
 			}
 		}
 
@@ -517,24 +530,30 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q":
 				m.exitConfirming = true
 				return m, nil
-			case "d", "D":
-				m.currentView = ViewAgendaDay
-				m.lastAgendaView = ViewAgendaDay
-				m.refreshData()
-				m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
-				return m, nil
-			case "w", "W":
-				m.currentView = ViewAgendaWeek
-				m.lastAgendaView = ViewAgendaWeek
-				m.refreshData()
-				m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
-				return m, nil
-			case "m", "M":
-				m.currentView = ViewAgendaMonth
-				m.lastAgendaView = ViewAgendaMonth
-				m.refreshData()
-				m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
-				return m, nil
+			}
+
+			// Agenda sub-view switching — only when already in an agenda view
+			if m.currentView == ViewAgendaDay || m.currentView == ViewAgendaWeek || m.currentView == ViewAgendaMonth {
+				switch msg.String() {
+				case "d", "D":
+					m.currentView = ViewAgendaDay
+					m.lastAgendaView = ViewAgendaDay
+					m.refreshData()
+					m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+					return m, nil
+				case "w", "W":
+					m.currentView = ViewAgendaWeek
+					m.lastAgendaView = ViewAgendaWeek
+					m.refreshData()
+					m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+					return m, nil
+				case "m", "M":
+					m.currentView = ViewAgendaMonth
+					m.lastAgendaView = ViewAgendaMonth
+					m.refreshData()
+					m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, collectProjectDates(m.workspaces))
+					return m, nil
+				}
 			}
 		}
 	}
@@ -562,9 +581,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case ViewNotes:
 		m.notesView, cmd = m.notesView.Update(msg)
-		return m, cmd
-	case ViewStack:
-		m.stackView, cmd = m.stackView.Update(msg)
 		return m, cmd
 	}
 
@@ -754,10 +770,27 @@ func (m AppModel) View() string {
 		return m.renderHelpOverlay()
 	}
 
+	bg := m.renderBackground()
+
 	if m.exitConfirming {
-		return m.renderExitConfirmModal()
+		d := shared.Dialog{
+			Title: "Quit wydo?",
+			Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[esc]") + " Cancel",
+			Width: 40,
+		}
+		return shared.PlaceOverlay(bg, d.View(), m.width, m.height)
 	}
 
+	if m.currentView == ViewTaskManager {
+		if overlay := m.taskManagerView.OverlayView(); overlay != "" {
+			return shared.PlaceOverlay(bg, overlay, m.width, m.height)
+		}
+	}
+
+	return bg
+}
+
+func (m AppModel) renderBackground() string {
 	var content string
 	centerContent := false
 
@@ -780,9 +813,6 @@ func (m AppModel) View() string {
 		content = m.projectsView.View()
 	case ViewNotes:
 		content = m.notesView.View()
-	case ViewStack:
-		content = m.stackView.View()
-		centerContent = true
 	}
 
 	if centerContent && m.width > maxContentWidth {
@@ -842,7 +872,7 @@ func (m AppModel) renderAgendaSubBar() string {
 // renderTabBar renders the top tab bar with the active view highlighted.
 // The right side shows a transient status/alert message when present.
 func (m AppModel) renderTabBar() string {
-	tabs := []string{"Board", "Agenda", "Tasks", "Projects", "Notes", "Stack"}
+	tabs := []string{"Board", "Agenda", "Tasks", "Projects", "Notes"}
 
 	// Map current view to active tab index
 	activeIdx := -1
@@ -857,8 +887,6 @@ func (m AppModel) renderTabBar() string {
 		activeIdx = 3
 	case ViewNotes:
 		activeIdx = 4
-	case ViewStack:
-		activeIdx = 5
 	}
 
 	var parts []string
@@ -908,7 +936,6 @@ func (m AppModel) renderHelpOverlay() string {
 			{"B", "Board picker"},
 			{"A", "Agenda (day view)"},
 			{"T", "Task manager"},
-			{"S", "Stack view"},
 			{"D / W / M", "Day / week / month"},
 			{"?", "Show this help"},
 			{"q", "Quit"},
@@ -1050,15 +1077,6 @@ func (m AppModel) renderHelpOverlay() string {
 				{"esc / q", "Back to sidebar"},
 			},
 		})
-	case ViewStack:
-		sections = append(sections, shared.HelpSection{
-			Title: "Stack",
-			Binds: []shared.HelpBind{
-				{"j / k", "Navigate"},
-				{"g / G", "Top / bottom"},
-				{"enter", "Open item"},
-			},
-		})
 	}
 
 	return shared.RenderHelpPopup(sections, m.width, m.height)
@@ -1070,11 +1088,3 @@ func (m AppModel) renderPlaceholder(title, subtitle string) string {
 	return lipgloss.JoinVertical(lipgloss.Left, "", titleStr, subtitleStr, "")
 }
 
-func (m AppModel) renderExitConfirmModal() string {
-	content := theme.ModalTitle.Render("Quit wydo?")
-	content += "\n\n"
-	content += theme.Ok.Render("[y/enter]") + " Confirm  "
-	content += theme.Error.Render("[esc]") + " Cancel"
-	modal := theme.ModalBox.Width(40).Render(content)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal)
-}

@@ -12,12 +12,12 @@ import (
 	"wydo/internal/kanban/models"
 )
 
-// CreateCard creates a new card in the specified column
-func CreateCard(board *models.Board, columnName string) (models.Card, error) {
+// CreateTaskNote creates a new task note in the specified column
+func CreateTaskNote(board *models.Board, columnName string) (models.TaskNote, error) {
 	cardsDir := filepath.Join(board.Path, "cards")
 
 	if err := os.MkdirAll(cardsDir, 0755); err != nil {
-		return models.Card{}, err
+		return models.TaskNote{}, err
 	}
 
 	defaultTitle := ""
@@ -26,52 +26,52 @@ func CreateCard(board *models.Board, columnName string) (models.Card, error) {
 
 	cardPath := filepath.Join(cardsDir, filename)
 
-	card := models.Card{
+	tn := models.TaskNote{
 		Filename: filename,
 		Title:    defaultTitle,
 		Tags:     []string{},
 		Content:  "# \n",
 	}
 
-	if err := fs.WriteCard(card, cardPath); err != nil {
-		return models.Card{}, err
+	if err := fs.WriteNewTaskNote(tn, cardPath); err != nil {
+		return models.TaskNote{}, err
 	}
 
 	col := board.GetColumn(columnName)
 	if col != nil {
-		col.Cards = append(col.Cards, card)
+		col.TaskNotes = append(col.TaskNotes, tn)
 		if err := fs.WriteBoard(*board); err != nil {
-			return models.Card{}, err
+			return models.TaskNote{}, err
 		}
 	}
 
-	return card, nil
+	return tn, nil
 }
 
-// SyncCardFilename renames a card file if its title has changed
-func SyncCardFilename(board *models.Board, columnIndex, cardIndex int) error {
+// SyncTaskNoteFilename renames a task note file if its title has changed
+func SyncTaskNoteFilename(board *models.Board, columnIndex, cardIndex int) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
+	tn := &column.TaskNotes[cardIndex]
 	cardsDir := filepath.Join(board.Path, "cards")
-	cardPath := filepath.Join(cardsDir, card.Filename)
+	cardPath := filepath.Join(cardsDir, tn.Filename)
 
-	updatedCard, err := fs.ReadCard(cardPath)
+	updatedTN, err := fs.ReadTaskNote(cardPath)
 	if err != nil {
 		return err
 	}
 
-	expectedBase := ToSnakeCase(updatedCard.Title)
-	expectedFilename := UniqueFilename(expectedBase, cardsDir, card.Filename)
+	expectedBase := ToSnakeCase(updatedTN.Title)
+	expectedFilename := UniqueFilename(expectedBase, cardsDir, tn.Filename)
 
-	if expectedFilename == card.Filename {
+	if expectedFilename == tn.Filename {
 		return nil
 	}
 
@@ -81,13 +81,13 @@ func SyncCardFilename(board *models.Board, columnIndex, cardIndex int) error {
 		return err
 	}
 
-	card.Filename = expectedFilename
+	tn.Filename = expectedFilename
 
 	return fs.WriteBoard(*board)
 }
 
-// EditCard opens a card in the user's editor
-func EditCard(boardPath, filename string) error {
+// EditTaskNote opens a task note in the user's editor
+func EditTaskNote(boardPath, filename string) error {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"
@@ -103,31 +103,31 @@ func EditCard(boardPath, filename string) error {
 	return cmd.Run()
 }
 
-// DeleteCard removes a card file and its reference from the board
-func DeleteCard(board *models.Board, columnIndex, cardIndex int) error {
+// DeleteTaskNote removes a task note file and its reference from the board
+func DeleteTaskNote(board *models.Board, columnIndex, cardIndex int) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := column.Cards[cardIndex]
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
+	tn := column.TaskNotes[cardIndex]
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
 
 	if err := os.Remove(cardPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	column.Cards = append(column.Cards[:cardIndex], column.Cards[cardIndex+1:]...)
+	column.TaskNotes = append(column.TaskNotes[:cardIndex], column.TaskNotes[cardIndex+1:]...)
 
 	return fs.WriteBoard(*board)
 }
 
-// MoveCard moves a card from one column to another
-func MoveCard(board *models.Board, fromColIndex, cardIndex, toColIndex int) error {
+// MoveTaskNote moves a task note from one column to another
+func MoveTaskNote(board *models.Board, fromColIndex, cardIndex, toColIndex int) error {
 	if fromColIndex < 0 || fromColIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid source column index")
 	}
@@ -136,61 +136,61 @@ func MoveCard(board *models.Board, fromColIndex, cardIndex, toColIndex int) erro
 	}
 
 	fromCol := &board.Columns[fromColIndex]
-	if cardIndex < 0 || cardIndex >= len(fromCol.Cards) {
+	if cardIndex < 0 || cardIndex >= len(fromCol.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := fromCol.Cards[cardIndex]
-	fromCol.Cards = append(fromCol.Cards[:cardIndex], fromCol.Cards[cardIndex+1:]...)
+	tn := fromCol.TaskNotes[cardIndex]
+	fromCol.TaskNotes = append(fromCol.TaskNotes[:cardIndex], fromCol.TaskNotes[cardIndex+1:]...)
 
 	toCol := &board.Columns[toColIndex]
 
 	// Stamp date_completed when moving to a done column
 	if board.IsDoneColumn(toCol.Name) {
 		now := time.Now()
-		card.DateCompleted = &now
-		cardPath := filepath.Join(board.Path, "cards", card.Filename)
-		if err := fs.WriteCard(card, cardPath); err != nil {
+		tn.DateCompleted = &now
+		cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+		if err := fs.WriteTaskNote(tn, cardPath); err != nil {
 			return err
 		}
 	}
 
-	toCol.Cards = append(toCol.Cards, card)
+	toCol.TaskNotes = append(toCol.TaskNotes, tn)
 
 	return fs.WriteBoard(*board)
 }
 
-// ReorderCard swaps a card's position within a column
-func ReorderCard(board *models.Board, colIndex, fromIndex, toIndex int) error {
+// ReorderTaskNote swaps a task note's position within a column
+func ReorderTaskNote(board *models.Board, colIndex, fromIndex, toIndex int) error {
 	if colIndex < 0 || colIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	col := &board.Columns[colIndex]
-	if fromIndex < 0 || fromIndex >= len(col.Cards) {
+	if fromIndex < 0 || fromIndex >= len(col.TaskNotes) {
 		return fmt.Errorf("invalid source card index")
 	}
-	if toIndex < 0 || toIndex >= len(col.Cards) {
+	if toIndex < 0 || toIndex >= len(col.TaskNotes) {
 		return fmt.Errorf("invalid destination card index")
 	}
 
-	col.Cards[fromIndex], col.Cards[toIndex] = col.Cards[toIndex], col.Cards[fromIndex]
+	col.TaskNotes[fromIndex], col.TaskNotes[toIndex] = col.TaskNotes[toIndex], col.TaskNotes[fromIndex]
 
 	return fs.WriteBoard(*board)
 }
 
-// ReloadCard reloads a card from disk
-func ReloadCard(boardPath, filename string) (models.Card, error) {
+// ReloadTaskNote reloads a task note from disk
+func ReloadTaskNote(boardPath, filename string) (models.TaskNote, error) {
 	cardPath := filepath.Join(boardPath, "cards", filename)
-	return fs.ReadCard(cardPath)
+	return fs.ReadTaskNote(cardPath)
 }
 
-// CollectAllTags gathers all unique tags across all cards in a board
+// CollectAllTags gathers all unique tags across all task notes in a board
 func CollectAllTags(board *models.Board) []string {
 	tagSet := make(map[string]bool)
 	for _, col := range board.Columns {
-		for _, card := range col.Cards {
-			for _, tag := range card.Tags {
+		for _, tn := range col.TaskNotes {
+			for _, tag := range tn.Tags {
 				tagSet[tag] = true
 			}
 		}
@@ -215,12 +215,12 @@ func sortStrings(s []string) {
 	}
 }
 
-// CollectAllProjects gathers all unique projects across all cards in a board
+// CollectAllProjects gathers all unique projects across all task notes in a board
 func CollectAllProjects(board *models.Board) []string {
 	projectSet := make(map[string]bool)
 	for _, col := range board.Columns {
-		for _, card := range col.Cards {
-			for _, project := range card.Projects {
+		for _, tn := range col.TaskNotes {
+			for _, project := range tn.Projects {
 				projectSet[project] = true
 			}
 		}
@@ -235,156 +235,156 @@ func CollectAllProjects(board *models.Board) []string {
 	return projects
 }
 
-// UpdateCardTags updates a card's tags and persists to disk
-func UpdateCardTags(board *models.Board, columnIndex, cardIndex int, tags []string) error {
+// UpdateTaskNoteTags updates a task note's tags and persists to disk
+func UpdateTaskNoteTags(board *models.Board, columnIndex, cardIndex int, tags []string) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.Tags = tags
+	tn := &column.TaskNotes[cardIndex]
+	tn.Tags = tags
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// UpdateCardProjects updates a card's projects and persists to disk
-func UpdateCardProjects(board *models.Board, columnIndex, cardIndex int, projects []string) error {
+// UpdateTaskNoteProjects updates a task note's projects and persists to disk
+func UpdateTaskNoteProjects(board *models.Board, columnIndex, cardIndex int, projects []string) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.Projects = projects
+	tn := &column.TaskNotes[cardIndex]
+	tn.Projects = projects
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// UpdateCardURLs updates a card's URLs and persists to disk
-func UpdateCardURLs(board *models.Board, columnIndex, cardIndex int, urls []models.CardURL) error {
+// UpdateTaskNoteURLs updates a task note's URLs and persists to disk
+func UpdateTaskNoteURLs(board *models.Board, columnIndex, cardIndex int, urls []models.TaskNoteURL) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.URLs = urls
+	tn := &column.TaskNotes[cardIndex]
+	tn.URLs = urls
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// UpdateCardDueDate updates a card's due date and persists to disk
-func UpdateCardDueDate(board *models.Board, columnIndex, cardIndex int, dueDate *time.Time) error {
+// UpdateTaskNoteDueDate updates a task note's due date and persists to disk
+func UpdateTaskNoteDueDate(board *models.Board, columnIndex, cardIndex int, dueDate *time.Time) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.DueDate = dueDate
+	tn := &column.TaskNotes[cardIndex]
+	tn.DueDate = dueDate
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// UpdateCardScheduledDate updates a card's scheduled date and persists to disk
-func UpdateCardScheduledDate(board *models.Board, columnIndex, cardIndex int, scheduledDate *time.Time) error {
+// UpdateTaskNoteScheduledDate updates a task note's scheduled date and persists to disk
+func UpdateTaskNoteScheduledDate(board *models.Board, columnIndex, cardIndex int, scheduledDate *time.Time) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.ScheduledDate = scheduledDate
+	tn := &column.TaskNotes[cardIndex]
+	tn.ScheduledDate = scheduledDate
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// UpdateCardPriority updates a card's priority and persists to disk
-func UpdateCardPriority(board *models.Board, columnIndex, cardIndex, priority int) error {
+// UpdateTaskNotePriority updates a task note's priority and persists to disk
+func UpdateTaskNotePriority(board *models.Board, columnIndex, cardIndex, priority int) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.Priority = priority
+	tn := &column.TaskNotes[cardIndex]
+	tn.Priority = priority
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// UpdateCardTmuxSession updates a card's tmux session link and persists to disk
-func UpdateCardTmuxSession(board *models.Board, columnIndex, cardIndex int, session string) error {
+// UpdateTaskNoteTmuxSession updates a task note's tmux session link and persists to disk
+func UpdateTaskNoteTmuxSession(board *models.Board, columnIndex, cardIndex int, session string) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.TmuxSession = session
+	tn := &column.TaskNotes[cardIndex]
+	tn.TmuxSession = session
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// TaskPriorityToCardPriority maps a todo.txt priority rune (A-F) to a card priority int (1-6).
+// TaskPriorityToTaskNotePriority maps a todo.txt priority rune (A-F) to a task note priority int (1-6).
 // Returns 0 for no priority.
-func TaskPriorityToCardPriority(p rune) int {
+func TaskPriorityToTaskNotePriority(p rune) int {
 	if p >= 'A' && p <= 'F' {
 		return int(p-'A') + 1
 	}
 	return 0
 }
 
-// CreateCardFromTask creates a new card in the first column of a board from task data.
-func CreateCardFromTask(board *models.Board, title string, projects []string, tags []string, dueDate *time.Time, scheduledDate *time.Time, priority int) (models.Card, error) {
+// CreateTaskNoteFromTask creates a new task note in the first column of a board from task data.
+func CreateTaskNoteFromTask(board *models.Board, title string, projects []string, tags []string, dueDate *time.Time, scheduledDate *time.Time, priority int) (models.TaskNote, error) {
 	if len(board.Columns) == 0 {
-		return models.Card{}, fmt.Errorf("board has no columns")
+		return models.TaskNote{}, fmt.Errorf("board has no columns")
 	}
 
 	cardsDir := filepath.Join(board.Path, "cards")
 	if err := os.MkdirAll(cardsDir, 0755); err != nil {
-		return models.Card{}, err
+		return models.TaskNote{}, err
 	}
 
 	baseFilename := ToSnakeCase(title)
 	filename := UniqueFilename(baseFilename, cardsDir, "")
 
-	card := models.Card{
+	tn := models.TaskNote{
 		Filename:      filename,
 		Title:         title,
 		Tags:          tags,
@@ -396,19 +396,19 @@ func CreateCardFromTask(board *models.Board, title string, projects []string, ta
 	}
 
 	cardPath := filepath.Join(cardsDir, filename)
-	if err := fs.WriteCard(card, cardPath); err != nil {
-		return models.Card{}, err
+	if err := fs.WriteNewTaskNote(tn, cardPath); err != nil {
+		return models.TaskNote{}, err
 	}
 
-	board.Columns[0].Cards = append(board.Columns[0].Cards, card)
+	board.Columns[0].TaskNotes = append(board.Columns[0].TaskNotes, tn)
 	if err := fs.WriteBoard(*board); err != nil {
-		return models.Card{}, err
+		return models.TaskNote{}, err
 	}
 
-	return card, nil
+	return tn, nil
 }
 
-// EnsureBoardProjects ensures that a card has all the given board projects
+// EnsureBoardProjects ensures that a task note has all the given board projects
 // in its frontmatter. Returns nil without writing if all are already present.
 func EnsureBoardProjects(board *models.Board, colIndex, cardIndex int, boardProjects []string) error {
 	if len(boardProjects) == 0 {
@@ -418,14 +418,14 @@ func EnsureBoardProjects(board *models.Board, colIndex, cardIndex int, boardProj
 		return fmt.Errorf("invalid column index")
 	}
 	col := &board.Columns[colIndex]
-	if cardIndex < 0 || cardIndex >= len(col.Cards) {
+	if cardIndex < 0 || cardIndex >= len(col.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &col.Cards[cardIndex]
+	tn := &col.TaskNotes[cardIndex]
 	missing := false
 	for _, bp := range boardProjects {
-		if !hasProject(card.Projects, bp) {
+		if !hasProject(tn.Projects, bp) {
 			missing = true
 			break
 		}
@@ -435,37 +435,37 @@ func EnsureBoardProjects(board *models.Board, colIndex, cardIndex int, boardProj
 	}
 
 	for _, bp := range boardProjects {
-		if !hasProject(card.Projects, bp) {
-			card.Projects = append(card.Projects, bp)
+		if !hasProject(tn.Projects, bp) {
+			tn.Projects = append(tn.Projects, bp)
 		}
 	}
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	cardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	return fs.WriteTaskNote(*tn, cardPath)
 }
 
-// MoveCardToBoard moves a card from one board to another.
-// Done-column cards land in the target's done column (or first column if none);
-// all other cards land in the target's first column.
-// Any boardProjects not already on the card are added to its projects frontmatter.
-func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board, boardProjects []string) error {
+// MoveTaskNoteToBoard moves a task note from one board to another.
+// Done-column task notes land in the target's done column (or first column if none);
+// all other task notes land in the target's first column.
+// Any boardProjects not already on the task note are added to its projects frontmatter.
+func MoveTaskNoteToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *models.Board, boardProjects []string) error {
 	if colIndex < 0 || colIndex >= len(srcBoard.Columns) {
 		return fmt.Errorf("invalid source column index")
 	}
 	srcCol := &srcBoard.Columns[colIndex]
-	if cardIndex < 0 || cardIndex >= len(srcCol.Cards) {
+	if cardIndex < 0 || cardIndex >= len(srcCol.TaskNotes) {
 		return fmt.Errorf("invalid source card index")
 	}
 	if len(dstBoard.Columns) == 0 {
 		return fmt.Errorf("target board has no columns")
 	}
 
-	card := srcCol.Cards[cardIndex]
+	tn := srcCol.TaskNotes[cardIndex]
 
 	// Link source board projects if not already present
 	for _, bp := range boardProjects {
-		if !hasProject(card.Projects, bp) {
-			card.Projects = append(card.Projects, bp)
+		if !hasProject(tn.Projects, bp) {
+			tn.Projects = append(tn.Projects, bp)
 		}
 	}
 
@@ -486,24 +486,24 @@ func MoveCardToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoard *
 		return fmt.Errorf("create target cards dir: %w", err)
 	}
 
-	baseFilename := ToSnakeCase(card.Title)
+	baseFilename := ToSnakeCase(tn.Title)
 	newFilename := UniqueFilename(baseFilename, dstCardsDir, "")
-	origFilename := card.Filename
-	card.Filename = newFilename
+	origFilename := tn.Filename
+	tn.Filename = newFilename
 
 	cardPath := filepath.Join(dstCardsDir, newFilename)
-	if err := fs.WriteCard(card, cardPath); err != nil {
+	if err := fs.WriteTaskNote(tn, cardPath); err != nil {
 		return fmt.Errorf("write target card: %w", err)
 	}
 
-	dstBoard.Columns[dstColIdx].Cards = append(dstBoard.Columns[dstColIdx].Cards, card)
+	dstBoard.Columns[dstColIdx].TaskNotes = append(dstBoard.Columns[dstColIdx].TaskNotes, tn)
 	if err := fs.WriteBoard(*dstBoard); err != nil {
 		return fmt.Errorf("write target board: %w", err)
 	}
 
 	// Remove from source
 	srcCardsDir := filepath.Join(srcBoard.Path, "cards")
-	srcCol.Cards = append(srcCol.Cards[:cardIndex], srcCol.Cards[cardIndex+1:]...)
+	srcCol.TaskNotes = append(srcCol.TaskNotes[:cardIndex], srcCol.TaskNotes[cardIndex+1:]...)
 	if err := os.Remove(filepath.Join(srcCardsDir, origFilename)); err != nil && !os.IsNotExist(err) {
 		// Non-fatal: card is already in target
 	}
@@ -523,22 +523,72 @@ func hasProject(projects []string, name string) bool {
 	return false
 }
 
-// ToggleCardArchive flips the archived state of a card and persists to disk
-func ToggleCardArchive(board *models.Board, columnIndex, cardIndex int) error {
+// ToggleTaskNoteArchive moves a card between the board's cards/ dir and archive/boards/<name>/cards/.
+func ToggleTaskNoteArchive(board *models.Board, columnIndex, cardIndex int) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
 	}
 
 	column := &board.Columns[columnIndex]
-	if cardIndex < 0 || cardIndex >= len(column.Cards) {
+	if cardIndex < 0 || cardIndex >= len(column.TaskNotes) {
 		return fmt.Errorf("invalid card index")
 	}
 
-	card := &column.Cards[cardIndex]
-	card.Archived = !card.Archived
+	tn := column.TaskNotes[cardIndex]
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
-	return fs.WriteCard(*card, cardPath)
+	// board.Path is always the active board path (<ws>/boards/<name>)
+	boardName := filepath.Base(board.Path)
+	boardsDir := filepath.Dir(board.Path)
+	wsRoot := filepath.Dir(boardsDir)
+
+	activeCardPath := filepath.Join(board.Path, "cards", tn.Filename)
+	archiveCardsDir := filepath.Join(wsRoot, "archive", "boards", boardName, "cards")
+	archiveCardPath := filepath.Join(archiveCardsDir, tn.Filename)
+
+	if tn.Archived {
+		// Unarchive: move from archive/boards/<name>/cards/ to boards/<name>/cards/
+		targetColIdx := board.GetColumnIndex(tn.Column)
+		if targetColIdx == -1 {
+			targetColIdx = 0
+		}
+
+		if err := os.MkdirAll(filepath.Join(board.Path, "cards"), 0755); err != nil {
+			return err
+		}
+		if err := os.Rename(archiveCardPath, activeCardPath); err != nil {
+			return err
+		}
+
+		tn.Archived = false
+		tn.Column = ""
+		if err := fs.WriteTaskNote(tn, activeCardPath); err != nil {
+			return err
+		}
+
+		// Remove from current column and add to target column
+		column.TaskNotes = append(column.TaskNotes[:cardIndex], column.TaskNotes[cardIndex+1:]...)
+		board.Columns[targetColIdx].TaskNotes = append(board.Columns[targetColIdx].TaskNotes, tn)
+
+		return fs.WriteBoard(*board)
+	}
+
+	// Archive: move from boards/<name>/cards/ to archive/boards/<name>/cards/
+	tn.Column = board.Columns[columnIndex].Name
+	tn.Archived = true
+
+	if err := os.MkdirAll(archiveCardsDir, 0755); err != nil {
+		return err
+	}
+	if err := fs.WriteTaskNote(tn, archiveCardPath); err != nil {
+		return err
+	}
+
+	column.TaskNotes = append(column.TaskNotes[:cardIndex], column.TaskNotes[cardIndex+1:]...)
+	if err := fs.WriteBoard(*board); err != nil {
+		return err
+	}
+
+	return os.Remove(activeCardPath)
 }
 
 // OpenURL opens a URL in the default browser

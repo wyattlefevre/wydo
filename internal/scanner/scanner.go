@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+
 // WorkspaceScan holds everything discovered from scanning a single workspace
 type WorkspaceScan struct {
 	RootDir   string
@@ -17,13 +18,13 @@ type WorkspaceScan struct {
 
 // BoardInfo describes a discovered board directory
 type BoardInfo struct {
-	Path string // absolute path to board dir (containing board.md)
+	Path     string // absolute path to board dir (containing board.md)
+	Archived bool   // true if this board lives under archive/boards/
 }
 
 // TaskDirInfo describes a discovered tasks/ directory
 type TaskDirInfo struct {
-	DirPath string   // absolute path to the tasks/ directory
-	Files   []string // .txt filenames found within
+	DirPath string // absolute path to the tasks/ directory
 }
 
 // ProjectInfo describes a discovered project directory
@@ -85,6 +86,12 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 						return err
 					}
 				}
+			case "archive":
+				if dir == rootDir {
+					if err := scanArchiveDir(absPath, scan); err != nil {
+						return err
+					}
+				}
 			case "projects":
 				if err := scanProjectsDir(absPath, rootDir, projectContext, scan); err != nil {
 					return err
@@ -131,28 +138,52 @@ func scanBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	return nil
 }
 
-// scanTasksDir scans a tasks/ directory for .txt files
+// scanTasksDir registers a tasks/ directory.
 func scanTasksDir(tasksDir string, scan *WorkspaceScan) error {
-	entries, err := os.ReadDir(tasksDir)
+	scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{DirPath: tasksDir})
+	return nil
+}
+
+// scanArchiveDir scans archive/ for mirrored subdirectories (e.g. archive/tasks/, archive/boards/).
+func scanArchiveDir(archiveDir string, scan *WorkspaceScan) error {
+	tasksDir := filepath.Join(archiveDir, "tasks")
+	if _, err := os.Stat(tasksDir); err == nil {
+		if err := scanTasksDir(tasksDir, scan); err != nil {
+			return err
+		}
+	}
+
+	boardsDir := filepath.Join(archiveDir, "boards")
+	if _, err := os.Stat(boardsDir); err == nil {
+		if err := scanArchivedBoardsDir(boardsDir, scan); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// scanArchivedBoardsDir scans archive/boards/ for archived board directories
+func scanArchivedBoardsDir(boardsDir string, scan *WorkspaceScan) error {
+	entries, err := os.ReadDir(boardsDir)
 	if err != nil {
 		return err
 	}
 
-	var files []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.IsDir() {
 			continue
 		}
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ".txt") {
-			files = append(files, entry.Name())
-		}
-	}
 
-	if len(files) > 0 {
-		scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{
-			DirPath: tasksDir,
-			Files:   files,
-		})
+		boardPath := filepath.Join(boardsDir, entry.Name())
+		boardFile := filepath.Join(boardPath, "board.md")
+
+		if _, err := os.Stat(boardFile); err == nil {
+			scan.Boards = append(scan.Boards, BoardInfo{
+				Path:     boardPath,
+				Archived: true,
+			})
+		}
 	}
 
 	return nil

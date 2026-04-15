@@ -21,17 +21,14 @@ func setupTestDirs(t *testing.T) (string, []scanner.TaskDirInfo) {
 	os.WriteFile(filepath.Join(dir1, "todo.txt"), []byte(
 		"(A) Task from dir1 +alpha @computer\nBuy groceries @errands\n",
 	), 0644)
-	os.WriteFile(filepath.Join(dir1, "done.txt"), []byte(
-		"x 2026-02-01 Done task from dir1\n",
-	), 0644)
 
 	os.WriteFile(filepath.Join(dir2, "todo.txt"), []byte(
 		"(B) Task from dir2 +beta @work\n",
 	), 0644)
 
 	taskDirs := []scanner.TaskDirInfo{
-		{DirPath: dir1, Files: []string{"todo.txt", "done.txt"}},
-		{DirPath: dir2, Files: []string{"todo.txt"}},
+		{DirPath: dir1},
+		{DirPath: dir2},
 	}
 
 	return tmpDir, taskDirs
@@ -46,8 +43,8 @@ func TestMultiSourceLoad(t *testing.T) {
 	}
 
 	tasks, _ := svc.List()
-	if len(tasks) < 3 {
-		t.Fatalf("expected at least 3 tasks from 2 dirs, got %d", len(tasks))
+	if len(tasks) < 2 {
+		t.Fatalf("expected at least 2 tasks from 2 dirs, got %d", len(tasks))
 	}
 
 	// Verify tasks from both dirs are present
@@ -130,14 +127,14 @@ func TestCompleteMovesToDone(t *testing.T) {
 		t.Errorf("expected %d done, got %d", doneCountBefore+1, len(doneAfter))
 	}
 
-	// The completed task should be in done.txt in the same directory
+	// The completed task should stay in todo.txt (same dir), not moved to done.txt
 	found := false
 	for _, dt := range doneAfter {
 		if dt.Name == taskName {
 			found = true
-			expectedDone := filepath.Join(taskDir, "done.txt")
-			if dt.File != expectedDone {
-				t.Errorf("expected file %q, got %q", expectedDone, dt.File)
+			expectedFile := filepath.Join(taskDir, "todo.txt")
+			if dt.File != expectedFile {
+				t.Errorf("expected file %q, got %q", expectedFile, dt.File)
 			}
 			break
 		}
@@ -304,7 +301,7 @@ func TestArchivePerDirectory(t *testing.T) {
 	), 0644)
 
 	taskDirs := []scanner.TaskDirInfo{
-		{DirPath: dir1, Files: []string{"todo.txt"}},
+		{DirPath: dir1},
 	}
 
 	svc, err := NewTaskService(taskDirs)
@@ -317,13 +314,14 @@ func TestArchivePerDirectory(t *testing.T) {
 		t.Fatalf("archive error: %v", err)
 	}
 
-	// done.txt should now exist in dir1
-	doneFile := filepath.Join(dir1, "done.txt")
-	if _, err := os.Stat(doneFile); err != nil {
-		t.Error("expected done.txt to be created after archive")
+	// archive/tasks/todo.txt should now exist under the workspace root (parent of dir1)
+	workspaceRoot := filepath.Dir(dir1)
+	archiveFile := filepath.Join(workspaceRoot, "archive", "tasks", "todo.txt")
+	if _, err := os.Stat(archiveFile); err != nil {
+		t.Errorf("expected archive/tasks/todo.txt to be created after archive, got: %v", err)
 	}
 
-	// Reload and verify
+	// Reload and verify: 1 pending in todo.txt, 1 done in archive
 	tasks, _ := svc.ListPending()
 	done, _ := svc.ListDone()
 
@@ -332,5 +330,92 @@ func TestArchivePerDirectory(t *testing.T) {
 	}
 	if len(done) != 1 {
 		t.Errorf("expected 1 done task, got %d", len(done))
+	}
+}
+
+// TestDeleteByIDs_AllDeletedInOneBatch verifies that all selected IDs are deleted
+// even when the list has multiple tasks. The old loop-with-Delete approach failed
+// because each Delete triggered Reload, reassigning IDs from new line numbers and
+// making subsequent IDs in the batch stale.
+func TestDeleteByIDs_AllDeletedInOneBatch(t *testing.T) {
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, "tasks")
+	os.MkdirAll(tasksDir, 0755)
+	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("task one\ntask two\ntask three\n"), 0644)
+
+	svc, err := NewTaskService([]scanner.TaskDirInfo{{DirPath: tasksDir}})
+	if err != nil {
+		t.Fatalf("NewTaskService: %v", err)
+	}
+
+	tasks, _ := svc.List()
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(tasks))
+	}
+
+	ids := []string{tasks[0].ID, tasks[1].ID, tasks[2].ID}
+	if err := svc.DeleteByIDs(ids); err != nil {
+		t.Fatalf("DeleteByIDs: %v", err)
+	}
+
+	remaining, _ := svc.List()
+	if len(remaining) != 0 {
+		t.Errorf("expected 0 tasks after deleting all, got %d", len(remaining))
+	}
+}
+
+// TestDeleteByIDs_PartialDelete verifies that only the specified tasks are removed.
+func TestDeleteByIDs_PartialDelete(t *testing.T) {
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, "tasks")
+	os.MkdirAll(tasksDir, 0755)
+	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("task one\ntask two\ntask three\n"), 0644)
+
+	svc, err := NewTaskService([]scanner.TaskDirInfo{{DirPath: tasksDir}})
+	if err != nil {
+		t.Fatalf("NewTaskService: %v", err)
+	}
+
+	tasks, _ := svc.List()
+	ids := []string{tasks[0].ID, tasks[2].ID} // delete first and third
+	if err := svc.DeleteByIDs(ids); err != nil {
+		t.Fatalf("DeleteByIDs: %v", err)
+	}
+
+	remaining, _ := svc.List()
+	if len(remaining) != 1 {
+		t.Fatalf("expected 1 task remaining, got %d", len(remaining))
+	}
+	if remaining[0].Name != "task two" {
+		t.Errorf("wrong task remaining: got %q, want %q", remaining[0].Name, "task two")
+	}
+}
+
+// TestDeleteByIDs_WithBlankLines confirms batch delete works when the source file
+// had blank lines (same ID-stability scenario as the duplication bug).
+func TestDeleteByIDs_WithBlankLines(t *testing.T) {
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, "tasks")
+	os.MkdirAll(tasksDir, 0755)
+	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("task one\n\ntask two\n\ntask three\n"), 0644)
+
+	svc, err := NewTaskService([]scanner.TaskDirInfo{{DirPath: tasksDir}})
+	if err != nil {
+		t.Fatalf("NewTaskService: %v", err)
+	}
+
+	tasks, _ := svc.List()
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(tasks))
+	}
+
+	ids := []string{tasks[0].ID, tasks[1].ID, tasks[2].ID}
+	if err := svc.DeleteByIDs(ids); err != nil {
+		t.Fatalf("DeleteByIDs: %v", err)
+	}
+
+	remaining, _ := svc.List()
+	if len(remaining) != 0 {
+		t.Errorf("expected 0 tasks, got %d — stale-ID bug", len(remaining))
 	}
 }
