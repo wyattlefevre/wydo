@@ -23,8 +23,9 @@ import (
 )
 
 var (
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
-	cursorStyle      = theme.Cursor
+	groupHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(theme.Accent)
+	sectionHeaderStyle = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(theme.Primary)
+	cursorStyle        = theme.Cursor
 )
 
 // applyRowBackground applies a background color to an already ANSI-styled string.
@@ -100,6 +101,7 @@ type TaskManagerModel struct {
 	tasks          []data.Task
 	displayTasks   []data.Task
 	taskGroups     []TaskGroup
+	taskSections   []TaskSection
 
 	// Navigation
 	cursor       int
@@ -440,11 +442,7 @@ func (m TaskManagerModel) renderTaskListFull() string {
 	}
 
 	// Task list
-	if m.groupState.IsActive() && len(m.taskGroups) > 0 {
-		b.WriteString(m.renderGroupedTasks())
-	} else {
-		b.WriteString(m.renderFlatTasks())
-	}
+	b.WriteString(m.renderSectionedTasks())
 
 	// Pin mode bar to bottom
 	content := strings.TrimRight(b.String(), "\n")
@@ -470,16 +468,6 @@ func maxBoardNameLen(tasks []data.Task) int {
 	return max
 }
 
-func maxColumnNameLen(tasks []data.Task) int {
-	max := 0
-	for _, t := range tasks {
-		if t.IsTaskNote && len(t.ColumnName) > max {
-			max = len(t.ColumnName)
-		}
-	}
-	return max
-}
-
 func (m *TaskManagerModel) renderFlatTasks() string {
 	var b strings.Builder
 
@@ -488,14 +476,13 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 		return b.String()
 	}
 
+	bnw := maxBoardNameLen(m.displayTasks)
+
 	visible := m.visibleTaskRows()
 	end := m.scrollOffset + visible
 	if end > len(m.displayTasks) {
 		end = len(m.displayTasks)
 	}
-
-	bnw := maxBoardNameLen(m.displayTasks)
-	cnw := maxColumnNameLen(m.displayTasks)
 
 	for i := m.scrollOffset; i < end; i++ {
 		task := m.displayTasks[i]
@@ -526,7 +513,7 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 				prefix = cursorStyle.Render("> ")
 			}
 		}
-		line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw, cnw)
+		line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw)
 		if i == m.cursor {
 			line = applyRowBackground(line, m.width)
 		}
@@ -539,13 +526,11 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 func (m *TaskManagerModel) renderGroupedTasks() string {
 	var b strings.Builder
 
-	// Collect all tasks across groups to compute consistent board name width
 	var allGroupedTasks []data.Task
 	for _, group := range m.taskGroups {
 		allGroupedTasks = append(allGroupedTasks, group.Tasks...)
 	}
 	bnw := maxBoardNameLen(allGroupedTasks)
-	cnw := maxColumnNameLen(allGroupedTasks)
 
 	visible := m.visibleTaskRows()
 	linesRendered := 0
@@ -616,7 +601,7 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 						prefix = cursorStyle.Render("> ")
 					}
 				}
-				line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw, cnw)
+				line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw)
 				if taskIndex == m.cursor {
 					line = applyRowBackground(line, m.width)
 				}
@@ -624,6 +609,138 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 				linesRendered++
 			}
 			taskIndex++
+		}
+	}
+
+	return b.String()
+}
+
+func (m *TaskManagerModel) renderSectionedTasks() string {
+	var b strings.Builder
+
+	if len(m.displayTasks) == 0 {
+		b.WriteString(theme.Muted.Render("No tasks found."))
+		return b.String()
+	}
+
+	var allTasks []data.Task
+	for _, section := range m.taskSections {
+		for _, group := range section.Groups {
+			allTasks = append(allTasks, group.Tasks...)
+		}
+	}
+	bnw := maxBoardNameLen(allTasks)
+
+	visible := m.visibleTaskRows()
+	linesRendered := 0
+	taskIndex := 0
+
+	for _, section := range m.taskSections {
+		sectionStart := taskIndex
+		sectionTaskCount := 0
+		for _, g := range section.Groups {
+			sectionTaskCount += len(g.Tasks)
+		}
+		sectionEnd := sectionStart + sectionTaskCount
+
+		// Skip sections entirely before the scroll window
+		if sectionEnd <= m.scrollOffset {
+			taskIndex = sectionEnd
+			continue
+		}
+		if linesRendered >= visible {
+			break
+		}
+
+		// Blank line before section (skip at very top of viewport)
+		if linesRendered > 0 {
+			if linesRendered >= visible {
+				break
+			}
+			b.WriteString("\n")
+			linesRendered++
+		}
+		if linesRendered >= visible {
+			break
+		}
+
+		// Section header
+		b.WriteString(sectionHeaderStyle.Render(section.Label))
+		b.WriteString("\n")
+		linesRendered++
+
+		firstGroup := true
+		for _, group := range section.Groups {
+			groupEnd := taskIndex + len(group.Tasks)
+
+			if groupEnd <= m.scrollOffset {
+				taskIndex = groupEnd
+				firstGroup = false
+				continue
+			}
+			if linesRendered >= visible {
+				break
+			}
+
+			// Sub-group header (only when label is non-empty)
+			if group.Label != "" {
+				if !firstGroup {
+					if linesRendered >= visible {
+						break
+					}
+					b.WriteString("\n")
+					linesRendered++
+				}
+				if linesRendered >= visible {
+					break
+				}
+				b.WriteString(groupHeaderStyle.Render(group.Label))
+				b.WriteString("\n")
+				linesRendered++
+			}
+			firstGroup = false
+
+			for _, task := range group.Tasks {
+				if linesRendered >= visible {
+					break
+				}
+				if taskIndex >= m.scrollOffset {
+					var prefix string
+					if m.inputContext.Mode == ModeArchive {
+						box := "[ ]"
+						if m.archiveSelection[task.ID] {
+							box = "[x]"
+						}
+						if taskIndex == m.cursor {
+							prefix = cursorStyle.Render(box + " ")
+						} else {
+							prefix = box + " "
+						}
+					} else if m.inputContext.Mode == ModeDelete {
+						box := "[ ]"
+						if m.deleteSelection[task.ID] {
+							box = "[x]"
+						}
+						if taskIndex == m.cursor {
+							prefix = cursorStyle.Render(box + " ")
+						} else {
+							prefix = box + " "
+						}
+					} else {
+						prefix = "  "
+						if taskIndex == m.cursor {
+							prefix = cursorStyle.Render("> ")
+						}
+					}
+					line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw)
+					if taskIndex == m.cursor {
+						line = applyRowBackground(line, m.width)
+					}
+					b.WriteString(line + "\n")
+					linesRendered++
+				}
+				taskIndex++
+			}
 		}
 	}
 
@@ -673,6 +790,12 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 		return m.startNewTask()
 	case "u":
 		return m.handleOpenURL()
+	case "ctrl+u":
+		m.moveCursor(-20)
+		return m, nil
+	case "ctrl+d":
+		m.moveCursor(20)
+		return m, nil
 	case "m":
 		return m.startMoveToBoard()
 	case "b":
@@ -1402,21 +1525,17 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 		filtered = nonArchived
 	}
 
-	// Apply sort
-	sorted := ApplySort(filtered, m.sortState)
+	// Always apply workspace meta-grouping
+	m.taskSections = ApplyWorkspaceSections(filtered, m.groupState, m.sortState, m.workspaceRoots)
 
-	// Apply grouping
-	if m.groupState.IsActive() {
-		m.taskGroups = ApplyGroups(sorted, m.groupState, m.workspaceRoots)
-		// Flatten for cursor navigation
-		m.displayTasks = nil
-		for _, g := range m.taskGroups {
-			m.displayTasks = append(m.displayTasks, g.Tasks...)
+	// Flatten for cursor navigation
+	m.displayTasks = nil
+	for _, section := range m.taskSections {
+		for _, group := range section.Groups {
+			m.displayTasks = append(m.displayTasks, group.Tasks...)
 		}
-	} else {
-		m.displayTasks = sorted
-		m.taskGroups = nil
 	}
+	m.taskGroups = nil
 
 	// Clamp cursor
 	if m.cursor >= len(m.displayTasks) {
@@ -1480,41 +1599,70 @@ func (m *TaskManagerModel) ensureCursorVisible() {
 }
 
 // countVisualRows returns the number of visual rows needed to display tasks [start, end)
-// accounting for group headers and blank separator lines in grouped mode.
+// accounting for section headers, group headers, and blank separator lines.
 func (m *TaskManagerModel) countVisualRows(start, end int) int {
 	if end <= start {
 		return 0
 	}
-	if !m.groupState.IsActive() || len(m.taskGroups) == 0 {
+	if len(m.taskSections) == 0 {
 		return end - start
 	}
 	rows := 0
 	taskIndex := 0
-	firstGroup := true
-	for _, group := range m.taskGroups {
-		groupEnd := taskIndex + len(group.Tasks)
-		if groupEnd <= start {
-			taskIndex = groupEnd
+	firstSection := true
+	for _, section := range m.taskSections {
+		sectionTaskCount := 0
+		for _, g := range section.Groups {
+			sectionTaskCount += len(g.Tasks)
+		}
+		sectionEnd := taskIndex + sectionTaskCount
+
+		if sectionEnd <= start {
+			taskIndex = sectionEnd
 			continue
 		}
 		if taskIndex >= end {
 			break
 		}
-		showHeader := taskIndex >= start || (taskIndex < start && groupEnd > start)
-		if showHeader {
-			if !firstGroup {
-				rows++ // blank separator before header
+
+		sectionVisible := taskIndex >= start || (taskIndex < start && sectionEnd > start)
+		if sectionVisible {
+			if !firstSection {
+				rows++ // blank separator before section header
 			}
-			rows++ // header row
+			rows++ // section header row
+			firstSection = false
+		}
+
+		firstGroup := true
+		for _, group := range section.Groups {
+			groupEnd := taskIndex + len(group.Tasks)
+			if groupEnd <= start {
+				taskIndex = groupEnd
+				firstGroup = false
+				continue
+			}
+			if taskIndex >= end {
+				break
+			}
+			if group.Label != "" {
+				groupVisible := taskIndex >= start || (taskIndex < start && groupEnd > start)
+				if groupVisible {
+					if !firstGroup {
+						rows++ // blank separator before sub-group header
+					}
+					rows++ // sub-group header row
+				}
+			}
 			firstGroup = false
-		}
-		for i := range group.Tasks {
-			idx := taskIndex + i
-			if idx >= start && idx < end {
-				rows++
+			for i := range group.Tasks {
+				idx := taskIndex + i
+				if idx >= start && idx < end {
+					rows++
+				}
 			}
+			taskIndex = groupEnd
 		}
-		taskIndex = groupEnd
 	}
 	return rows
 }
