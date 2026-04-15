@@ -141,6 +141,12 @@ type TaskGroup struct {
 	Tasks []data.Task
 }
 
+// TaskSection represents a workspace-level grouping that contains sub-groups.
+type TaskSection struct {
+	Label  string      // workspace display name
+	Groups []TaskGroup // sub-groups within this workspace (one group with Label="" if no sub-grouping)
+}
+
 // ApplySort applies sorting to a task list (stable sort)
 func ApplySort(tasks []data.Task, state SortState) []data.Task {
 	if state.Field == SortByNone {
@@ -366,6 +372,46 @@ func compareGroupKeys(a, b string, field GroupField) int {
 	// For dates, string comparison works (ISO format)
 	// For text fields, case-insensitive comparison
 	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+}
+
+// ApplyWorkspaceSections partitions tasks by workspace (in roots order) and
+// applies sort + group within each partition.
+func ApplyWorkspaceSections(tasks []data.Task, groupState GroupState, sortState SortState, roots []string) []TaskSection {
+	workspaceMap := make(map[string][]data.Task)
+	for _, task := range tasks {
+		ws := WorkspaceForTask(task.File, roots)
+		workspaceMap[ws] = append(workspaceMap[ws], task)
+	}
+
+	// Build sections in roots order so the user's configured order is preserved.
+	seen := make(map[string]bool)
+	var keys []string
+	for _, root := range roots {
+		name := WorkspaceName(root, roots)
+		if !seen[name] {
+			seen[name] = true
+			keys = append(keys, name)
+		}
+	}
+	if _, ok := workspaceMap[""]; ok {
+		keys = append(keys, "")
+	}
+
+	var sections []TaskSection
+	for _, ws := range keys {
+		wsTasks := workspaceMap[ws]
+		if len(wsTasks) == 0 {
+			continue
+		}
+		sorted := ApplySort(wsTasks, sortState)
+		groups := ApplyGroups(sorted, groupState, roots)
+		label := ws
+		if label == "" {
+			label = "(no workspace)"
+		}
+		sections = append(sections, TaskSection{Label: label, Groups: groups})
+	}
+	return sections
 }
 
 // ExtractUniqueProjects returns all unique project names from tasks

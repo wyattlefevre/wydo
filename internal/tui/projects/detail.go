@@ -1110,7 +1110,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		}
 
 	case rowKindTask:
-		taskLine := shared.StyledTaskLine(row.task, 0, 0, 0)
+		taskLine := shared.StyledTaskLine(row.task, 0, 0)
 		rendered = taskLine
 
 	case rowKindCard:

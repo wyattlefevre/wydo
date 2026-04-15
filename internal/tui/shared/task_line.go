@@ -15,16 +15,19 @@ import (
 var boardNameStyle = lipgloss.NewStyle().Foreground(theme.Secondary)
 var columnNameStyle = lipgloss.NewStyle().Foreground(theme.Primary)
 
+const statusWidth = 7
+
 // StyledTaskLine renders a task in a simple, readable format.
 // Format: [x] (A) Name +project @context due:date
 //
 // width is the available visual width for the entire line. When > 0:
 //   - The task name is truncated to keep the line within width.
-//   - For TaskNotes the board name and column name are right-aligned at the far right.
+//   - For TaskNotes the board name and column status are right-aligned at the far right.
 //
-// boardNameWidth and columnNameWidth set the minimum widths for those fields (for column alignment).
+// boardNameWidth sets the minimum width for the board name field (for column alignment).
+// The column/status field is always fixed at statusWidth (7) chars.
 // Pass width=0 to skip truncation/alignment (e.g. in non-fixed-width views).
-func StyledTaskLine(t data.Task, width int, boardNameWidth int, columnNameWidth int) string {
+func StyledTaskLine(t data.Task, width int, boardNameWidth int) string {
 	var parts []string
 
 	// Priority
@@ -95,19 +98,19 @@ func StyledTaskLine(t data.Task, width int, boardNameWidth int, columnNameWidth 
 	// Build right-aligned suffix
 	var suffix string
 	if t.IsTaskNote {
-		pad := boardNameWidth
-		if pad < len(t.BoardName) {
-			pad = len(t.BoardName)
+		colStatus := t.ColumnName
+		if len(colStatus) > statusWidth {
+			colStatus = colStatus[:statusWidth]
+		} else {
+			colStatus = fmt.Sprintf("%-*s", statusWidth, colStatus)
 		}
-		boardPadded := fmt.Sprintf("%-*s", pad, t.BoardName)
-		colPad := columnNameWidth
-		if colPad < len(t.ColumnName) {
-			colPad = len(t.ColumnName)
-		}
-		colPadded := fmt.Sprintf("%-*s", colPad, t.ColumnName)
-		suffix = "  " + boardNameStyle.Render(boardPadded) + " " + columnNameStyle.Render(colPadded)
+		suffix = "  " + boardNameStyle.Render(fmt.Sprintf("%-*s", boardNameWidth, t.BoardName)) + " " + columnNameStyle.Render(colStatus)
 	} else if t.Done {
-		suffix = theme.Done.Render("Done")
+		var spacer string
+		if boardNameWidth > 0 {
+			spacer = strings.Repeat(" ", boardNameWidth+1)
+		}
+		suffix = "  " + spacer + theme.Done.Render(fmt.Sprintf("%-*s", statusWidth, "Done"))
 	}
 
 	if suffix == "" {
