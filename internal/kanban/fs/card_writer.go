@@ -48,7 +48,9 @@ func WriteTaskNote(tn models.TaskNote, path string) error {
 
 	set("priority", models.TaskNotePriorityLabel(tn.Priority), tn.Priority > 0)
 	delete(fm, "archived") // archival is now path-based, not frontmatter-based
-	set("column", tn.Column, tn.Column != "")
+	set("board", tn.Board, tn.Board != "")
+	set("status", tn.Status, tn.Status != "")
+	delete(fm, "column") // remove legacy column field
 	set("tmux_session", tn.TmuxSession, tn.TmuxSession != "")
 	set("jira_key", tn.JiraKey, tn.JiraKey != "")
 	set("jira_status", tn.JiraStatus, tn.JiraStatus != "")
@@ -107,6 +109,12 @@ func WriteNewTaskNote(tn models.TaskNote, path string) error {
 	}
 	if tn.Priority > 0 {
 		fm["priority"] = models.TaskNotePriorityLabel(tn.Priority)
+	}
+	if tn.Board != "" {
+		fm["board"] = tn.Board
+	}
+	if tn.Status != "" {
+		fm["status"] = tn.Status
 	}
 
 	var buf bytes.Buffer

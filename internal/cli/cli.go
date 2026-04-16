@@ -92,13 +92,13 @@ Usage: wydo task <command> [arguments]
 
 Commands:
   add, a      Add a new task
-              wydo task add "Task description +project @context"
+              wydo task add "Task description +project @tag"
 
   list, ls, l List tasks
               wydo task list              # List all pending tasks
               wydo task list --all        # List all tasks including done
               wydo task list -p project   # Filter by project
-              wydo task list -c context   # Filter by context
+              wydo task list -c tag       # Filter by tag
               wydo task list --done       # List only completed tasks
 
   done, do, d Mark a task as complete

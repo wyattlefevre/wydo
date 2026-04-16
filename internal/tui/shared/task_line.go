@@ -57,23 +57,23 @@ func StyledTaskLine(t data.Task, width int, boardNameWidth int) string {
 		}
 	}
 
-	// Contexts
-	for _, c := range t.Contexts {
+	// Tags (@ prefix)
+	for _, c := range t.Tags {
 		if t.Done {
 			parts = append(parts, theme.Done.Render("@"+c))
 		} else {
-			parts = append(parts, theme.Context.Render("@"+c))
+			parts = append(parts, theme.AtTag.Render("@"+c))
 		}
 	}
 
-	// Tags (including due date) — sorted for deterministic rendering
-	tagKeys := make([]string, 0, len(t.Tags))
-	for k := range t.Tags {
+	// Properties (including due date) — sorted for deterministic rendering
+	tagKeys := make([]string, 0, len(t.Properties))
+	for k := range t.Properties {
 		tagKeys = append(tagKeys, k)
 	}
 	sort.Strings(tagKeys)
 	for _, k := range tagKeys {
-		v := t.Tags[k]
+		v := t.Properties[k]
 		switch k {
 		case "url":
 			if t.Done {
@@ -104,7 +104,11 @@ func StyledTaskLine(t data.Task, width int, boardNameWidth int) string {
 		} else {
 			colStatus = fmt.Sprintf("%-*s", statusWidth, colStatus)
 		}
-		suffix = "  " + boardNameStyle.Render(fmt.Sprintf("%-*s", boardNameWidth, t.BoardName)) + " " + columnNameStyle.Render(colStatus)
+		if t.Done {
+			suffix = "  " + theme.Done.Render(fmt.Sprintf("%-*s", boardNameWidth, t.BoardName)) + " " + theme.Done.Render(colStatus)
+		} else {
+			suffix = "  " + boardNameStyle.Render(fmt.Sprintf("%-*s", boardNameWidth, t.BoardName)) + " " + columnNameStyle.Render(colStatus)
+		}
 	} else if t.Done {
 		var spacer string
 		if boardNameWidth > 0 {

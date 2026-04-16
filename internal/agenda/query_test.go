@@ -15,7 +15,7 @@ type mockTaskService struct {
 
 func (m *mockTaskService) List() ([]data.Task, error)                         { return m.tasks, nil }
 func (m *mockTaskService) ListByProject(string) ([]data.Task, error)          { return nil, nil }
-func (m *mockTaskService) ListByContext(string) ([]data.Task, error)          { return nil, nil }
+func (m *mockTaskService) ListByTag(string) ([]data.Task, error)              { return nil, nil }
 func (m *mockTaskService) ListPending() ([]data.Task, error) {
 	var pending []data.Task
 	for _, t := range m.tasks {
@@ -94,12 +94,12 @@ func TestQueryAgenda_TaskDueDate(t *testing.T) {
 			{
 				ID:   "t1",
 				Name: "Buy groceries",
-				Tags: map[string]string{"due": "2026-02-06"},
+				Properties: map[string]string{"due": "2026-02-06"},
 			},
 			{
 				ID:   "t2",
 				Name: "No date task",
-				Tags: map[string]string{},
+				Properties: map[string]string{},
 			},
 		},
 	}
@@ -126,7 +126,7 @@ func TestQueryAgenda_TaskScheduledDate(t *testing.T) {
 			{
 				ID:   "t1",
 				Name: "Review PR",
-				Tags: map[string]string{"scheduled": "2026-02-06"},
+				Properties: map[string]string{"scheduled": "2026-02-06"},
 			},
 		},
 	}
@@ -199,10 +199,10 @@ func TestQueryAgenda_CardDueDate(t *testing.T) {
 func TestQueryAgenda_MultiDayRange(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Task A", Tags: map[string]string{"due": "2026-02-02"}},
-			{ID: "t2", Name: "Task B", Tags: map[string]string{"due": "2026-02-05"}},
-			{ID: "t3", Name: "Task C", Tags: map[string]string{"due": "2026-02-08"}},
-			{ID: "t4", Name: "Task D", Tags: map[string]string{"due": "2026-02-10"}}, // out of range
+			{ID: "t1", Name: "Task A", Properties: map[string]string{"due": "2026-02-02"}},
+			{ID: "t2", Name: "Task B", Properties: map[string]string{"due": "2026-02-05"}},
+			{ID: "t3", Name: "Task C", Properties: map[string]string{"due": "2026-02-08"}},
+			{ID: "t4", Name: "Task D", Properties: map[string]string{"due": "2026-02-10"}}, // out of range
 		},
 	}
 
@@ -224,8 +224,8 @@ func TestQueryAgenda_MultiDayRange(t *testing.T) {
 func TestQueryAgenda_DoneTasksSeparated(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Pending", Tags: map[string]string{"due": "2026-02-06"}},
-			{ID: "t2", Name: "Completed", Done: true, Tags: map[string]string{"due": "2026-02-06"}},
+			{ID: "t1", Name: "Pending", Properties: map[string]string{"due": "2026-02-06"}},
+			{ID: "t2", Name: "Completed", Done: true, Properties: map[string]string{"due": "2026-02-06"}},
 		},
 	}
 
@@ -270,9 +270,9 @@ func TestQueryAgenda_EmptyResult(t *testing.T) {
 func TestQueryOverdueItems_BasicTask(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Past due task", Tags: map[string]string{"due": "2026-02-01"}},
-			{ID: "t2", Name: "Today task", Tags: map[string]string{"due": "2026-02-06"}},
-			{ID: "t3", Name: "Future task", Tags: map[string]string{"due": "2026-02-10"}},
+			{ID: "t1", Name: "Past due task", Properties: map[string]string{"due": "2026-02-01"}},
+			{ID: "t2", Name: "Today task", Properties: map[string]string{"due": "2026-02-06"}},
+			{ID: "t3", Name: "Future task", Properties: map[string]string{"due": "2026-02-10"}},
 		},
 	}
 
@@ -293,7 +293,7 @@ func TestQueryOverdueItems_BasicTask(t *testing.T) {
 func TestQueryOverdueItems_ScheduledDateIncluded(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Scheduled only", Tags: map[string]string{"scheduled": "2026-02-01"}},
+			{ID: "t1", Name: "Scheduled only", Properties: map[string]string{"scheduled": "2026-02-01"}},
 		},
 	}
 
@@ -313,7 +313,7 @@ func TestQueryOverdueItems_ScheduledDateIncluded(t *testing.T) {
 func TestQueryOverdueItems_BothOverdueDeduped(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Both overdue", Tags: map[string]string{"due": "2026-02-01", "scheduled": "2026-02-02"}},
+			{ID: "t1", Name: "Both overdue", Properties: map[string]string{"due": "2026-02-01", "scheduled": "2026-02-02"}},
 		},
 	}
 
@@ -331,7 +331,7 @@ func TestQueryOverdueItems_BothOverdueDeduped(t *testing.T) {
 func TestQueryOverdueItems_ScheduledOverdueDueNotOverdue(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Sched past due future", Tags: map[string]string{"due": "2026-02-10", "scheduled": "2026-02-01"}},
+			{ID: "t1", Name: "Sched past due future", Properties: map[string]string{"due": "2026-02-10", "scheduled": "2026-02-01"}},
 		},
 	}
 
@@ -349,8 +349,8 @@ func TestQueryOverdueItems_ScheduledOverdueDueNotOverdue(t *testing.T) {
 func TestQueryOverdueItems_DoneTasksExcluded(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Pending overdue", Tags: map[string]string{"due": "2026-02-01"}},
-			{ID: "t2", Name: "Done overdue", Done: true, Tags: map[string]string{"due": "2026-02-01"}},
+			{ID: "t1", Name: "Pending overdue", Properties: map[string]string{"due": "2026-02-01"}},
+			{ID: "t2", Name: "Done overdue", Done: true, Properties: map[string]string{"due": "2026-02-01"}},
 		},
 	}
 
@@ -404,9 +404,9 @@ func TestQueryOverdueItems_Cards(t *testing.T) {
 func TestQueryOverdueItems_SortOrder(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Recent overdue", Tags: map[string]string{"due": "2026-02-04"}},
-			{ID: "t2", Name: "Oldest overdue", Tags: map[string]string{"due": "2026-01-20"}},
-			{ID: "t3", Name: "Mid overdue", Tags: map[string]string{"due": "2026-01-28"}},
+			{ID: "t1", Name: "Recent overdue", Properties: map[string]string{"due": "2026-02-04"}},
+			{ID: "t2", Name: "Oldest overdue", Properties: map[string]string{"due": "2026-01-20"}},
+			{ID: "t3", Name: "Mid overdue", Properties: map[string]string{"due": "2026-01-28"}},
 		},
 	}
 
@@ -430,9 +430,9 @@ func TestQueryOverdueItems_SortOrder(t *testing.T) {
 func TestQueryOverdueItems_BoundaryDate(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Day before", Tags: map[string]string{"due": "2026-02-05"}},
-			{ID: "t2", Name: "Cutoff day", Tags: map[string]string{"due": "2026-02-06"}},
-			{ID: "t3", Name: "Day after", Tags: map[string]string{"due": "2026-02-07"}},
+			{ID: "t1", Name: "Day before", Properties: map[string]string{"due": "2026-02-05"}},
+			{ID: "t2", Name: "Cutoff day", Properties: map[string]string{"due": "2026-02-06"}},
+			{ID: "t3", Name: "Day after", Properties: map[string]string{"due": "2026-02-07"}},
 		},
 	}
 
@@ -450,7 +450,7 @@ func TestQueryOverdueItems_BoundaryDate(t *testing.T) {
 func TestQueryOverdueItems_Empty(t *testing.T) {
 	svc := &mockTaskService{
 		tasks: []data.Task{
-			{ID: "t1", Name: "Future task", Tags: map[string]string{"due": "2026-02-10"}},
+			{ID: "t1", Name: "Future task", Properties: map[string]string{"due": "2026-02-10"}},
 		},
 	}
 
@@ -467,7 +467,7 @@ func TestQueryAgenda_TaskWithBothDates(t *testing.T) {
 			{
 				ID:   "t1",
 				Name: "Both dates",
-				Tags: map[string]string{
+				Properties: map[string]string{
 					"due":       "2026-02-06",
 					"scheduled": "2026-02-06",
 				},

@@ -43,9 +43,9 @@ var (
 	ListItem         = lipgloss.NewStyle().Foreground(Text).Padding(0, 2)
 	ListItemSelected = lipgloss.NewStyle().Foreground(Warning).Bold(true).Padding(0, 2)
 
-	Project  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	Context  = lipgloss.NewStyle().Foreground(Accent)
-	Tag      = lipgloss.NewStyle().Foreground(Warning)
+	Project = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	AtTag   = lipgloss.NewStyle().Foreground(Accent)
+	Tag     = lipgloss.NewStyle().Foreground(Warning)
 	Priority = lipgloss.NewStyle().Bold(true).Foreground(Danger)
 	Done     = lipgloss.NewStyle().Foreground(Success)
 )

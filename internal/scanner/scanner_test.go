@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func TestScanWorkspace_FindsBoards(t *testing.T) {
 
 	boardNames := make(map[string]bool)
 	for _, b := range scan.Boards {
-		boardNames[filepath.Base(b.Path)] = true
+		boardNames[strings.TrimSuffix(filepath.Base(b.Path), ".txt")] = true
 	}
 
 	for _, expected := range []string{"dev-work", "home-reno", "sprint"} {
@@ -177,14 +178,14 @@ func TestScanWorkspace_BoardsOnlyAtRoot(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create a board at the workspace root boards/ (should be found)
-	rootBoard := filepath.Join(tmp, "boards", "myboard")
-	os.MkdirAll(rootBoard, 0755)
-	os.WriteFile(filepath.Join(rootBoard, "board.md"), []byte("# myboard\n"), 0644)
+	boardsDir := filepath.Join(tmp, "boards")
+	os.MkdirAll(boardsDir, 0755)
+	os.WriteFile(filepath.Join(boardsDir, "myboard.txt"), []byte("To Do\n"), 0644)
 
 	// Create a board inside a project (should NOT be found)
-	projBoard := filepath.Join(tmp, "projects", "alpha", "boards", "sprint")
-	os.MkdirAll(projBoard, 0755)
-	os.WriteFile(filepath.Join(projBoard, "board.md"), []byte("# sprint\n"), 0644)
+	projBoardsDir := filepath.Join(tmp, "projects", "alpha", "boards")
+	os.MkdirAll(projBoardsDir, 0755)
+	os.WriteFile(filepath.Join(projBoardsDir, "sprint.txt"), []byte("Backlog\n"), 0644)
 
 	scan, err := ScanWorkspace(tmp)
 	if err != nil {
@@ -194,7 +195,7 @@ func TestScanWorkspace_BoardsOnlyAtRoot(t *testing.T) {
 	if len(scan.Boards) != 1 {
 		t.Fatalf("expected exactly 1 board (root only), got %d", len(scan.Boards))
 	}
-	if filepath.Base(scan.Boards[0].Path) != "myboard" {
+	if strings.TrimSuffix(filepath.Base(scan.Boards[0].Path), ".txt") != "myboard" {
 		t.Errorf("expected board 'myboard', got %q", filepath.Base(scan.Boards[0].Path))
 	}
 }

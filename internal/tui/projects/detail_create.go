@@ -252,11 +252,11 @@ func (m DetailModel) finishTaskNameEntry(name string) (DetailModel, tea.Cmd) {
 	task := &data.Task{
 		Name:     strings.TrimSpace(name),
 		Projects: []string{projectName},
-		Contexts: []string{},
-		Tags:     make(map[string]string),
+		Tags:     []string{},
+		Properties:   make(map[string]string),
 	}
 
-	editor := taskview.NewTaskEditor(task, m.allProjectItems, m.allContexts)
+	editor := taskview.NewTaskEditor(task, m.allProjectItems, m.allTags)
 	editor.Width = m.width
 	editor.Height = m.height
 	m.createTaskEditor = editor
@@ -317,7 +317,7 @@ func (m DetailModel) finishCardCreation(boardPath string) (DetailModel, tea.Cmd)
 		projectName = m.pendingProject.Name
 	}
 
-	board, err := fs.ReadBoard(boardPath)
+	board, err := fs.ReadBoardFull(boardPath, m.wsDir)
 	if err != nil {
 		logs.Logger.Printf("Error loading board for card creation: %v", err)
 		return m, nil
@@ -329,7 +329,7 @@ func (m DetailModel) finishCardCreation(boardPath string) (DetailModel, tea.Cmd)
 		return m, nil
 	}
 
-	cardPath := filepath.Join(board.Path, "cards", card.Filename)
+	cardPath := filepath.Join(board.WSRoot, "tasks", card.Filename)
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"

@@ -139,7 +139,7 @@ func NewAppModel(cfg *config.Config, workspaces []*workspace.Workspace) AppModel
 	// If a specific board was requested, find and open it directly
 	if cfg.DefaultBoard != "" {
 		if board, ok := findBoard(allBoards, cfg.DefaultBoard); ok {
-			if loaded, err := fs.ReadBoard(board.Path); err == nil {
+			if loaded, err := fs.ReadBoardFull(board.Path, board.WSRoot); err == nil {
 				app.kanbanView.LoadBoard(loaded, collectAllProjects(workspaces), allBoards, projectsForBoard(workspaces, board.Path))
 				app.currentView = ViewKanbanPicker
 			}
@@ -188,12 +188,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case OpenBoardMsg:
-		// Load the board into the combined view
-		board, err := fs.ReadBoard(msg.BoardPath)
-		if err != nil {
+		// Find the board from already-loaded workspaces (they have full columns)
+		var board *kanbanmodels.Board
+		for i := range m.boards {
+			if m.boards[i].Path == msg.BoardPath {
+				board = &m.boards[i]
+				break
+			}
+		}
+		if board == nil {
 			return m, nil
 		}
-		m.kanbanView.LoadBoard(board, collectAllProjects(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
+		m.kanbanView.LoadBoard(*board, collectAllProjects(m.workspaces), m.boards, projectsForBoard(m.workspaces, msg.BoardPath))
 		if msg.ColIndex > 0 || msg.CardIndex > 0 {
 			m.kanbanView.NavigateTo(msg.ColIndex, msg.CardIndex)
 		}
@@ -215,12 +221,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					indexPreview = workspace.ReadIndexPreview(proj.DirPath, proj.Name)
 				}
 				allProjectItems := collectAllProjects(m.workspaces)
-				allContexts := taskview.ExtractUniqueContexts(ws.Tasks)
+				allTags := taskview.ExtractUniqueTags(ws.Tasks)
 				detail := projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
 					projNotes, projTasks, projCards, projBoards, ws.Boards,
 					proj, ws.Projects, children, indexPreview, ws.Tasks, ws.Notes,
-					allProjectItems, allContexts,
+					allProjectItems, allTags,
 				)
 				m.projectsView.LoadDetail(detail)
 				m.currentView = ViewProjects
@@ -271,10 +277,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logs.Logger.Printf("Error adding new task: %v", err)
 			}
 			m.taskManagerView.SetData(m.taskSvc)
+			var cmds []tea.Cmd
 			if added != nil {
-				return m, m.setStatus(fmt.Sprintf("%q added to %s", msg.Task.Name, added.File), LevelSuccess)
+				cmds = append(cmds, m.setStatus(fmt.Sprintf("%q added to %s", msg.Task.Name, added.File), LevelSuccess))
 			}
-			return m, nil
+			if m.currentView == ViewProjects {
+				if projName := m.projectsView.ActiveProjectName(); projName != "" {
+					_, wsDir := m.projectsView.OpenInfo()
+					m.refreshData()
+					m.projectsView.SetData(m.workspaces)
+					cmds = append(cmds, func() tea.Msg {
+						return OpenProjectMsg{ProjectName: projName, WorkspaceRootDir: wsDir}
+					})
+				}
+			}
+			return m, tea.Batch(cmds...)
 		}
 		if err := m.taskSvc.Update(msg.Task); err != nil {
 			logs.Logger.Printf("Error updating task: %v", err)
@@ -290,11 +307,18 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case taskview.MoveTaskToBoardMsg:
-		// Load the board fresh from disk
-		board, err := fs.ReadBoard(msg.BoardPath)
-		if err != nil {
-			return m, m.setStatus(fmt.Sprintf("Error loading board: %v", err), LevelError)
+		// Find the board from already-loaded workspaces
+		var boardPtr *kanbanmodels.Board
+		for i := range m.boards {
+			if m.boards[i].Path == msg.BoardPath {
+				boardPtr = &m.boards[i]
+				break
+			}
 		}
+		if boardPtr == nil {
+			return m, m.setStatus(fmt.Sprintf("Board not found: %s", msg.BoardPath), LevelError)
+		}
+		board := *boardPtr
 
 		// Parse dates from task tags
 		var dueDate, scheduledDate *time.Time
@@ -327,7 +351,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Create the card
-		_, err = operations.CreateTaskNoteFromTask(&board, msg.Task.Name, projects, msg.Task.Contexts, dueDate, scheduledDate, priority)
+		_, err := operations.CreateTaskNoteFromTask(&board, msg.Task.Name, projects, msg.Task.Tags, dueDate, scheduledDate, priority)
 		if err != nil {
 			return m, m.setStatus(fmt.Sprintf("Error creating card: %v", err), LevelError)
 		}
@@ -397,21 +421,29 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Push fresh data into every loaded model, not just the active view.
 		projDates := collectProjectDates(m.workspaces)
 		m.kanbanView.SetBoards(m.boards)
-		m.taskManagerView.SetData(m.taskSvc)
 		m.taskManagerView.SetBoards(m.boards)
+		m.taskManagerView.SetData(m.taskSvc)
 		m.projectsView.SetData(m.workspaces)
 		m.notesView.SetData(m.workspaces)
 		m.dayView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		m.weekView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		m.monthView.SetData(m.taskSvc, m.boards, m.allNotes, projDates)
 		if boardPath := m.kanbanView.BoardPath(); boardPath != "" {
-			if board, err := fs.ReadBoard(boardPath); err == nil {
-				m.kanbanView.SetBoard(board)
+			// Find the reloaded board from workspaces (which have full columns)
+			var found *kanbanmodels.Board
+			for i := range m.boards {
+				if m.boards[i].Path == boardPath {
+					found = &m.boards[i]
+					break
+				}
+			}
+			if found != nil {
+				m.kanbanView.SetBoard(*found)
 				m.kanbanView.SetAllProjects(collectAllProjects(m.workspaces))
 				m.kanbanView.SetBoardProjects(projectsForBoard(m.workspaces, boardPath))
 			} else {
 				// Board no longer exists (e.g. was deleted) — unload it
-				logs.Logger.Printf("DataRefreshMsg: failed to reload board: %v", err)
+				logs.Logger.Printf("DataRefreshMsg: board not found at %s, unloading", boardPath)
 				m.kanbanView.UnloadBoard()
 			}
 		}
@@ -473,10 +505,17 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = ViewKanbanPicker
 				m.kanbanView.SetBoards(m.boards)
 				if boardPath := m.kanbanView.BoardPath(); boardPath != "" {
-					if board, err := fs.ReadBoard(boardPath); err == nil {
-						m.kanbanView.SetBoard(board)
+					var found *kanbanmodels.Board
+					for i := range m.boards {
+						if m.boards[i].Path == boardPath {
+							found = &m.boards[i]
+							break
+						}
+					}
+					if found != nil {
+						m.kanbanView.SetBoard(*found)
 					} else {
-						logs.Logger.Printf("B key: failed to reload board: %v", err)
+						logs.Logger.Printf("B key: board not found at %s", boardPath)
 					}
 					m.kanbanView.SetAllProjects(collectAllProjects(m.workspaces))
 					m.kanbanView.FocusBoard()

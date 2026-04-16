@@ -32,10 +32,10 @@ type Task struct {
 	ID             string
 	Name           string
 	Projects       []string
-	Contexts       []string
+	Tags           []string
 	Done           bool
 	Archived       bool
-	Tags           map[string]string
+	Properties         map[string]string
 	CreatedDate    string
 	CompletionDate string
 	Priority       Priority
@@ -65,67 +65,67 @@ func (t *Task) RemoveProject(project string) {
 	}
 }
 
-func (t *Task) HasContext(context string) bool {
-	return slices.Contains(t.Contexts, context)
+func (t *Task) HasTag(tag string) bool {
+	return slices.Contains(t.Tags, tag)
 }
 
-func (t *Task) AddContext(context string) {
-	if !t.HasContext(context) {
-		t.Contexts = append(t.Contexts, context)
+func (t *Task) AddTag(tag string) {
+	if !t.HasTag(tag) {
+		t.Tags = append(t.Tags, tag)
 	}
 }
 
-func (t *Task) RemoveContext(context string) {
-	for i, c := range t.Contexts {
-		if c == context {
-			t.Contexts = append(t.Contexts[:i], t.Contexts[i+1:]...)
+func (t *Task) RemoveTag(tag string) {
+	for i, c := range t.Tags {
+		if c == tag {
+			t.Tags = append(t.Tags[:i], t.Tags[i+1:]...)
 			break
 		}
 	}
 }
 
 func (t *Task) GetDueDate() string {
-	return t.Tags["due"]
+	return t.Properties["due"]
 }
 
 func (t *Task) SetDueDate(date string) {
-	if t.Tags == nil {
-		t.Tags = make(map[string]string)
+	if t.Properties == nil {
+		t.Properties = make(map[string]string)
 	}
 	if date == "" {
-		delete(t.Tags, "due")
+		delete(t.Properties, "due")
 	} else {
-		t.Tags["due"] = date
+		t.Properties["due"] = date
 	}
 }
 
 func (t *Task) GetURL() string {
-	return t.Tags["url"]
+	return t.Properties["url"]
 }
 
 func (t *Task) SetURL(url string) {
-	if t.Tags == nil {
-		t.Tags = make(map[string]string)
+	if t.Properties == nil {
+		t.Properties = make(map[string]string)
 	}
 	if url == "" {
-		delete(t.Tags, "url")
+		delete(t.Properties, "url")
 	} else {
-		t.Tags["url"] = url
+		t.Properties["url"] = url
 	}
 }
 
 func (t *Task) GetScheduledDate() string {
-	return t.Tags["scheduled"]
+	return t.Properties["scheduled"]
 }
 
 func (t *Task) SetScheduledDate(date string) {
-	if t.Tags == nil {
-		t.Tags = make(map[string]string)
+	if t.Properties == nil {
+		t.Properties = make(map[string]string)
 	}
 	if date == "" {
-		delete(t.Tags, "scheduled")
+		delete(t.Properties, "scheduled")
 	} else {
-		t.Tags["scheduled"] = date
+		t.Properties["scheduled"] = date
 	}
 }
 
@@ -166,19 +166,19 @@ func (t Task) String() string {
 		parts = append(parts, "+"+p)
 	}
 
-	// Contexts
-	for _, c := range t.Contexts {
+	// Tags (@ prefix)
+	for _, c := range t.Tags {
 		parts = append(parts, "@"+c)
 	}
 
-	// Tags — sorted for deterministic output
-	tagKeys := make([]string, 0, len(t.Tags))
-	for k := range t.Tags {
+	// Properties — sorted for deterministic output
+	tagKeys := make([]string, 0, len(t.Properties))
+	for k := range t.Properties {
 		tagKeys = append(tagKeys, k)
 	}
 	sort.Strings(tagKeys)
 	for _, k := range tagKeys {
-		parts = append(parts, k+":"+FormatTagValue(t.Tags[k]))
+		parts = append(parts, k+":"+FormatTagValue(t.Properties[k]))
 	}
 
 	return strings.Join(parts, " ")
@@ -260,8 +260,8 @@ func ParseTask(input string, id string, file string) Task {
 	// Find first metadata marker
 	firstMetaIdx := FirstMetaIndex(
 		FirstProjectIndex(input),
-		FirstContextIndex(input),
 		FirstTagIndex(input),
+		FirstPropertyIndex(input),
 	)
 
 	if firstMetaIdx < 0 {
@@ -274,10 +274,10 @@ func ParseTask(input string, id string, file string) Task {
 	t.Projects = ParseProjects(input)
 	sort.Strings(t.Projects)
 
-	t.Contexts = ParseContexts(input)
-	sort.Strings(t.Contexts)
+	t.Tags = ParseAtTags(input)
+	sort.Strings(t.Tags)
 
-	t.Tags = ParseTags(input)
+	t.Properties = ParseProperties(input)
 
 	return t
 }
@@ -295,7 +295,7 @@ func FirstProjectIndex(s string) int {
 	return -1
 }
 
-func FirstContextIndex(s string) int {
+func FirstTagIndex(s string) int {
 	re := regexp.MustCompile(`[ \t]\@[A-Za-z0-9]`)
 	loc := re.FindStringIndex(s)
 	if loc != nil {
@@ -304,7 +304,7 @@ func FirstContextIndex(s string) int {
 	return -1
 }
 
-func FirstTagIndex(s string) int {
+func FirstPropertyIndex(s string) int {
 	re := regexp.MustCompile(`[ \t][A-Za-z0-9]+:(?:"[^"]*"|[A-Za-z0-9]+)`)
 	loc := re.FindStringIndex(s)
 	if loc != nil {
@@ -322,7 +322,7 @@ func ParseProjects(s string) []string {
 	return matches
 }
 
-func ParseContexts(s string) []string {
+func ParseAtTags(s string) []string {
 	re := regexp.MustCompile(`[ \t]\@[A-Za-z0-9]+`)
 	matches := re.FindAllString(s, -1)
 	for i, m := range matches {
@@ -331,7 +331,7 @@ func ParseContexts(s string) []string {
 	return matches
 }
 
-func ParseTags(s string) map[string]string {
+func ParseProperties(s string) map[string]string {
 	re := regexp.MustCompile(`[ \t]([A-Za-z0-9]+):(?:"([^"]*)"|([A-Za-z0-9-]+))`)
 	matches := re.FindAllStringSubmatch(s, -1)
 	tags := make(map[string]string)

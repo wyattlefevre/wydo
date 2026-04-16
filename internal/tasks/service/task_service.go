@@ -15,7 +15,7 @@ import (
 type TaskService interface {
 	List() ([]data.Task, error)
 	ListByProject(project string) ([]data.Task, error)
-	ListByContext(context string) ([]data.Task, error)
+	ListByTag(tag string) ([]data.Task, error)
 	ListPending() ([]data.Task, error)
 	ListDone() ([]data.Task, error)
 	Get(id string) (*data.Task, error)
@@ -169,10 +169,10 @@ func (s *taskServiceImpl) ListByProject(project string) ([]data.Task, error) {
 	return filtered, nil
 }
 
-func (s *taskServiceImpl) ListByContext(context string) ([]data.Task, error) {
+func (s *taskServiceImpl) ListByTag(tag string) ([]data.Task, error) {
 	var filtered []data.Task
 	for _, t := range s.tasks {
-		if t.HasContext(context) {
+		if t.HasTag(tag) {
 			filtered = append(filtered, t)
 		}
 	}

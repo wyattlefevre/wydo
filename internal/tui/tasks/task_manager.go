@@ -143,12 +143,12 @@ type TaskManagerModel struct {
 	// Cached data for pickers
 	allProjects      []string
 	allProjectItems  []kanbanview.ProjectPickerItem
-	allContexts      []string
+	allTags          []string
 	allFiles         []string
 	allWorkspaces    []string
 
 	// Picker context (what are we picking for)
-	pickerContext string // "filter-project", "filter-context", "filter-file", etc.
+	pickerContext string // "filter-project", "filter-tag", "filter-file", etc.
 
 	// Dimensions
 	width  int
@@ -223,7 +223,7 @@ func (m *TaskManagerModel) loadTasks() {
 
 	m.tasks = tasks
 	m.allProjects = ExtractUniqueProjects(tasks)
-	m.allContexts = ExtractUniqueContexts(tasks)
+	m.allTags = ExtractUniqueTags(tasks)
 	m.allFiles = ExtractUniqueFiles(tasks, m.workspaceRoots)
 	if len(m.workspaceRoots) > 1 {
 		m.allWorkspaces = ExtractUniqueWorkspaces(tasks, m.workspaceRoots)
@@ -267,8 +267,10 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		if msg.err != nil {
 			return m, messages.StatusCmd(fmt.Sprintf("Editor error: %v", msg.err), messages.LevelError)
 		}
-		m.loadTasks()
-		return m, messages.StatusCmd("Task note updated", messages.LevelSuccess)
+		return m, tea.Batch(
+			func() tea.Msg { return messages.DataRefreshMsg{} },
+			messages.StatusCmd("Task note updated", messages.LevelSuccess),
+		)
 	}
 
 	// Handle inline search mode (before other sub-components)
@@ -417,7 +419,7 @@ func (m TaskManagerModel) OverlayView() string {
 
 // renderTaskListHeader returns just the info bar line (used when a text input replaces the body).
 func (m TaskManagerModel) renderTaskListHeader() string {
-	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1, m.activePreset)
+	m.infoBar.SetTag(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1, m.activePreset)
 	return m.infoBar.View() + "\n"
 }
 
@@ -430,7 +432,7 @@ func (m TaskManagerModel) renderTaskList() string {
 func (m TaskManagerModel) renderTaskListFull() string {
 	var b strings.Builder
 
-	m.infoBar.SetContext(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1, m.activePreset)
+	m.infoBar.SetTag(&m.inputContext, &m.filterState, &m.sortState, &m.groupState, m.filterState.SearchQuery, len(m.workspaceRoots) > 1, m.activePreset)
 	b.WriteString(m.infoBar.View())
 	b.WriteString("\n")
 
@@ -758,7 +760,7 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "enter":
 		return m.openTaskEditor()
 	case "t":
-		return m.startDirectContextEdit()
+		return m.startDirectTagEdit()
 	case "p":
 		return m.startDirectProjectEdit()
 	case "i":
@@ -857,7 +859,7 @@ func (m TaskManagerModel) handleFilterSelect(msg tea.KeyMsg) (TaskManagerModel, 
 		m.cyclePriorityFilter()
 		m.inputContext.Reset()
 	case "t", "c":
-		return m.startContextFilter()
+		return m.startTagFilter()
 	case "s":
 		m.activePreset = PresetNone
 		m.filterState.CycleStatusFilter()
@@ -885,7 +887,7 @@ func (m TaskManagerModel) handleSortSelect(msg tea.KeyMsg) (TaskManagerModel, te
 		m.inputContext.Field = "priority"
 		m.inputContext.TransitionTo(ModeSortDirection)
 	case "t", "c":
-		m.inputContext.Field = "context"
+		m.inputContext.Field = "tag"
 		m.inputContext.TransitionTo(ModeSortDirection)
 	}
 	return m, nil
@@ -903,7 +905,7 @@ func (m TaskManagerModel) handleGroupSelect(msg tea.KeyMsg) (TaskManagerModel, t
 		m.inputContext.Field = "priority"
 		m.inputContext.TransitionTo(ModeGroupDirection)
 	case "t", "c":
-		m.inputContext.Field = "context"
+		m.inputContext.Field = "tag"
 		m.inputContext.TransitionTo(ModeGroupDirection)
 	case "b":
 		m.inputContext.Field = "board"
@@ -1177,14 +1179,14 @@ func (m TaskManagerModel) createNewTaskAndOpenEditor(taskName string) (TaskManag
 		ID:       newID,
 		Name:     taskName,
 		Projects: []string{},
-		Contexts: []string{},
+		Tags:     []string{},
 		Done:     false,
-		Tags:     make(map[string]string),
+		Properties:   make(map[string]string),
 		Priority: data.PriorityNone,
 	}
 
 	// Open editor with the new task
-	m.taskEditor = NewTaskEditor(newTask, m.allProjectItems, m.allContexts)
+	m.taskEditor = NewTaskEditor(newTask, m.allProjectItems, m.allTags)
 	m.taskEditor.Width = m.width
 	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
@@ -1217,10 +1219,10 @@ func (m TaskManagerModel) startProjectFilter() (TaskManagerModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m TaskManagerModel) startContextFilter() (TaskManagerModel, tea.Cmd) {
-	m.fuzzyPicker = NewFuzzyPicker(m.allContexts, "Filter by Context", true, false)
-	m.fuzzyPicker.PreSelect(m.filterState.ContextFilter)
-	m.pickerContext = "filter-context"
+func (m TaskManagerModel) startTagFilter() (TaskManagerModel, tea.Cmd) {
+	m.fuzzyPicker = NewFuzzyPicker(m.allTags, "Filter by Tag", true, false)
+	m.fuzzyPicker.PreSelect(m.filterState.TagFilter)
+	m.pickerContext = "filter-tag"
 	m.inputContext.TransitionTo(ModeFuzzyPicker)
 	return m, nil
 }
@@ -1292,8 +1294,8 @@ func (m *TaskManagerModel) applySortField(ascending bool) {
 		field = SortByProject
 	case "priority":
 		field = SortByPriority
-	case "context":
-		field = SortByContext
+	case "tag":
+		field = SortByTag
 	}
 
 	m.activePreset = PresetNone
@@ -1312,8 +1314,8 @@ func (m *TaskManagerModel) applyGroupField(ascending bool) {
 		field = GroupByProject
 	case "priority":
 		field = GroupByPriority
-	case "context":
-		field = GroupByContext
+	case "tag":
+		field = GroupByTag
 	case "board":
 		field = GroupByBoard
 	}
@@ -1355,7 +1357,7 @@ func (m TaskManagerModel) openTaskEditor() (TaskManagerModel, tea.Cmd) {
 		return m, messages.StatusCmd("Board not found: "+task.BoardName, messages.LevelError)
 	}
 
-	m.taskEditor = NewTaskEditor(task, m.allProjectItems, m.allContexts)
+	m.taskEditor = NewTaskEditor(task, m.allProjectItems, m.allTags)
 	m.taskEditor.Width = m.width
 	m.taskEditor.Height = m.height
 	m.inputContext.TransitionTo(ModeTaskEditor)
@@ -1393,9 +1395,9 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 	case "filter-project":
 		m.activePreset = PresetNone
 		m.filterState.ProjectFilter = msg.Selected
-	case "filter-context":
+	case "filter-tag":
 		m.activePreset = PresetNone
-		m.filterState.ContextFilter = msg.Selected
+		m.filterState.TagFilter = msg.Selected
 	case "filter-file":
 		m.activePreset = PresetNone
 		m.filterState.FileFilter = msg.Selected
@@ -1412,10 +1414,10 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 			m.directEditTaskID = ""
 			return m, func() tea.Msg { return TaskUpdateMsg{Task: *task} }
 		}
-	case "edit-context":
+	case "edit-tag":
 		task := m.findTaskByID(m.directEditTaskID)
 		if task != nil {
-			task.Contexts = msg.Selected
+			task.Tags = msg.Selected
 			m.refreshDisplayTasks()
 			m.inputContext.Reset()
 			m.pickerContext = ""
@@ -1847,15 +1849,15 @@ func (m TaskManagerModel) startDirectScheduledDateEdit() (TaskManagerModel, tea.
 	return m, dp.Init()
 }
 
-func (m TaskManagerModel) startDirectContextEdit() (TaskManagerModel, tea.Cmd) {
+func (m TaskManagerModel) startDirectTagEdit() (TaskManagerModel, tea.Cmd) {
 	task := m.selectedTask()
 	if task == nil {
 		return m, nil
 	}
 	m.directEditTaskID = task.ID
-	m.fuzzyPicker = NewFuzzyPicker(m.allContexts, "Select Contexts", true, false)
-	m.fuzzyPicker.PreSelect(task.Contexts)
-	m.pickerContext = "edit-context"
+	m.fuzzyPicker = NewFuzzyPicker(m.allTags, "Select Tags", true, false)
+	m.fuzzyPicker.PreSelect(task.Tags)
+	m.pickerContext = "edit-tag"
 	m.inputContext.TransitionTo(ModeFuzzyPicker)
 	return m, nil
 }

@@ -33,13 +33,13 @@ func TestParseTask_WithProjects(t *testing.T) {
 	}
 }
 
-func TestParseTask_WithContexts(t *testing.T) {
+func TestParseTask_WithAtTags(t *testing.T) {
 	task := ParseTask("Call plumber @phone @home", "id1", "todo.txt")
-	if !task.HasContext("phone") {
-		t.Error("expected context phone")
+	if !task.HasTag("phone") {
+		t.Error("expected tag phone")
 	}
-	if !task.HasContext("home") {
-		t.Error("expected context home")
+	if !task.HasTag("home") {
+		t.Error("expected tag home")
 	}
 }
 
@@ -119,15 +119,15 @@ func TestTask_AddRemoveProject(t *testing.T) {
 	}
 }
 
-func TestTask_AddRemoveContext(t *testing.T) {
+func TestTask_AddRemoveTag(t *testing.T) {
 	task := Task{Name: "test"}
-	task.AddContext("work")
-	if !task.HasContext("work") {
-		t.Error("expected context work after add")
+	task.AddTag("work")
+	if !task.HasTag("work") {
+		t.Error("expected tag work after add")
 	}
-	task.RemoveContext("work")
-	if task.HasContext("work") {
-		t.Error("expected context work removed")
+	task.RemoveTag("work")
+	if task.HasTag("work") {
+		t.Error("expected tag work removed")
 	}
 }
 
@@ -143,7 +143,7 @@ func TestTask_ClearDueDate(t *testing.T) {
 	task := Task{Name: "test"}
 	task.SetDueDate("2026-03-01")
 	task.SetDueDate("")
-	if _, ok := task.Tags["due"]; ok {
+	if _, ok := task.Properties["due"]; ok {
 		t.Error("expected due tag to be removed after clearing")
 	}
 }
@@ -152,7 +152,7 @@ func TestTask_ClearScheduledDate(t *testing.T) {
 	task := Task{Name: "test"}
 	task.SetScheduledDate("2026-03-01")
 	task.SetScheduledDate("")
-	if _, ok := task.Tags["scheduled"]; ok {
+	if _, ok := task.Properties["scheduled"]; ok {
 		t.Error("expected scheduled tag to be removed after clearing")
 	}
 }
@@ -162,7 +162,7 @@ func TestParseTask_QuotedTagURL(t *testing.T) {
 	if task.Name != "Buy domain" {
 		t.Errorf("expected name 'Buy domain', got %q", task.Name)
 	}
-	got := task.Tags["url"]
+	got := task.Properties["url"]
 	if got != "https://example.com/path?q=1" {
 		t.Errorf("expected URL tag value, got %q", got)
 	}
@@ -170,11 +170,11 @@ func TestParseTask_QuotedTagURL(t *testing.T) {
 
 func TestParseTask_MixedQuotedAndUnquotedTags(t *testing.T) {
 	task := ParseTask(`Review site due:2026-02-15 url:"https://example.com"`, "id1", "todo.txt")
-	if task.Tags["due"] != "2026-02-15" {
-		t.Errorf("expected due 2026-02-15, got %q", task.Tags["due"])
+	if task.Properties["due"] != "2026-02-15" {
+		t.Errorf("expected due 2026-02-15, got %q", task.Properties["due"])
 	}
-	if task.Tags["url"] != "https://example.com" {
-		t.Errorf("expected url https://example.com, got %q", task.Tags["url"])
+	if task.Properties["url"] != "https://example.com" {
+		t.Errorf("expected url https://example.com, got %q", task.Properties["url"])
 	}
 }
 
@@ -208,8 +208,8 @@ func TestFormatTagValue(t *testing.T) {
 
 func TestFormatTagValue_AutoQuotesInSerialization(t *testing.T) {
 	task := Task{
-		Name: "Check site",
-		Tags: map[string]string{"url": "https://example.com/page"},
+		Name:   "Check site",
+		Properties: map[string]string{"url": "https://example.com/page"},
 	}
 	result := task.String()
 	expected := `Check site url:"https://example.com/page"`
@@ -218,19 +218,19 @@ func TestFormatTagValue_AutoQuotesInSerialization(t *testing.T) {
 	}
 }
 
-func TestFirstTagIndex_QuotedTag(t *testing.T) {
+func TestFirstPropertyIndex_QuotedTag(t *testing.T) {
 	s := `Buy domain url:"https://example.com"`
-	idx := FirstTagIndex(" " + s) // prepend space since FirstTagIndex needs leading whitespace
+	idx := FirstPropertyIndex(" " + s) // prepend space since FirstPropertyIndex needs leading whitespace
 	if idx != 12 {
-		t.Errorf("expected FirstTagIndex 12, got %d", idx)
+		t.Errorf("expected FirstPropertyIndex 12, got %d", idx)
 	}
 }
 
 func TestParseTask_QuotedTagNormalization(t *testing.T) {
 	// key:"simple" should round-trip to key:simple (quotes stripped for simple values)
 	task := ParseTask(`Do thing tag:"simple"`, "id1", "todo.txt")
-	if task.Tags["tag"] != "simple" {
-		t.Errorf("expected tag value 'simple', got %q", task.Tags["tag"])
+	if task.Properties["tag"] != "simple" {
+		t.Errorf("expected tag value 'simple', got %q", task.Properties["tag"])
 	}
 	result := task.String()
 	expected := "Do thing tag:simple"

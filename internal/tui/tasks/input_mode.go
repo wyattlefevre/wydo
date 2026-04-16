@@ -18,14 +18,14 @@ const (
 	// Active input modes
 	ModeSearch      // '/' - fuzzy text search
 	ModeDateInput   // entering date for filter
-	ModeFuzzyPicker // generic picker for project/context/file
+	ModeFuzzyPicker // generic picker for project/tag/file
 	ModeCreateTask  // 'n' pressed - entering new task name
 
 	// Task Editor modes
 	ModeTaskEditor        // viewing task details
 	ModeEditDueDate       // 'd' in editor - date picker
 	ModeEditScheduledDate // 's' in editor - scheduled date picker
-	ModeEditContext       // 't'/'c' in editor - context picker
+	ModeEditTag       // 't'/'c' in editor - tag picker
 	ModeEditProject       // 'p' in editor - project picker
 	ModeEditURL           // 'U' in editor - URL text input
 
@@ -50,7 +50,7 @@ type InputModeContext struct {
 	Mode         InputMode
 	PreviousMode InputMode
 	Category     string // "filter", "sort", "group"
-	Field        string // "date", "project", "priority", "context", "status", "file"
+	Field        string // "date", "project", "priority", "tag", "status", "file"
 	Direction    string // "asc", "desc"
 }
 
@@ -85,7 +85,7 @@ func (c *InputModeContext) IsGroupMode() bool {
 // IsEditorMode returns true if in task editor mode
 func (c *InputModeContext) IsEditorMode() bool {
 	return c.Mode == ModeTaskEditor || c.Mode == ModeEditDueDate ||
-		c.Mode == ModeEditScheduledDate || c.Mode == ModeEditContext ||
+		c.Mode == ModeEditScheduledDate || c.Mode == ModeEditTag ||
 		c.Mode == ModeEditProject || c.Mode == ModeEditURL
 }
 
@@ -135,8 +135,8 @@ func (c *InputModeContext) String() string {
 		return "Edit Due"
 	case ModeEditScheduledDate:
 		return "Edit Scheduled"
-	case ModeEditContext:
-		return "Edit Context"
+	case ModeEditTag:
+		return "Edit Tag"
 	case ModeEditProject:
 		return "Edit Project"
 	case ModeEditURL:

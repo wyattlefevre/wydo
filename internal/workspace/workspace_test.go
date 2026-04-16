@@ -438,20 +438,18 @@ func TestMergeProject_CardDedup(t *testing.T) {
 	// A card with projects: [alpha, beta] should become projects: [beta] after merge
 	tmp := t.TempDir()
 
-	// Create a board in boards/<name>/ with board.md and cards/
-	boardDir := filepath.Join(tmp, "boards", "testboard")
-	cardsDir := filepath.Join(boardDir, "cards")
-	os.MkdirAll(cardsDir, 0755)
+	// Create a board .txt file
+	boardsDir := filepath.Join(tmp, "boards")
+	os.MkdirAll(boardsDir, 0755)
+	os.WriteFile(filepath.Join(boardsDir, "testboard.txt"), []byte("Todo\n"), 0644)
 
-	// board.md — cards are referenced via markdown links
-	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte("# Test Board\n\n## Todo\n- [Test Card](cards/test-card.md)\n"), 0644)
-
-	// Card with both projects
-	os.WriteFile(filepath.Join(cardsDir, "test-card.md"), []byte("---\nprojects:\n  - alpha\n  - beta\n---\n# Test Card\nContent here\n"), 0644)
-
-	// Tasks referencing alpha
+	// Card in tasks/ with both projects
 	tasksDir := filepath.Join(tmp, "tasks")
 	os.MkdirAll(tasksDir, 0755)
+	cardFile := filepath.Join(tasksDir, "test-card.md")
+	os.WriteFile(cardFile, []byte("---\nprojects:\n  - alpha\n  - beta\nboard: testboard\nstatus: Todo\n---\n# Test Card\nContent here\n"), 0644)
+
+	// Tasks referencing alpha
 	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Task 1 +alpha\n"), 0644)
 
 	scan, _ := scanner.ScanWorkspace(tmp)
@@ -491,7 +489,7 @@ func TestMergeProject_CardDedup(t *testing.T) {
 	}
 
 	// Verify on disk too
-	cardContent, _ := os.ReadFile(filepath.Join(cardsDir, "test-card.md"))
+	cardContent, _ := os.ReadFile(cardFile)
 	cardStr := string(cardContent)
 	if strings.Contains(cardStr, "alpha") {
 		t.Errorf("card file still references alpha:\n%s", cardStr)
@@ -609,100 +607,6 @@ func TestDeleteVirtualProject(t *testing.T) {
 	// +bar should be preserved
 	if !strings.Contains(string(content), "+bar") {
 		t.Errorf("todo.txt should still contain +bar:\n%s", content)
-	}
-}
-
-func TestBoardsForProject_UsesProjectFrontmatter(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Create project dir with index file
-	projDir := filepath.Join(tmp, "projects", "alpha")
-	os.MkdirAll(projDir, 0755)
-	os.WriteFile(filepath.Join(projDir, "alpha.md"), []byte("# alpha\n"), 0644)
-
-	// Create board with project frontmatter pointing at alpha
-	boardDir := filepath.Join(tmp, "boards", "sprint")
-	os.MkdirAll(filepath.Join(boardDir, "cards"), 0755)
-	// path from board.md: ../../projects/alpha/alpha.md
-	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte(
-		"---\nproject: ../../projects/alpha/alpha.md\n---\n\n# sprint\n\n## Backlog\n\n## Done\n",
-	), 0644)
-
-	// Create board WITHOUT project frontmatter
-	boardDir2 := filepath.Join(tmp, "boards", "personal")
-	os.MkdirAll(filepath.Join(boardDir2, "cards"), 0755)
-	os.WriteFile(filepath.Join(boardDir2, "board.md"), []byte("# personal\n\n## Backlog\n\n## Done\n"), 0644)
-
-	scan, err := scanner.ScanWorkspace(tmp)
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	ws, err := Load(scan)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-
-	alphaBoards := ws.Projects.BoardsForProject("alpha", ws.Boards)
-	if len(alphaBoards) != 1 {
-		t.Fatalf("expected 1 board for alpha, got %d", len(alphaBoards))
-	}
-	if filepath.Base(alphaBoards[0].Path) != "sprint" {
-		t.Errorf("expected sprint board, got %q", filepath.Base(alphaBoards[0].Path))
-	}
-}
-
-func TestProjectsForBoard_UsesProjectFrontmatter(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Create project dir
-	projDir := filepath.Join(tmp, "projects", "alpha")
-	os.MkdirAll(projDir, 0755)
-	os.WriteFile(filepath.Join(projDir, "alpha.md"), []byte("# alpha\n"), 0644)
-
-	// Board with project frontmatter
-	boardDir := filepath.Join(tmp, "boards", "sprint")
-	os.MkdirAll(filepath.Join(boardDir, "cards"), 0755)
-	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte(
-		"---\nproject: ../../projects/alpha/alpha.md\n---\n\n# sprint\n\n## Backlog\n\n## Done\n",
-	), 0644)
-
-	scan, err := scanner.ScanWorkspace(tmp)
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	ws, err := Load(scan)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-
-	names := ws.Projects.ProjectsForBoard(boardDir, ws.Boards)
-	if len(names) == 0 {
-		t.Fatal("expected project names for sprint board, got none")
-	}
-	if names[0] != "alpha" {
-		t.Errorf("expected 'alpha', got %q", names[0])
-	}
-}
-
-func TestProjectsForBoard_NoFrontmatter(t *testing.T) {
-	tmp := t.TempDir()
-
-	boardDir := filepath.Join(tmp, "boards", "personal")
-	os.MkdirAll(filepath.Join(boardDir, "cards"), 0755)
-	os.WriteFile(filepath.Join(boardDir, "board.md"), []byte("# personal\n\n## Backlog\n\n## Done\n"), 0644)
-
-	scan, err := scanner.ScanWorkspace(tmp)
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	ws, err := Load(scan)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-
-	names := ws.Projects.ProjectsForBoard(boardDir, ws.Boards)
-	if names != nil {
-		t.Errorf("expected nil for board with no project frontmatter, got %v", names)
 	}
 }
 

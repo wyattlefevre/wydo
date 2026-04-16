@@ -3,7 +3,6 @@ package fs
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"wydo/internal/kanban/models"
 )
@@ -13,166 +12,121 @@ func testdataDir() string {
 	return filepath.Join(wd, "..", "..", "..", "testdata")
 }
 
-func TestReadBoard_Columns(t *testing.T) {
-	boardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work")
+func TestReadBoard_Statuses(t *testing.T) {
+	boardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work.txt")
 	board, err := ReadBoard(boardPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	if board.Name != "dev-work" {
 		t.Errorf("expected board name 'dev-work', got %q", board.Name)
+	}
+	expectedStatuses := []string{"To Do", "In Progress"}
+	if len(board.Statuses) != len(expectedStatuses) {
+		t.Fatalf("expected %d statuses, got %d: %v", len(expectedStatuses), len(board.Statuses), board.Statuses)
+	}
+	for i, expected := range expectedStatuses {
+		if board.Statuses[i] != expected {
+			t.Errorf("status %d: expected %q, got %q", i, expected, board.Statuses[i])
+		}
+	}
+}
+
+func TestReadBoard_NoColumns(t *testing.T) {
+	boardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work.txt")
+	board, err := ReadBoard(boardPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(board.Columns) != 0 {
+		t.Errorf("expected 0 columns from ReadBoard alone, got %d", len(board.Columns))
+	}
+}
+
+func TestWriteBoard_ReadBoard_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	boardPath := filepath.Join(tmpDir, "test-board.txt")
+
+	board := models.Board{
+		Name:     "test-board",
+		Path:     boardPath,
+		Statuses: []string{"To Do", "In Progress"},
+		Columns: []models.Column{
+			{Name: "To Do", TaskNotes: []models.TaskNote{}},
+			{Name: "In Progress", TaskNotes: []models.TaskNote{}},
+			{Name: "Done", TaskNotes: []models.TaskNote{}},
+		},
+	}
+	if err := WriteBoard(board); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	loaded, err := ReadBoard(boardPath)
+	if err != nil {
+		t.Fatalf("read-back error: %v", err)
+	}
+	if loaded.Name != "test-board" {
+		t.Errorf("expected name 'test-board', got %q", loaded.Name)
+	}
+	if len(loaded.Statuses) != 2 {
+		t.Fatalf("expected 2 statuses, got %d: %v", len(loaded.Statuses), loaded.Statuses)
+	}
+	if loaded.Statuses[0] != "To Do" || loaded.Statuses[1] != "In Progress" {
+		t.Errorf("status mismatch: got %v", loaded.Statuses)
+	}
+	// "Done" should NOT be written to the file (it's implicit)
+}
+
+func TestReadBoardFull_WithCards(t *testing.T) {
+	wsRoot := filepath.Join(testdataDir(), "workspace1")
+	boardPath := filepath.Join(wsRoot, "boards", "dev-work.txt")
+	board, err := ReadBoardFull(boardPath, wsRoot)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	expectedCols := []string{"To Do", "In Progress", "Done"}
 	if len(board.Columns) != len(expectedCols) {
 		t.Fatalf("expected %d columns, got %d", len(expectedCols), len(board.Columns))
 	}
-
 	for i, expected := range expectedCols {
 		if board.Columns[i].Name != expected {
 			t.Errorf("column %d: expected %q, got %q", i, expected, board.Columns[i].Name)
 		}
 	}
-}
 
-func TestReadBoard_Cards(t *testing.T) {
-	boardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work")
-	board, err := ReadBoard(boardPath)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// To Do column should have db-migration
 	todoCol := board.Columns[0]
-	if len(todoCol.TaskNotes) != 1 {
-		t.Fatalf("expected 1 card in To Do, got %d", len(todoCol.TaskNotes))
+	if len(todoCol.TaskNotes) != 1 || todoCol.TaskNotes[0].Title != "DB Migration" {
+		t.Errorf("expected 1 card 'DB Migration' in To Do, got %d cards", len(todoCol.TaskNotes))
 	}
-	if todoCol.TaskNotes[0].Title != "DB Migration" {
-		t.Errorf("expected 'DB Migration', got %q", todoCol.TaskNotes[0].Title)
-	}
-
-	// In Progress should have auth-service
 	inProgressCol := board.Columns[1]
-	if len(inProgressCol.TaskNotes) != 1 {
-		t.Fatalf("expected 1 card in In Progress, got %d", len(inProgressCol.TaskNotes))
+	if len(inProgressCol.TaskNotes) != 1 || inProgressCol.TaskNotes[0].Title != "Auth Service" {
+		t.Errorf("expected 1 card 'Auth Service' in In Progress, got %d cards", len(inProgressCol.TaskNotes))
 	}
-	if inProgressCol.TaskNotes[0].Title != "Auth Service" {
-		t.Errorf("expected 'Auth Service', got %q", inProgressCol.TaskNotes[0].Title)
+	doneCol := board.Columns[2]
+	if len(doneCol.TaskNotes) != 1 || doneCol.TaskNotes[0].Title != "Deploy v2" {
+		t.Errorf("expected 1 card 'Deploy v2' in Done, got %d cards", len(doneCol.TaskNotes))
 	}
 }
 
-func TestReadBoard_CardFrontmatter(t *testing.T) {
-	boardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work")
-	board, err := ReadBoard(boardPath)
+func TestReadBoardFull_CardFrontmatter(t *testing.T) {
+	wsRoot := filepath.Join(testdataDir(), "workspace1")
+	boardPath := filepath.Join(wsRoot, "boards", "dev-work.txt")
+	board, err := ReadBoardFull(boardPath, wsRoot)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// Auth Service card should have frontmatter
 	card := board.Columns[1].TaskNotes[0] // In Progress -> Auth Service
 	if len(card.Tags) == 0 {
 		t.Error("expected tags on auth-service card")
 	}
-	if len(card.Projects) == 0 {
-		t.Error("expected projects on auth-service card")
-	}
-	if card.Projects[0] != "alpha" {
-		t.Errorf("expected project 'alpha', got %q", card.Projects[0])
+	if len(card.Projects) == 0 || card.Projects[0] != "alpha" {
+		t.Errorf("expected projects [alpha], got %v", card.Projects)
 	}
 	if card.DueDate == nil {
-		t.Error("expected due date on auth-service card")
+		t.Error("expected due date")
 	}
 	if card.Priority != 1 {
 		t.Errorf("expected priority 1, got %d", card.Priority)
-	}
-}
-
-func TestReadBoard_ProjectFrontmatter(t *testing.T) {
-	tmp := t.TempDir()
-	boardPath := filepath.Join(tmp, "sprint")
-	os.MkdirAll(boardPath, 0755)
-	os.WriteFile(filepath.Join(boardPath, "board.md"), []byte(
-		"---\nproject: ../../projects/alpha/alpha.md\n---\n\n# sprint\n\n## Backlog\n\n## Done\n",
-	), 0644)
-
-	board, err := ReadBoard(boardPath)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if board.Project != "../../projects/alpha/alpha.md" {
-		t.Errorf("expected project path '../../projects/alpha/alpha.md', got %q", board.Project)
-	}
-}
-
-func TestWriteBoard_ProjectFrontmatter(t *testing.T) {
-	tmp := t.TempDir()
-	boardPath := filepath.Join(tmp, "sprint")
-	os.MkdirAll(boardPath, 0755)
-
-	board := models.Board{
-		Path:    boardPath,
-		Name:    "sprint",
-		Project: "../../projects/alpha/alpha.md",
-		Columns: []models.Column{{Name: "Backlog", TaskNotes: []models.TaskNote{}}, {Name: "Done", TaskNotes: []models.TaskNote{}}},
-	}
-	if err := WriteBoard(board); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	content, _ := os.ReadFile(filepath.Join(boardPath, "board.md"))
-	if !strings.Contains(string(content), "project: ../../projects/alpha/alpha.md") {
-		t.Errorf("expected project frontmatter in board.md, got:\n%s", content)
-	}
-
-	// Round-trip: read back and verify
-	loaded, err := ReadBoard(boardPath)
-	if err != nil {
-		t.Fatalf("read-back error: %v", err)
-	}
-	if loaded.Project != board.Project {
-		t.Errorf("expected project %q after round-trip, got %q", board.Project, loaded.Project)
-	}
-}
-
-func TestWriteBoard_ReadBoard_RoundTrip(t *testing.T) {
-	boardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work")
-	original, err := ReadBoard(boardPath)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-
-	// Write to temp dir
-	tmpDir := t.TempDir()
-	tmpBoardPath := filepath.Join(tmpDir, "test-board")
-	os.MkdirAll(filepath.Join(tmpBoardPath, "cards"), 0755)
-
-	// Copy card files
-	for _, col := range original.Columns {
-		for _, card := range col.TaskNotes {
-			srcPath := filepath.Join(boardPath, "cards", card.Filename)
-			dstPath := filepath.Join(tmpBoardPath, "cards", card.Filename)
-			content, _ := os.ReadFile(srcPath)
-			os.WriteFile(dstPath, content, 0644)
-		}
-	}
-
-	// Write board
-	original.Path = tmpBoardPath
-	if err := WriteBoard(original); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	// Read back
-	loaded, err := ReadBoard(tmpBoardPath)
-	if err != nil {
-		t.Fatalf("read-back error: %v", err)
-	}
-
-	if loaded.Name != original.Name {
-		t.Errorf("expected name %q, got %q", original.Name, loaded.Name)
-	}
-	if len(loaded.Columns) != len(original.Columns) {
-		t.Fatalf("expected %d columns, got %d", len(original.Columns), len(loaded.Columns))
 	}
 }

@@ -3,6 +3,8 @@ projects:
   - alpha
 tags:
   - database
+board: dev-work
+status: To Do
 ---
 
 # DB Migration

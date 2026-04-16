@@ -16,7 +16,7 @@ const (
 	SortByDueDate
 	SortByProject
 	SortByPriority
-	SortByContext
+	SortByTag
 )
 
 // SortState holds sorting configuration
@@ -58,8 +58,8 @@ func (s *SortState) String() string {
 		field = "project"
 	case SortByPriority:
 		field = "priority"
-	case SortByContext:
-		field = "context"
+	case SortByTag:
+		field = "tag"
 	}
 
 	dir := "asc"
@@ -78,7 +78,7 @@ const (
 	GroupByDueDate
 	GroupByProject
 	GroupByPriority
-	GroupByContext
+	GroupByTag
 	GroupByBoard
 )
 
@@ -121,8 +121,8 @@ func (g *GroupState) String() string {
 		field = "project"
 	case GroupByPriority:
 		field = "priority"
-	case GroupByContext:
-		field = "context"
+	case GroupByTag:
+		field = "tag"
 	case GroupByBoard:
 		field = "board"
 	}
@@ -215,10 +215,10 @@ func compareTasksBy(a, b data.Task, field SortField) int {
 		}
 		return int(priA) - int(priB)
 
-	case SortByContext:
-		// Use first context alphabetically
-		ctxA := getFirstContext(a)
-		ctxB := getFirstContext(b)
+	case SortByTag:
+		// Use first tag alphabetically
+		ctxA := getFirstTag(a)
+		ctxB := getFirstTag(b)
 		if ctxA == "" && ctxB == "" {
 			return 0
 		}
@@ -242,12 +242,12 @@ func getFirstProject(t data.Task) string {
 	return t.Projects[0]
 }
 
-func getFirstContext(t data.Task) string {
-	if len(t.Contexts) == 0 {
+func getFirstTag(t data.Task) string {
+	if len(t.Tags) == 0 {
 		return ""
 	}
-	// Contexts should already be sorted
-	return t.Contexts[0]
+	// Tags should already be sorted
+	return t.Tags[0]
 }
 
 // ApplyGroups groups tasks by the specified field
@@ -321,11 +321,11 @@ func getGroupKeys(task data.Task, field GroupField, roots []string) []string {
 		}
 		return []string{string(task.Priority)}
 
-	case GroupByContext:
-		if len(task.Contexts) == 0 {
+	case GroupByTag:
+		if len(task.Tags) == 0 {
 			return []string{""}
 		}
-		return task.Contexts
+		return task.Tags
 
 	case GroupByBoard:
 		if !task.IsTaskNote || task.BoardName == "" {
@@ -430,12 +430,12 @@ func ExtractUniqueProjects(tasks []data.Task) []string {
 	return result
 }
 
-// ExtractUniqueContexts returns all unique context names from tasks
-func ExtractUniqueContexts(tasks []data.Task) []string {
+// ExtractUniqueTags returns all unique tag names from tasks
+func ExtractUniqueTags(tasks []data.Task) []string {
 	seen := make(map[string]bool)
 	var result []string
 	for _, task := range tasks {
-		for _, c := range task.Contexts {
+		for _, c := range task.Tags {
 			if !seen[c] {
 				seen[c] = true
 				result = append(result, c)
