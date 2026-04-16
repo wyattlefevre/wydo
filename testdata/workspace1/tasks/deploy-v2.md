@@ -2,6 +2,8 @@
 due: "2026-02-15"
 tags:
   - devops
+board: dev-work
+status: Done
 ---
 
 # Deploy v2

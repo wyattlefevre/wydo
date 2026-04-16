@@ -123,7 +123,7 @@ type DetailModel struct {
 
 	// Data for task editor
 	allProjectItems []kanban.ProjectPickerItem
-	allContexts     []string
+	allTags         []string
 }
 
 // detailURLEntry is a URL with its owning project name.
@@ -287,7 +287,7 @@ func (p projectURLPicker) View() string {
 	return lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Center, box)
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskNotes []kanbanmodels.TaskNote, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allContexts []string) DetailModel {
+func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskNotes []kanbanmodels.TaskNote, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allTags []string) DetailModel {
 	cardBoard := make(map[string]kanbanmodels.Board)
 	cardColumn := make(map[string]string)
 	for _, b := range allBoards {
@@ -311,7 +311,7 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 		cardBoard:       cardBoard,
 		cardColumn:      cardColumn,
 		allProjectItems: allProjectItems,
-		allContexts:     allContexts,
+		allTags:         allTags,
 	}
 	for i := range m.collapsedGroups {
 		m.collapsedGroups[i] = make(map[string]bool)

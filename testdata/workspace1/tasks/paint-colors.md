@@ -3,6 +3,8 @@ projects:
   - home-remodel
 tags:
   - interior
+board: home-reno
+status: To Do
 ---
 
 # Paint Colors

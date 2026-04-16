@@ -53,14 +53,14 @@ type DateFilter struct {
 
 // FilterState holds all active filters
 type FilterState struct {
-	SearchQuery     string
-	StatusFilter    StatusFilter
-	DateFilter      *DateFilter
+	SearchQuery      string
+	StatusFilter     StatusFilter
+	DateFilter       *DateFilter
 	ProjectFilter    []string
-	ContextFilter    []string
+	TagFilter        []string
 	PriorityPresence PriorityPresence
 	FileFilter       []string
-	WorkspaceFilter []string // workspace basenames
+	WorkspaceFilter  []string // workspace basenames
 }
 
 // NewFilterState creates a new empty filter state
@@ -74,7 +74,7 @@ func (f *FilterState) IsEmpty() bool {
 		f.StatusFilter == StatusAll &&
 		f.DateFilter == nil &&
 		len(f.ProjectFilter) == 0 &&
-		len(f.ContextFilter) == 0 &&
+		len(f.TagFilter) == 0 &&
 		f.PriorityPresence == PriorityPresenceAny &&
 		len(f.FileFilter) == 0 &&
 		len(f.WorkspaceFilter) == 0
@@ -86,7 +86,7 @@ func (f *FilterState) Reset() {
 	f.StatusFilter = StatusAll
 	f.DateFilter = nil
 	f.ProjectFilter = nil
-	f.ContextFilter = nil
+	f.TagFilter = nil
 	f.PriorityPresence = PriorityPresenceAny
 	f.FileFilter = nil
 	f.WorkspaceFilter = nil
@@ -153,9 +153,9 @@ func matchesFilters(task data.Task, state FilterState) bool {
 		}
 	}
 
-	// Context filter (task must have at least one matching context)
-	if len(state.ContextFilter) > 0 {
-		if !matchesAnyContext(task, state.ContextFilter) {
+	// Tag filter (task must have at least one matching tag)
+	if len(state.TagFilter) > 0 {
+		if !matchesAnyTag(task, state.TagFilter) {
 			return false
 		}
 	}
@@ -239,9 +239,9 @@ func matchesAnyProject(task data.Task, projects []string) bool {
 	return false
 }
 
-func matchesAnyContext(task data.Task, contexts []string) bool {
-	for _, c := range contexts {
-		if task.HasContext(c) {
+func matchesAnyTag(task data.Task, tags []string) bool {
+	for _, c := range tags {
+		if task.HasTag(c) {
 			return true
 		}
 	}
@@ -287,8 +287,8 @@ func (f *FilterState) Summary() string {
 		parts = append(parts, "project="+strings.Join(f.ProjectFilter, ","))
 	}
 
-	if len(f.ContextFilter) > 0 {
-		parts = append(parts, "context="+strings.Join(f.ContextFilter, ","))
+	if len(f.TagFilter) > 0 {
+		parts = append(parts, "tag="+strings.Join(f.TagFilter, ","))
 	}
 
 	switch f.PriorityPresence {

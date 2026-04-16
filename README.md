@@ -125,7 +125,7 @@ wydo task add "Buy groceries +home @errands"
 wydo task list
 wydo task list --all
 wydo task list -p project
-wydo task list -c context
+wydo task list -c tag
 wydo task list --done
 wydo task done <task-id>
 wydo task delete <task-id>

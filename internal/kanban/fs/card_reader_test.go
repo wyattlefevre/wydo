@@ -8,7 +8,7 @@ import (
 )
 
 func TestReadCard_Frontmatter(t *testing.T) {
-	cardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work", "cards", "auth-service.md")
+	cardPath := filepath.Join(testdataDir(), "workspace1", "tasks", "auth-service.md")
 	card, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -60,7 +60,7 @@ func TestReadCard_NoFrontmatter(t *testing.T) {
 }
 
 func TestWriteCard_ReadCard_RoundTrip(t *testing.T) {
-	cardPath := filepath.Join(testdataDir(), "workspace1", "boards", "dev-work", "cards", "auth-service.md")
+	cardPath := filepath.Join(testdataDir(), "workspace1", "tasks", "auth-service.md")
 	original, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("read error: %v", err)
@@ -100,7 +100,7 @@ func TestWriteCard_ReadCard_RoundTrip(t *testing.T) {
 }
 
 func TestReadCard_ContractorQuotes(t *testing.T) {
-	cardPath := filepath.Join(testdataDir(), "workspace1", "boards", "home-reno", "cards", "contractor-quotes.md")
+	cardPath := filepath.Join(testdataDir(), "workspace1", "tasks", "contractor-quotes.md")
 	card, err := ReadTaskNote(cardPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

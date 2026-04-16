@@ -13,7 +13,7 @@ import (
 func runAdd(args []string, svc service.TaskService) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: task description required")
-		fmt.Fprintln(os.Stderr, "Usage: wydo task add \"Task description +project @context\"")
+		fmt.Fprintln(os.Stderr, "Usage: wydo task add \"Task description +project @tag\"")
 		return 1
 	}
 
@@ -33,7 +33,7 @@ func runAdd(args []string, svc service.TaskService) int {
 func runList(args []string, svc service.TaskService) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	project := fs.String("p", "", "Filter by project")
-	context := fs.String("c", "", "Filter by context")
+	tag := fs.String("c", "", "Filter by tag")
 	showDone := fs.Bool("done", false, "Show only completed tasks")
 	showAll := fs.Bool("all", false, "Show all tasks including completed")
 
@@ -60,8 +60,8 @@ func runList(args []string, svc service.TaskService) int {
 	if *project != "" {
 		tasks = filterByProject(tasks, *project)
 	}
-	if *context != "" {
-		tasks = filterByContext(tasks, *context)
+	if *tag != "" {
+		tasks = filterByTag(tasks, *tag)
 	}
 
 	if len(tasks) == 0 {
@@ -142,10 +142,10 @@ func filterByProject(tasks []data.Task, project string) []data.Task {
 	return filtered
 }
 
-func filterByContext(tasks []data.Task, context string) []data.Task {
+func filterByTag(tasks []data.Task, tag string) []data.Task {
 	var filtered []data.Task
 	for _, t := range tasks {
-		if t.HasContext(context) {
+		if t.HasTag(tag) {
 			filtered = append(filtered, t)
 		}
 	}
@@ -169,7 +169,7 @@ func printTask(t data.Task) {
 	for _, p := range t.Projects {
 		meta = append(meta, "+"+p)
 	}
-	for _, c := range t.Contexts {
+	for _, c := range t.Tags {
 		meta = append(meta, "@"+c)
 	}
 	if len(meta) > 0 {

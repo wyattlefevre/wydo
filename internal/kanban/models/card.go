@@ -13,7 +13,8 @@ type TaskNoteURL struct {
 
 // TaskNote represents a kanban task note with frontmatter metadata
 type TaskNote struct {
-	Filename      string        // Filename in the cards directory
+	Filename      string        // Base filename of the task note file
+	FilePath      string        // Absolute path to the task note file
 	Title         string        // Extracted from first H1 in markdown
 	Tags          []string      // From YAML frontmatter
 	Projects      []string      // From YAML frontmatter
@@ -25,7 +26,8 @@ type TaskNote struct {
 	DateCompleted *time.Time    // From YAML frontmatter (RFC3339 datetime)
 	Priority      int           // From YAML frontmatter (0 = unset)
 	Archived      bool          // Derived from file path (true if under archive/boards/)
-	Column        string        // From YAML frontmatter; stores column name for unarchive restore
+	Status        string        // From YAML frontmatter; current column/status name
+	Board         string        // From YAML frontmatter; board this task belongs to
 	TmuxSession   string        // From YAML frontmatter
 	JiraKey       string        // From YAML frontmatter (e.g. "PROJ-123")
 	JiraStatus    string        // From YAML frontmatter (cached Jira status)

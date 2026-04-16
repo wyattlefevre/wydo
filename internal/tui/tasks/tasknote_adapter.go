@@ -17,7 +17,7 @@ func taskNoteToTask(tn models.TaskNote, board models.Board, col models.Column) d
 		BoardName:  board.Name,
 		ColumnName: col.Name,
 		File:       board.Path,
-		Tags:       make(map[string]string),
+		Properties:     make(map[string]string),
 	}
 
 	// Priority: task note stores 0=none, 1=A ... 6=F
@@ -33,15 +33,15 @@ func taskNoteToTask(tn models.TaskNote, board models.Board, col models.Column) d
 
 	// Due / Scheduled
 	if tn.DueDate != nil {
-		t.Tags["due"] = tn.DueDate.Format("2006-01-02")
+		t.Properties["due"] = tn.DueDate.Format("2006-01-02")
 	}
 	if tn.ScheduledDate != nil {
-		t.Tags["scheduled"] = tn.ScheduledDate.Format("2006-01-02")
+		t.Properties["scheduled"] = tn.ScheduledDate.Format("2006-01-02")
 	}
 
 	// URL (first URL if present)
 	if len(tn.URLs) > 0 {
-		t.Tags["url"] = tn.URLs[0].URL
+		t.Properties["url"] = tn.URLs[0].URL
 	}
 
 	return t

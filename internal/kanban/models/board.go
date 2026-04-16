@@ -4,12 +4,12 @@ import "strings"
 
 // Board represents a kanban board with its columns and cards
 type Board struct {
-	Name        string   // Board name from H1 in board.md
-	Path        string   // Absolute path to board directory
-	Columns     []Column // List of columns
-	Archived    bool     // Derived from file path (true if board is under archive/boards/)
-	JiraBoardID int      // From YAML frontmatter in board.md (optional)
-	Project     string   // relative path from board.md to the linked project index file, or ""
+	Name     string   // Board name derived from .txt filename
+	Path     string   // Absolute path to board .txt file
+	Columns  []Column // List of columns (runtime, populated by workspace loader)
+	Archived bool     // Derived from file path (true if board is under archive/boards/)
+	Statuses []string // On-disk representation from .txt file
+	WSRoot   string   // Workspace root directory, set at load time
 }
 
 // GetColumn returns a pointer to the column with the given name

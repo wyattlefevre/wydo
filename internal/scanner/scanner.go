@@ -113,7 +113,7 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 	return nil
 }
 
-// scanBoardsDir scans a boards/ directory for board subdirectories
+// scanBoardsDir scans a boards/ directory for board .txt files
 func scanBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	entries, err := os.ReadDir(boardsDir)
 	if err != nil {
@@ -121,18 +121,14 @@ func scanBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
 			continue
 		}
 
 		boardPath := filepath.Join(boardsDir, entry.Name())
-		boardFile := filepath.Join(boardPath, "board.md")
-
-		if _, err := os.Stat(boardFile); err == nil {
-			scan.Boards = append(scan.Boards, BoardInfo{
-				Path: boardPath,
-			})
-		}
+		scan.Boards = append(scan.Boards, BoardInfo{
+			Path: boardPath,
+		})
 	}
 
 	return nil
@@ -163,7 +159,7 @@ func scanArchiveDir(archiveDir string, scan *WorkspaceScan) error {
 	return nil
 }
 
-// scanArchivedBoardsDir scans archive/boards/ for archived board directories
+// scanArchivedBoardsDir scans archive/boards/ for archived board .txt files
 func scanArchivedBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	entries, err := os.ReadDir(boardsDir)
 	if err != nil {
@@ -171,19 +167,15 @@ func scanArchivedBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
 			continue
 		}
 
 		boardPath := filepath.Join(boardsDir, entry.Name())
-		boardFile := filepath.Join(boardPath, "board.md")
-
-		if _, err := os.Stat(boardFile); err == nil {
-			scan.Boards = append(scan.Boards, BoardInfo{
-				Path:     boardPath,
-				Archived: true,
-			})
-		}
+		scan.Boards = append(scan.Boards, BoardInfo{
+			Path:     boardPath,
+			Archived: true,
+		})
 	}
 
 	return nil
@@ -222,15 +214,12 @@ func scanProjectsDir(projectsDir, rootDir, parentProject string, scan *Workspace
 	return nil
 }
 
-// isNoteFile returns true if the file is a markdown note (not board.md, not in cards/)
+// isNoteFile returns true if the file is a markdown note (not in cards/)
 func isNoteFile(name, dir string) bool {
 	if !strings.HasSuffix(strings.ToLower(name), ".md") {
 		return false
 	}
-	if name == "board.md" {
-		return false
-	}
-	// Check if we're inside a cards/ directory
+	// Skip files inside cards/ directories (legacy format, during migration)
 	if filepath.Base(dir) == "cards" {
 		return false
 	}

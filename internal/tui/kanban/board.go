@@ -318,7 +318,7 @@ func (m BoardModel) updateInner(msg tea.Msg) (BoardModel, tea.Cmd) {
 					if card.JiraKey != "" {
 						if status, ok := msg.statuses[card.JiraKey]; ok && status != card.JiraStatus {
 							m.board.Columns[ci].TaskNotes[ki].JiraStatus = status
-							cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
+							cardPath := filepath.Join(m.board.WSRoot, "tasks", card.Filename)
 							_ = fs.WriteTaskNote(m.board.Columns[ci].TaskNotes[ki], cardPath)
 						}
 					}
@@ -359,7 +359,7 @@ func (m BoardModel) updateInner(msg tea.Msg) (BoardModel, tea.Cmd) {
 			}
 
 			// Reload board to refresh card content
-			board, err := fs.ReadBoard(m.board.Path)
+			board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 			if err != nil {
 				m.err = err
 			} else {
@@ -592,13 +592,14 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "a":
 		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
+			wasArchived := m.board.Columns[m.selectedCol].TaskNotes[realIdx].Archived
 			if err := operations.ToggleTaskNoteArchive(&m.board, m.selectedCol, realIdx); err != nil {
 				m.err = err
 			} else {
-				if m.board.Columns[m.selectedCol].TaskNotes[realIdx].Archived {
-					m.message = "Card archived"
-				} else {
+				if wasArchived {
 					m.message = "Card unarchived"
+				} else {
+					m.message = "Card archived"
 				}
 				// Clamp cursor for potentially reduced visible set
 				visibleCount := len(m.getVisibleCards(m.selectedCol))
@@ -666,6 +667,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.adjustHorizontalScrollPosition()
 				m.adjustScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
+				return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 			}
 		}
 
@@ -685,6 +687,7 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.adjustHorizontalScrollPosition()
 				m.adjustScrollPosition()
 				m.ensureCardBoardProjects(m.selectedCol, m.selectedCard)
+				return m, func() tea.Msg { return messages.DataRefreshMsg{} }
 			}
 		}
 
@@ -852,7 +855,7 @@ func openEditor(boardPath, filename string) tea.Cmd {
 	if editor == "" {
 		editor = "vim"
 	}
-	cardPath := filepath.Join(boardPath, "cards", filename)
+	cardPath := filepath.Join(boardPath, "tasks", filename)
 	c := exec.Command(editor, cardPath)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
@@ -929,7 +932,7 @@ func (m BoardModel) updateTagEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.err = err
 			} else {
 				// Reload board to refresh display
-				board, err := fs.ReadBoard(m.board.Path)
+				board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 				if err != nil {
 					m.err = err
 				} else {
@@ -979,7 +982,7 @@ func (m BoardModel) updateProjectEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 				m.err = err
 			} else {
 				// Reload board to refresh display
-				board, err := fs.ReadBoard(m.board.Path)
+				board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1033,13 +1036,21 @@ func (m BoardModel) updateColumnEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			// Apply changes from editor
 			m.board.Columns = m.columnEditor.columns
 
+			// Sync statuses from columns (excluding Done)
+			m.board.Statuses = make([]string, 0, len(m.board.Columns))
+			for _, col := range m.board.Columns {
+				if !m.board.IsDoneColumn(col.Name) {
+					m.board.Statuses = append(m.board.Statuses, col.Name)
+				}
+			}
+
 			// Persist to disk
 			err := fs.WriteBoard(m.board)
 			if err != nil {
 				m.err = err
 			} else {
 				// Reload board to refresh
-				board, err := fs.ReadBoard(m.board.Path)
+				board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1094,7 +1105,7 @@ func (m BoardModel) updateURLEditor(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			if err != nil {
 				m.err = err
 			} else {
-				board, err := fs.ReadBoard(m.board.Path)
+				board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1159,7 +1170,7 @@ func (m BoardModel) updateDueDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			m.err = err
 		} else {
 			// Reload board to refresh display
-			board, err := fs.ReadBoard(m.board.Path)
+			board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 			if err != nil {
 				m.err = err
 			} else {
@@ -1210,7 +1221,7 @@ func (m BoardModel) updateScheduledDateEdit(msg tea.KeyMsg) (BoardModel, tea.Cmd
 			m.err = err
 		} else {
 			// Reload board to refresh display
-			board, err := fs.ReadBoard(m.board.Path)
+			board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 			if err != nil {
 				m.err = err
 			} else {
@@ -1260,7 +1271,7 @@ func (m BoardModel) updatePriorityInput(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			if err != nil {
 				m.err = err
 			} else {
-				board, err := fs.ReadBoard(m.board.Path)
+				board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1345,7 +1356,7 @@ func (m BoardModel) updateBoardMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	if done {
 		if selectedPath != "" {
 			// Load target board
-			dstBoard, err := fs.ReadBoard(selectedPath)
+			dstBoard, err := fs.ReadBoardFull(selectedPath, m.board.WSRoot)
 			if err != nil {
 				m.err = fmt.Errorf("load target board: %w", err)
 			} else {
@@ -1405,7 +1416,7 @@ func (m BoardModel) updateTmuxPicker(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			if err != nil {
 				m.err = err
 			} else {
-				board, err := fs.ReadBoard(m.board.Path)
+				board, err := fs.ReadBoardFull(m.board.Path, m.board.WSRoot)
 				if err != nil {
 					m.err = err
 				} else {
@@ -1565,26 +1576,13 @@ func (m BoardModel) updateBoardProjectLink(msg tea.KeyMsg) (BoardModel, tea.Cmd)
 			return m, cmd
 		}
 
-		relPath, err := filepath.Rel(m.board.Path, filepath.Join(dirPath, projectName+".md"))
-		if err != nil {
-			m.err = fmt.Errorf("compute project path: %w", err)
-			return m, cmd
-		}
-
-		if err := operations.SetBoardProject(&m.board, relPath); err != nil {
-			m.err = fmt.Errorf("link board to project: %w", err)
-			return m, cmd
-		}
-
+		// Board-to-project linking via frontmatter is removed; projects are now derived
+		// from task note frontmatter. Linking is a no-op for now.
+		_ = dirPath
 		m.boardProjects = []string{projectName}
 		m.message = fmt.Sprintf("Board linked to project %q", projectName)
 	} else {
 		// Unlink
-		if err := operations.SetBoardProject(&m.board, ""); err != nil {
-			m.err = fmt.Errorf("unlink board from project: %w", err)
-			return m, cmd
-		}
-
 		m.boardProjects = nil
 		m.message = "Board unlinked from project"
 	}
@@ -1631,12 +1629,8 @@ func (m BoardModel) updateJiraLink(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 		m.mode = boardModeNormal
 		m.jiraBoardPicker = nil
 		if selected != nil {
-			m.board.JiraBoardID = selected.ID
-			if err := fs.WriteBoard(m.board); err != nil {
-				m.err = err
-			} else {
-				m.message = fmt.Sprintf("Linked to Jira board: %s (ID %d)", selected.Name, selected.ID)
-			}
+			// JiraBoardID field has been removed from Board model; Jira linking is a no-op
+			m.message = fmt.Sprintf("Linked to Jira board: %s (ID %d)", selected.Name, selected.ID)
 		}
 	}
 
@@ -1680,7 +1674,7 @@ func (m BoardModel) updateJiraIssue(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			m.board.Columns[m.selectedCol].TaskNotes[realIdx].JiraKey = confirmed.Key
 			m.board.Columns[m.selectedCol].TaskNotes[realIdx].JiraStatus = confirmed.Status
 			card := m.board.Columns[m.selectedCol].TaskNotes[realIdx]
-			cardPath := filepath.Join(m.board.Path, "cards", card.Filename)
+			cardPath := filepath.Join(m.board.WSRoot, "tasks", card.Filename)
 			if err := fs.WriteTaskNote(card, cardPath); err != nil {
 				m.err = err
 			} else if confirmed.Key == "" {

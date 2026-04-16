@@ -5,6 +5,8 @@ due: "2026-02-20"
 tags:
   - planning
 priority: B
+board: home-reno
+status: In Progress
 ---
 
 # Contractor Quotes

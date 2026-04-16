@@ -32,7 +32,7 @@ type TaskEditorModel struct {
 	urlInput        *TextInputModel
 	projectPicker   *kanbanview.ProjectPickerModel
 	allProjectItems []kanbanview.ProjectPickerItem
-	allContexts     []string
+	allTags         []string
 	Width           int
 	Height          int
 }
@@ -45,17 +45,17 @@ type TaskEditorResultMsg struct {
 }
 
 // NewTaskEditor creates a new task editor for the given task
-func NewTaskEditor(task *data.Task, allProjectItems []kanbanview.ProjectPickerItem, allContexts []string) *TaskEditorModel {
+func NewTaskEditor(task *data.Task, allProjectItems []kanbanview.ProjectPickerItem, allTags []string) *TaskEditorModel {
 	// Make a copy of the original task for comparison/cancel
 	original := *task
 	// Deep copy slices
 	original.Projects = make([]string, len(task.Projects))
 	copy(original.Projects, task.Projects)
-	original.Contexts = make([]string, len(task.Contexts))
-	copy(original.Contexts, task.Contexts)
-	original.Tags = make(map[string]string)
-	for k, v := range task.Tags {
-		original.Tags[k] = v
+	original.Tags = make([]string, len(task.Tags))
+	copy(original.Tags, task.Tags)
+	original.Properties = make(map[string]string)
+	for k, v := range task.Properties {
+		original.Properties[k] = v
 	}
 
 	return &TaskEditorModel{
@@ -63,7 +63,7 @@ func NewTaskEditor(task *data.Task, allProjectItems []kanbanview.ProjectPickerIt
 		originalTask:    original,
 		inputContext:    InputModeContext{Mode: ModeTaskEditor},
 		allProjectItems: allProjectItems,
-		allContexts:     allContexts,
+		allTags:         allTags,
 		Width:           60,
 	}
 }
@@ -141,10 +141,10 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 		return m, picker.Init()
 
 	case "t", "c":
-		// Edit contexts
-		m.inputContext.Mode = ModeEditContext
-		m.fuzzyPicker = NewFuzzyPicker(m.allContexts, "Select Contexts", true, false)
-		m.fuzzyPicker.PreSelect(m.task.Contexts)
+		// Edit tags
+		m.inputContext.Mode = ModeEditTag
+		m.fuzzyPicker = NewFuzzyPicker(m.allTags, "Select Tags", true, false)
+		m.fuzzyPicker.PreSelect(m.task.Tags)
 		return m, nil
 
 	case "U":
@@ -216,8 +216,8 @@ func (m *TaskEditorModel) updateFuzzyPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.inputContext.Mode {
 			case ModeEditProject:
 				m.task.Projects = result.Selected
-			case ModeEditContext:
-				m.task.Contexts = result.Selected
+			case ModeEditTag:
+				m.task.Tags = result.Selected
 			}
 		}
 		m.fuzzyPicker = nil
@@ -392,13 +392,13 @@ func (m *TaskEditorModel) View() string {
 	}
 	content.WriteString("\n")
 
-	// Contexts
-	content.WriteString(editorLabelStyle.Render("Contexts:"))
+	// Tags
+	content.WriteString(editorLabelStyle.Render("Tags:"))
 	ctxStr := "(none)"
-	if len(m.task.Contexts) > 0 {
-		ctxStr = "@" + strings.Join(m.task.Contexts, ", @")
+	if len(m.task.Tags) > 0 {
+		ctxStr = "@" + strings.Join(m.task.Tags, ", @")
 	}
-	if !slicesEqual(m.task.Contexts, m.originalTask.Contexts) {
+	if !slicesEqual(m.task.Tags, m.originalTask.Tags) {
 		content.WriteString(editorModifiedStyle.Render(ctxStr + " *"))
 	} else {
 		content.WriteString(editorValueStyle.Render(ctxStr))
@@ -419,7 +419,7 @@ func (m *TaskEditorModel) View() string {
 	content.WriteString("\n\n")
 
 	// Help
-	content.WriteString(editorHelpStyle.Render("[d] due  [s] sched  [p] project  [t] context  [i] priority  [U] url  [u] open url"))
+	content.WriteString(editorHelpStyle.Render("[d] due  [s] sched  [p] project  [t] tag  [i] priority  [U] url  [u] open url"))
 	content.WriteString("\n")
 	content.WriteString(editorHelpStyle.Render("[enter] save  [esc] cancel"))
 

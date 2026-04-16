@@ -229,8 +229,8 @@ func TestUpdateWithEmptyFileDoesNotPersist(t *testing.T) {
 		ID:       "test-empty-file",
 		Name:     "Ghost task",
 		Projects: []string{},
-		Contexts: []string{},
-		Tags:     map[string]string{},
+		Tags:     []string{},
+		Properties:   map[string]string{},
 		File:     "", // This is the bug: empty file
 	}
 

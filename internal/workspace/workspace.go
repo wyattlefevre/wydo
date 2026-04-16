@@ -21,13 +21,14 @@ import (
 
 // Workspace holds all loaded data for one workspace
 type Workspace struct {
-	RootDir  string
-	Boards   []kanbanmodels.Board
-	Tasks    []data.Task
-	Notes    []notes.Note
-	Projects *ProjectRegistry
-	TaskDirs []scanner.TaskDirInfo
-	TaskSvc  service.TaskService
+	RootDir          string
+	Boards           []kanbanmodels.Board
+	Tasks            []data.Task
+	Notes            []notes.Note
+	Projects         *ProjectRegistry
+	TaskDirs         []scanner.TaskDirInfo
+	TaskSvc          service.TaskService
+	ValidationIssues []ValidationIssue
 }
 
 // Load creates a Workspace from a scan result
@@ -43,7 +44,7 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 
 	// Load boards
 	for _, bi := range scan.Boards {
-		board, err := fs.ReadBoard(bi.Path)
+		board, err := fs.ReadBoardFull(bi.Path, scan.RootDir)
 		if err != nil {
 			continue
 		}
@@ -76,6 +77,15 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 
 	// Build project registry
 	ws.Projects = BuildProjectRegistry(scan, ws.Tasks, ws.Boards, scan.RootDir)
+
+	// Collect all task notes for validation
+	var allTaskNotes []kanbanmodels.TaskNote
+	for _, board := range ws.Boards {
+		for _, col := range board.Columns {
+			allTaskNotes = append(allTaskNotes, col.TaskNotes...)
+		}
+	}
+	ws.ValidationIssues = ValidateBoards(ws.Boards, allTaskNotes)
 
 	return ws, nil
 }
@@ -214,7 +224,10 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 						}
 					}
 				}
-				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", tn.Filename)
+				cardPath := tn.FilePath
+				if cardPath == "" {
+					cardPath = filepath.Join(ws.RootDir, "tasks", tn.Filename)
+				}
 				if err := fs.WriteTaskNote(*tn, cardPath); err != nil {
 					return fmt.Errorf("write task note %s: %w", tn.Filename, err)
 				}
@@ -277,7 +290,10 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 					}
 				}
 				tn.Projects = filtered
-				cardPath := filepath.Join(ws.Boards[bi].Path, "cards", tn.Filename)
+				cardPath := tn.FilePath
+				if cardPath == "" {
+					cardPath = filepath.Join(ws.RootDir, "tasks", tn.Filename)
+				}
 				if err := fs.WriteTaskNote(*tn, cardPath); err != nil {
 					return fmt.Errorf("write task note %s: %w", tn.Filename, err)
 				}
@@ -753,30 +769,38 @@ func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
 	return dirs
 }
 
-// BoardsForProject returns boards whose project frontmatter links to the given project.
+// BoardsForProject returns boards whose task notes include cards for the given project.
 // Returns nil for virtual projects (no DirPath).
 func (r *ProjectRegistry) BoardsForProject(name string, allBoards []kanbanmodels.Board) []kanbanmodels.Board {
 	proj := r.projects[name]
 	if proj == nil || proj.DirPath == "" {
 		return nil
 	}
-	indexPath := filepath.Join(proj.DirPath, proj.Name+".md")
+	seen := make(map[string]bool)
 	var result []kanbanmodels.Board
 	for _, b := range allBoards {
-		if b.Project == "" {
+		if seen[b.Path] {
 			continue
 		}
-		resolved := filepath.Clean(filepath.Join(b.Path, b.Project))
-		if resolved == indexPath {
-			result = append(result, b)
+		for _, col := range b.Columns {
+			for _, tn := range col.TaskNotes {
+				for _, p := range tn.Projects {
+					if strings.EqualFold(p, name) {
+						result = append(result, b)
+						seen[b.Path] = true
+						goto nextBoard
+					}
+				}
+			}
 		}
+	nextBoard:
 	}
 	return result
 }
 
-// ProjectsForBoard returns the project names (immediate + ancestors) linked to the
-// board at boardPath via the board's project frontmatter field.
-// Returns nil if the board has no project frontmatter or no matching project is found.
+// ProjectsForBoard returns the project names linked to the board at boardPath
+// via the task notes' project frontmatter fields.
+// Returns nil if no task notes reference a project on this board.
 func (r *ProjectRegistry) ProjectsForBoard(boardPath string, allBoards []kanbanmodels.Board) []string {
 	var board *kanbanmodels.Board
 	for i := range allBoards {
@@ -785,34 +809,24 @@ func (r *ProjectRegistry) ProjectsForBoard(boardPath string, allBoards []kanbanm
 			break
 		}
 	}
-	if board == nil || board.Project == "" {
+	if board == nil {
 		return nil
 	}
 
-	resolved := filepath.Clean(filepath.Join(boardPath, board.Project))
-
-	var immediate *Project
-	for _, p := range r.projects {
-		if p.DirPath == "" {
-			continue
-		}
-		indexPath := filepath.Join(p.DirPath, p.Name+".md")
-		if resolved == indexPath {
-			immediate = p
-			break
-		}
-	}
-	if immediate == nil {
-		return nil
-	}
-
+	seen := make(map[string]bool)
 	var result []string
-	for cur := immediate; cur != nil; {
-		result = append(result, cur.Name)
-		if cur.Parent == "" {
-			break
+	for _, col := range board.Columns {
+		for _, tn := range col.TaskNotes {
+			for _, p := range tn.Projects {
+				if !seen[p] {
+					seen[p] = true
+					result = append(result, p)
+				}
+			}
 		}
-		cur = r.projects[cur.Parent]
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }
@@ -833,4 +847,49 @@ func (r *ProjectRegistry) TaskNotesForProject(name string, boards []kanbanmodels
 		}
 	}
 	return result
+}
+
+// ValidationIssue represents a task note with a board name that exists but
+// a status that is not in the board's status list (and not "Done").
+type ValidationIssue struct {
+	TaskNote      kanbanmodels.TaskNote
+	Board         kanbanmodels.Board
+	InvalidStatus string
+}
+
+// ValidateBoards returns task notes with invalid statuses after loading.
+func ValidateBoards(boards []kanbanmodels.Board, allTaskNotes []kanbanmodels.TaskNote) []ValidationIssue {
+	boardMap := make(map[string]*kanbanmodels.Board, len(boards))
+	for i := range boards {
+		boardMap[boards[i].Name] = &boards[i]
+	}
+
+	var issues []ValidationIssue
+	for _, tn := range allTaskNotes {
+		if tn.Board == "" || tn.Archived {
+			continue
+		}
+		board := boardMap[tn.Board]
+		if board == nil {
+			continue
+		}
+		if strings.EqualFold(tn.Status, "done") {
+			continue
+		}
+		valid := false
+		for _, s := range board.Statuses {
+			if strings.EqualFold(s, tn.Status) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			issues = append(issues, ValidationIssue{
+				TaskNote:      tn,
+				Board:         *board,
+				InvalidStatus: tn.Status,
+			})
+		}
+	}
+	return issues
 }

@@ -6,6 +6,8 @@ tags:
   - backend
   - security
 priority: A
+board: dev-work
+status: In Progress
 ---
 
 # Auth Service

@@ -64,6 +64,6 @@ Tasks are tracked in special directories named `tasks/` (similar to projects). T
 
 Tasks can be linked to projects with `+` for example `buy lumber +home-remodel`, this links the task to a project.
 
-Tasks have context tags as well with `@` like `@work`
+Tasks have tags as well with `@` like `@work`
 
 and there are also key-value tags. These are used for tracking due/scheduled dates. For example `buy lumber +home-remodel due:2026-02-15 scheduled:2026-02-12`

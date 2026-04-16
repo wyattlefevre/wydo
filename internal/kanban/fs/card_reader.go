@@ -32,6 +32,7 @@ func ReadTaskNote(cardPath string) (models.TaskNote, error) {
 
 	return models.TaskNote{
 		Filename:      filename,
+		FilePath:      cardPath,
 		Title:         title,
 		Tags:          result.Tags,
 		Projects:      result.Projects,
@@ -42,7 +43,8 @@ func ReadTaskNote(cardPath string) (models.TaskNote, error) {
 		ScheduledDate: result.ScheduledDate,
 		DateCompleted: result.DateCompleted,
 		Priority:      result.Priority,
-		Column:        result.Column,
+		Status:        result.Status,
+		Board:         result.Board,
 		TmuxSession:   result.TmuxSession,
 		JiraKey:       result.JiraKey,
 		JiraStatus:    result.JiraStatus,
@@ -58,7 +60,8 @@ type FrontmatterResult struct {
 	ScheduledDate *time.Time
 	DateCompleted *time.Time
 	Priority      int
-	Column        string
+	Status        string
+	Board         string
 	TmuxSession   string
 	JiraKey       string
 	JiraStatus    string
@@ -100,7 +103,8 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		Scheduled     string               `yaml:"scheduled"`
 		DateCompleted string               `yaml:"date_completed"`
 		Priority      interface{}          `yaml:"priority"`
-		Column        string               `yaml:"column"`
+		Status        string               `yaml:"status"`
+		Board         string               `yaml:"board"`
 		TmuxSession   string               `yaml:"tmux_session"`
 		JiraKey       string               `yaml:"jira_key,omitempty"`
 		JiraStatus    string               `yaml:"jira_status,omitempty"`
@@ -159,7 +163,8 @@ func ParseFrontmatter(content []byte) (FrontmatterResult, error) {
 		ScheduledDate: scheduledDate,
 		DateCompleted: dateCompleted,
 		Priority:      parsePriorityField(frontmatter.Priority),
-		Column:        frontmatter.Column,
+		Status:        frontmatter.Status,
+		Board:         frontmatter.Board,
 		TmuxSession:   frontmatter.TmuxSession,
 		JiraKey:       frontmatter.JiraKey,
 		JiraStatus:    frontmatter.JiraStatus,

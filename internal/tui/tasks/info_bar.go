@@ -35,8 +35,8 @@ func NewInfoBar() InfoBarModel {
 	}
 }
 
-// SetContext updates the info bar with current state
-func (m *InfoBarModel) SetContext(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, multiWorkspace bool, activePreset ViewPreset) {
+// SetTag updates the info bar with current state
+func (m *InfoBarModel) SetTag(ctx *InputModeContext, filter *FilterState, sortState *SortState, groupState *GroupState, searchQuery string, multiWorkspace bool, activePreset ViewPreset) {
 	m.InputContext = ctx
 	m.FilterState = filter
 	m.SortState = sortState
@@ -139,17 +139,17 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 		return hint
 
 	case ModeFilterSelect:
-		hint := "/:search  d:date  p:project  i:priority  t:context  s:status  f:file  esc:back"
+		hint := "/:search  d:date  p:project  i:priority  t:tag  s:status  f:file  esc:back"
 		if m.MultiWorkspace {
-			hint = "/:search  d:date  p:project  i:priority  t:context  s:status  f:file  w:workspace  esc:back"
+			hint = "/:search  d:date  p:project  i:priority  t:tag  s:status  f:file  w:workspace  esc:back"
 		}
 		return hint
 
 	case ModeSortSelect:
-		return "d:date  p:project  i:priority  t:context  esc:back"
+		return "d:date  p:project  i:priority  t:tag  esc:back"
 
 	case ModeGroupSelect:
-		return "d:date  p:project  i:priority  t:context  b:board  esc:back"
+		return "d:date  p:project  i:priority  t:tag  b:board  esc:back"
 
 	case ModeSortDirection, ModeGroupDirection:
 		return "a:ascending  d:descending  esc:back"
@@ -164,12 +164,12 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 		return "j/k:navigate  enter:select  esc:cancel"
 
 	case ModeTaskEditor:
-		return "d:due  s:sched  p:project  t:context  i:priority  enter:save  esc:cancel"
+		return "d:due  s:sched  p:project  t:tag  i:priority  enter:save  esc:cancel"
 
 	case ModeEditDueDate:
 		return "format: yyyy-MM-dd  enter:save  esc:cancel"
 
-	case ModeEditProject, ModeEditContext:
+	case ModeEditProject, ModeEditTag:
 		return "j/k:navigate  enter:select  space:toggle  esc:cancel"
 
 	case ModeArchive:
