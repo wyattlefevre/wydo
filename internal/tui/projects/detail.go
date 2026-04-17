@@ -964,7 +964,7 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 	s.WriteString("\n")
 
 	if len(rows) == 0 {
-		s.WriteString(pathStyle.Render("  (none)"))
+		s.WriteString(pathStyle.Render("  no tasks"))
 		s.WriteString("\n")
 	} else {
 		end := scrollOff + availableForRows
