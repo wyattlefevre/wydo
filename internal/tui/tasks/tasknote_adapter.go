@@ -13,6 +13,7 @@ func TaskNoteToTask(tn models.TaskNote, board models.Board, col models.Column) d
 		ID:         fmt.Sprintf("tn:%s:%s", board.Name, tn.Filename),
 		Name:       tn.Title,
 		Projects:   tn.Projects,
+		Tags:       tn.Tags,
 		IsTaskNote: true,
 		BoardName:  board.Name,
 		ColumnName: col.Name,
