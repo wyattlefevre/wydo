@@ -14,6 +14,7 @@ import (
 
 var boardNameStyle = lipgloss.NewStyle().Foreground(theme.Secondary)
 var columnNameStyle = lipgloss.NewStyle().Foreground(theme.Primary)
+var simpleBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
 
 const statusWidth = 7
 
@@ -109,12 +110,13 @@ func StyledTaskLine(t data.Task, width int, boardNameWidth int) string {
 		} else {
 			suffix = "  " + boardNameStyle.Render(fmt.Sprintf("%-*s", boardNameWidth, t.BoardName)) + " " + columnNameStyle.Render(colStatus)
 		}
-	} else if t.Done {
-		var spacer string
-		if boardNameWidth > 0 {
-			spacer = strings.Repeat(" ", boardNameWidth+1)
+	} else {
+		simplePart := simpleBadgeStyle.Render(fmt.Sprintf("%-*s", boardNameWidth, "simple"))
+		if t.Done {
+			suffix = "  " + simplePart + " " + theme.Done.Render(fmt.Sprintf("%-*s", statusWidth, "Done"))
+		} else {
+			suffix = "  " + simplePart + " " + strings.Repeat(" ", statusWidth)
 		}
-		suffix = "  " + spacer + theme.Done.Render(fmt.Sprintf("%-*s", statusWidth, "Done"))
 	}
 
 	if suffix == "" {

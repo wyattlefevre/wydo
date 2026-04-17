@@ -32,11 +32,10 @@ type colKind int
 const (
 	colNotes colKind = iota
 	colTasks
-	colCards
 	colCount
 )
 
-var colNames = [colCount]string{"Notes", "Tasks", "Cards"}
+var colNames = [colCount]string{"Notes", "Tasks"}
 
 type rowKind int
 
@@ -44,7 +43,6 @@ const (
 	rowKindGroup rowKind = iota
 	rowKindNote
 	rowKindTask
-	rowKindCard
 )
 
 type detailRow struct {
@@ -55,7 +53,6 @@ type detailRow struct {
 	// Only one populated based on kind:
 	note notes.Note
 	task data.Task
-	taskNote kanbanmodels.TaskNote
 }
 
 type detailMode int
@@ -86,15 +83,12 @@ type DetailModel struct {
 	// Pre-computed per-project data (keyed by project name)
 	projectNotes map[string][]notes.Note
 	projectTasks map[string][]data.Task
-	projectTaskNotes map[string][]kanbanmodels.TaskNote
 	allDescendants []*workspace.Project
 
 	// Raw all-data
 	allBoards []kanbanmodels.Board
 	allTasks  []data.Task
 	allNotes  []notes.Note
-	cardBoard   map[string]kanbanmodels.Board  // card filename → parent board
-	cardColumn  map[string]string              // card filename → column name
 
 	// Column state
 	columns        [colCount][]detailRow
@@ -288,13 +282,14 @@ func (p projectURLPicker) View() string {
 }
 
 func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskNotes []kanbanmodels.TaskNote, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allTags []string) DetailModel {
-	cardBoard := make(map[string]kanbanmodels.Board)
-	cardColumn := make(map[string]string)
+	// Build board+column lookup for TaskNote → Task conversion.
+	tnBoard := make(map[string]kanbanmodels.Board)
+	tnCol := make(map[string]kanbanmodels.Column)
 	for _, b := range allBoards {
 		for _, col := range b.Columns {
 			for _, tn := range col.TaskNotes {
-				cardBoard[tn.Filename] = b
-				cardColumn[tn.Filename] = col.Name
+				tnBoard[tn.Filename] = b
+				tnCol[tn.Filename] = col
 			}
 		}
 	}
@@ -308,8 +303,6 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 		allBoards:       allBoards,
 		allTasks:        allTasks,
 		allNotes:        allNotes,
-		cardBoard:       cardBoard,
-		cardColumn:      cardColumn,
 		allProjectItems: allProjectItems,
 		allTags:         allTags,
 	}
@@ -319,22 +312,31 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 
 	m.projectNotes = make(map[string][]notes.Note)
 	m.projectTasks = make(map[string][]data.Task)
-	m.projectTaskNotes = make(map[string][]kanbanmodels.TaskNote)
+
+	appendTaskNotes := func(p string, tns []kanbanmodels.TaskNote) {
+		for _, tn := range tns {
+			if b, ok := tnBoard[tn.Filename]; ok {
+				if c, ok2 := tnCol[tn.Filename]; ok2 {
+					m.projectTasks[p] = append(m.projectTasks[p], taskview.TaskNoteToTask(tn, b, c))
+				}
+			}
+		}
+	}
 
 	if registry != nil {
 		m.allDescendants = collectAllDescendants(registry, name)
 		m.projectNotes[name] = prependIndexNote(registry.Get(name), registry.NotesForProject(name, allNotes))
 		m.projectTasks[name] = registry.TasksForProject(name, allTasks)
-		m.projectTaskNotes[name] = registry.TaskNotesForProject(name, allBoards)
+		appendTaskNotes(name, registry.TaskNotesForProject(name, allBoards))
 		for _, desc := range m.allDescendants {
 			m.projectNotes[desc.Name] = prependIndexNote(desc, registry.NotesForProject(desc.Name, allNotes))
 			m.projectTasks[desc.Name] = registry.TasksForProject(desc.Name, allTasks)
-			m.projectTaskNotes[desc.Name] = registry.TaskNotesForProject(desc.Name, allBoards)
+			appendTaskNotes(desc.Name, registry.TaskNotesForProject(desc.Name, allBoards))
 		}
 	} else {
 		m.projectNotes[name] = prependIndexNote(project, n)
 		m.projectTasks[name] = tasks
-		m.projectTaskNotes[name] = taskNotes
+		appendTaskNotes(name, taskNotes)
 	}
 
 	m.rebuildAllColumns()
@@ -344,10 +346,10 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 // prependIndexNote prepends the project's index file (name.md) to the front of the
 // notes slice if the file exists, so it always appears first in the Notes column.
 func prependIndexNote(proj *workspace.Project, rest []notes.Note) []notes.Note {
-	if proj == nil || proj.DirPath == "" {
+	if proj == nil || proj.FilePath == "" {
 		return rest
 	}
-	indexPath := filepath.Join(proj.DirPath, proj.Name+".md")
+	indexPath := proj.FilePath
 	if _, err := os.Stat(indexPath); err != nil {
 		return rest
 	}
@@ -412,10 +414,6 @@ func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project,
 		for _, t := range m.projectTasks[p.Name] {
 			*rows = append(*rows, detailRow{kind: rowKindTask, depth: depth, projectName: p.Name, task: t})
 		}
-	case colCards:
-		for _, c := range m.projectTaskNotes[p.Name] {
-			*rows = append(*rows, detailRow{kind: rowKindCard, depth: depth, projectName: p.Name, taskNote: c})
-		}
 	}
 
 	if m.registry == nil {
@@ -438,7 +436,7 @@ func detailProjectNames(m *DetailModel) []string {
 	}
 	names := []string{m.name}
 	for _, desc := range m.allDescendants {
-		if desc.DirPath != "" {
+		if desc.FilePath != "" {
 			names = append(names, desc.Name)
 		}
 	}
@@ -449,7 +447,7 @@ func detailProjectNames(m *DetailModel) []string {
 func detailExistingSubURLs(m *DetailModel) map[string][]kanbanmodels.TaskNoteURL {
 	result := make(map[string][]kanbanmodels.TaskNoteURL)
 	for _, desc := range m.allDescendants {
-		if desc.DirPath == "" {
+		if desc.FilePath == "" {
 			continue
 		}
 		if proj := m.registry.Get(desc.Name); proj != nil {
@@ -663,7 +661,7 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			projectNames := []string{m.name}
 			existingSubDates := make(map[string][]workspace.ProjectDate)
 			for _, desc := range m.allDescendants {
-				if desc.DirPath == "" {
+				if desc.FilePath == "" {
 					continue
 				}
 				projectNames = append(projectNames, desc.Name)
@@ -738,15 +736,10 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			return m, openNoteInEditor(row.note.FilePath)
 		case rowKindTask:
 			task := row.task
-			return m, func() tea.Msg {
-				return messages.FocusTaskMsg{TaskID: task.ID}
+			if task.IsTaskNote {
+				return m, func() tea.Msg { return messages.OpenBoardMsg{BoardPath: task.File} }
 			}
-		case rowKindCard:
-			if b, ok := m.cardBoard[row.taskNote.Filename]; ok {
-				return m, func() tea.Msg {
-					return messages.OpenBoardMsg{BoardPath: b.Path}
-				}
-			}
+			return m, func() tea.Msg { return messages.FocusTaskMsg{TaskID: task.ID} }
 		}
 	}
 	return m, nil
@@ -1014,7 +1007,7 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 
 	// Title line — truncate to column width
 	var title string
-	if col == colTasks || col == colCards {
+	if col == colTasks {
 		done := m.totalColDoneCount(col)
 		total := m.totalColCount(col)
 		title = fmt.Sprintf("%s (%d/%d)", colNames[col], done, total)
@@ -1038,6 +1031,16 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 	scrollOff := m.colScrollOff[colIdx]
 	cursor := m.colCursorPos[colIdx]
 
+	// Compute boardNameWidth for task-note alignment in the Tasks column.
+	boardNameWidth := 0
+	if col == colTasks {
+		for _, r := range rows {
+			if r.kind == rowKindTask && r.task.IsTaskNote && len(r.task.BoardName) > boardNameWidth {
+				boardNameWidth = len(r.task.BoardName)
+			}
+		}
+	}
+
 	// Top indicator (always reserve 1 line)
 	if scrollOff > 0 {
 		s.WriteString(pathStyle.Render(fmt.Sprintf("  ▲ %d above", scrollOff)))
@@ -1053,7 +1056,7 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 			end = len(rows)
 		}
 		for i := scrollOff; i < end; i++ {
-			s.WriteString(m.renderRow(rows[i], i == cursor && focused, col, colWidth))
+			s.WriteString(m.renderRow(rows[i], i == cursor && focused, col, colWidth, boardNameWidth))
 			s.WriteString("\n")
 		}
 	}
@@ -1071,7 +1074,7 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 	return lipgloss.NewStyle().Width(colWidth).Height(fixedHeight).Render(s.String())
 }
 
-func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colWidth int) string {
+func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colWidth int, boardNameWidth int) string {
 	indent := strings.Repeat("  ", row.depth)
 
 	var rendered string
@@ -1084,7 +1087,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 			marker = "▼"
 		}
 		var countStr string
-		if col == colTasks || col == colCards {
+		if col == colTasks {
 			done := m.subtreeDoneCount(row.projectName, col)
 			total := m.subtreeCount(row.projectName, col)
 			countStr = fmt.Sprintf("%d/%d", done, total)
@@ -1110,84 +1113,7 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		}
 
 	case rowKindTask:
-		taskLine := shared.StyledTaskLine(row.task, 0, 0)
-		rendered = taskLine
-
-	case rowKindCard:
-		title := row.taskNote.Title
-		if title == "" {
-			title = row.taskNote.Filename
-		}
-		colName := m.cardColumn[row.taskNote.Filename]
-		isDone := strings.EqualFold(colName, "done")
-		jiraKey := row.taskNote.JiraKey
-		if colName != "" {
-			// Reserve space for right-aligned jira+status.
-			statusStr := " " + colName
-			jiraStr := ""
-			if jiraKey != "" {
-				jiraStr = " " + jiraKey
-			}
-			rightWidth := len(jiraStr) + len(statusStr)
-			maxTitleWidth := colWidth - rightWidth
-			if maxTitleWidth < 1 {
-				maxTitleWidth = 1
-			}
-			// Truncate title if it won't fit.
-			if len(title) > maxTitleWidth {
-				if maxTitleWidth > 3 {
-					title = title[:maxTitleWidth-3] + "..."
-				} else {
-					title = title[:maxTitleWidth]
-				}
-			}
-			// Padding between title and right-aligned jira+status.
-			padding := maxTitleWidth - len(title)
-			if padding < 0 {
-				padding = 0
-			}
-			var titlePart string
-			if isSelected {
-				titlePart = colItemSelectedStyle.Render(title)
-			} else {
-				titlePart = colItemStyle.Render(title)
-			}
-			var statusColor lipgloss.Color
-			if isDone {
-				statusColor = lipgloss.Color("2")
-			} else {
-				statusColor = lipgloss.Color("4")
-			}
-			if jiraStr != "" {
-				jiraPart := lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Render(strings.Repeat(" ", padding) + jiraStr)
-				statusPart := lipgloss.NewStyle().Foreground(statusColor).Render(statusStr)
-				rendered = titlePart + jiraPart + statusPart
-			} else {
-				statusPart := lipgloss.NewStyle().Foreground(statusColor).Render(strings.Repeat(" ", padding) + statusStr)
-				rendered = titlePart + statusPart
-			}
-		} else {
-			// No status — just render title and optional jira key.
-			jiraStr := ""
-			if jiraKey != "" {
-				jiraStr = " " + jiraKey
-			}
-			maxTitleWidth := colWidth - len(jiraStr)
-			if maxTitleWidth < 1 {
-				maxTitleWidth = 1
-			}
-			if len(title) > maxTitleWidth && maxTitleWidth > 3 {
-				title = title[:maxTitleWidth-3] + "..."
-			}
-			if isSelected {
-				rendered = colItemSelectedStyle.Render(title)
-			} else {
-				rendered = colItemStyle.Render(title)
-			}
-			if jiraStr != "" {
-				rendered += lipgloss.NewStyle().Foreground(lipgloss.Color("69")).Render(jiraStr)
-			}
-		}
+		rendered = shared.StyledTaskLine(row.task, colWidth, boardNameWidth)
 
 	default:
 		return ""
@@ -1204,8 +1130,6 @@ func (m *DetailModel) subtreeCount(projName string, col colKind) int {
 			return len(m.projectNotes[projName])
 		case colTasks:
 			return len(m.projectTasks[projName])
-		case colCards:
-			return len(m.projectTaskNotes[projName])
 		}
 		return 0
 	}
@@ -1217,8 +1141,6 @@ func (m *DetailModel) subtreeCount(projName string, col colKind) int {
 			n = len(m.projectNotes[name])
 		case colTasks:
 			n = len(m.projectTasks[name])
-		case colCards:
-			n = len(m.projectTaskNotes[name])
 		}
 		for _, child := range m.registry.ChildrenOf(name) {
 			n += count(child.Name)
@@ -1240,10 +1162,6 @@ func (m *DetailModel) totalColCount(col colKind) int {
 		for _, v := range m.projectTasks {
 			total += len(v)
 		}
-	case colCards:
-		for _, v := range m.projectTaskNotes {
-			total += len(v)
-		}
 	}
 	return total
 }
@@ -1251,19 +1169,10 @@ func (m *DetailModel) totalColCount(col colKind) int {
 // totalColDoneCount returns done items across all projects for a column.
 func (m *DetailModel) totalColDoneCount(col colKind) int {
 	total := 0
-	switch col {
-	case colTasks:
+	if col == colTasks {
 		for _, tasks := range m.projectTasks {
 			for _, t := range tasks {
 				if t.Done {
-					total++
-				}
-			}
-		}
-	case colCards:
-		for _, cards := range m.projectTaskNotes {
-			for _, c := range cards {
-				if strings.EqualFold(m.cardColumn[c.Filename], "done") {
 					total++
 				}
 			}
@@ -1277,16 +1186,9 @@ func (m *DetailModel) subtreeDoneCount(projName string, col colKind) int {
 	var count func(name string) int
 	count = func(name string) int {
 		var n int
-		switch col {
-		case colTasks:
+		if col == colTasks {
 			for _, t := range m.projectTasks[name] {
 				if t.Done {
-					n++
-				}
-			}
-		case colCards:
-			for _, c := range m.projectTaskNotes[name] {
-				if strings.EqualFold(m.cardColumn[c.Filename], "done") {
 					n++
 				}
 			}

@@ -439,7 +439,7 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	case "enter":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			entry := m.entries[m.filtered[m.selected]]
-			if entry.Project.DirPath == "" {
+			if entry.Project.FilePath == "" {
 				// Virtual project — prompt to scaffold
 				return m.startScaffold(entry)
 			}
@@ -463,10 +463,10 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 			if entry.Project.Archived {
 				// Unarchiving: execute immediately (no confirmation needed)
 				var err error
-				if entry.Project.DirPath == "" {
+				if entry.Project.FilePath == "" {
 					err = workspace.SetVirtualProjectArchived(entry.RootDir, entry.Project, false)
 				} else {
-					err = workspace.SetProjectArchived(entry.Project, false)
+					err = workspace.SetProjectArchived(entry.Project, false, entry.RootDir)
 				}
 				if err != nil {
 					m.err = err
@@ -486,7 +486,7 @@ func (m ProjectsModel) updateList(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 	case "D":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			entry := m.entries[m.filtered[m.selected]]
-			if entry.Project.DirPath == "" {
+			if entry.Project.FilePath == "" {
 				m.deleteEntry = &entry
 				m.deleteTaskCount = countTasksForProject(entry, m.workspaces)
 				m.deleteCardCount = countCardsForProject(entry, m.workspaces)
@@ -534,7 +534,7 @@ func (m ProjectsModel) startCreate() (ProjectsModel, tea.Cmd) {
 	prefill := ""
 	if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 		entry := m.entries[m.filtered[m.selected]]
-		if entry.Project.DirPath == "" {
+		if entry.Project.FilePath == "" {
 			prefill = entry.Project.Name
 			// Use this workspace for create
 			m.createWSDir = entry.RootDir
@@ -620,36 +620,26 @@ func (m ProjectsModel) updateScaffoldConfirm(msg tea.KeyMsg) (ProjectsModel, tea
 			return m, nil
 		}
 		name := m.scaffoldEntry.Project.Name
-		projectDir := filepath.Join(m.scaffoldTargetDir, name)
 
-		// Always create the project directory itself
-		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		// Ensure projects dir exists
+		if err := os.MkdirAll(m.scaffoldTargetDir, 0o755); err != nil {
 			m.err = fmt.Errorf("failed to create directory: %w", err)
 			m.mode = modeList
 			return m, nil
 		}
 
-		// Create/write only checked options
+		// Create/write only checked options (flat files directly in scaffoldTargetDir)
 		for _, opt := range m.scaffoldOptions {
 			if !opt.checked {
 				continue
 			}
-			fullPath := filepath.Join(projectDir, opt.path)
-			if strings.HasSuffix(opt.path, "/") {
-				// Directory
-				if err := os.MkdirAll(fullPath, 0o755); err != nil {
-					m.err = fmt.Errorf("failed to create directory %s: %w", opt.path, err)
-					m.mode = modeList
-					return m, nil
-				}
-			} else {
-				// File (index note)
-				content := fmt.Sprintf("# %s\n", name)
-				if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
-					m.err = fmt.Errorf("failed to write %s: %w", opt.path, err)
-					m.mode = modeList
-					return m, nil
-				}
+			fullPath := filepath.Join(m.scaffoldTargetDir, opt.path)
+			// File (index note)
+			content := fmt.Sprintf("# %s\n", name)
+			if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+				m.err = fmt.Errorf("failed to write %s: %w", opt.path, err)
+				m.mode = modeList
+				return m, nil
 			}
 		}
 
@@ -766,17 +756,17 @@ func (m ProjectsModel) updateCreate(msg tea.KeyMsg) (ProjectsModel, tea.Cmd) {
 			return m, nil
 		}
 
-		projectDir := filepath.Join(targetDir, name)
-		if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		// Ensure the projects dir exists
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
 			m.err = fmt.Errorf("failed to create directory: %w", err)
 			return m, nil
 		}
 
-		// Write an index note
-		indexPath := filepath.Join(projectDir, name+".md")
+		// Write a flat project file
+		indexPath := filepath.Join(targetDir, name+".md")
 		content := fmt.Sprintf("# %s\n", name)
 		if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
-			m.err = fmt.Errorf("failed to write index note: %w", err)
+			m.err = fmt.Errorf("failed to write project file: %w", err)
 			return m, nil
 		}
 
@@ -941,7 +931,7 @@ func (m ProjectsModel) viewList() string {
 			var badgeSuffix string
 			if entry.Project.Archived {
 				badgeSuffix = " " + virtualBadgeStyle.Render("[archived]")
-			} else if entry.Project.DirPath == "" {
+			} else if entry.Project.FilePath == "" {
 				badgeSuffix = " " + virtualBadgeStyle.Render("(virtual)")
 			}
 			if m.multiWorkspace {
@@ -997,7 +987,7 @@ func (m ProjectsModel) viewSearch() string {
 				style = theme.ListItemSelected
 			}
 			name := entry.Project.Name
-			if entry.Project.DirPath == "" {
+			if entry.Project.FilePath == "" {
 				name += " " + virtualBadgeStyle.Render("(virtual)")
 			}
 			lines = append(lines, style.Render(name))
@@ -1173,10 +1163,10 @@ func (m ProjectsModel) updateArchiveConfirm(msg tea.KeyMsg) (ProjectsModel, tea.
 			return m, nil
 		}
 		var err error
-		if m.archiveEntry.Project.DirPath == "" {
+		if m.archiveEntry.Project.FilePath == "" {
 			err = workspace.SetVirtualProjectArchived(m.archiveEntry.RootDir, m.archiveEntry.Project, true)
 		} else {
-			err = workspace.SetProjectArchived(m.archiveEntry.Project, true)
+			err = workspace.SetProjectArchived(m.archiveEntry.Project, true, m.archiveEntry.RootDir)
 		}
 		m.archiveEntry = nil
 		m.mode = modeList
@@ -1309,7 +1299,7 @@ func collectDescendants(name string, reg *workspace.ProjectRegistry) map[string]
 
 // startSetParent begins the reparent flow for the given entry.
 func (m ProjectsModel) startSetParent(entry projectEntry) (ProjectsModel, tea.Cmd) {
-	if entry.Project.DirPath == "" {
+	if entry.Project.FilePath == "" {
 		m.err = fmt.Errorf("cannot reparent virtual project")
 		return m, nil
 	}
@@ -1327,7 +1317,7 @@ func (m ProjectsModel) startSetParent(entry projectEntry) (ProjectsModel, tea.Cm
 		if descendants[e.Project.Name] {
 			continue
 		}
-		if e.Project.DirPath == "" {
+		if e.Project.FilePath == "" {
 			continue // skip virtual
 		}
 		var ws *workspace.Workspace

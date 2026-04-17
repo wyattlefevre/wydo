@@ -67,3 +67,21 @@ func (c TaskNote) FirstURL() string {
 	}
 	return ""
 }
+
+// StripWikilink removes surrounding [[ ]] from a wikilink, returning the plain name.
+// Returns s unchanged if it is not a wikilink.
+func StripWikilink(s string) string {
+	if strings.HasPrefix(s, "[[") && strings.HasSuffix(s, "]]") {
+		return s[2 : len(s)-2]
+	}
+	return s
+}
+
+// WrapWikilink wraps a project name in [[ ]] wikilink syntax.
+// Returns s unchanged if it is already wrapped.
+func WrapWikilink(name string) string {
+	if strings.HasPrefix(name, "[[") {
+		return name
+	}
+	return "[[" + name + "]]"
+}

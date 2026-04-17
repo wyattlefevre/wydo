@@ -216,7 +216,7 @@ func (m *TaskManagerModel) loadTasks() {
 				if tn.Archived {
 					continue
 				}
-				tasks = append(tasks, taskNoteToTask(tn, board, col))
+				tasks = append(tasks, TaskNoteToTask(tn, board, col))
 			}
 		}
 	}

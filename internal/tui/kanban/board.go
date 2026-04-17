@@ -1562,23 +1562,23 @@ func (m BoardModel) updateBoardProjectLink(msg tea.KeyMsg) (BoardModel, tea.Cmd)
 	if len(selectedProjects) > 0 {
 		projectName := selectedProjects[0]
 
-		// Find the project in allProjects to get its DirPath
-		var dirPath string
+		// Find the project in allProjects to get its FilePath
+		var filePath string
 		for _, item := range m.allProjects {
 			if item.Name == projectName {
-				dirPath = item.DirPath
+				filePath = item.FilePath
 				break
 			}
 		}
 
-		if dirPath == "" {
-			m.err = fmt.Errorf("cannot link to virtual project %q (no directory on disk)", projectName)
+		if filePath == "" {
+			m.err = fmt.Errorf("cannot link to virtual project %q (no file on disk)", projectName)
 			return m, cmd
 		}
 
 		// Board-to-project linking via frontmatter is removed; projects are now derived
 		// from task note frontmatter. Linking is a no-op for now.
-		_ = dirPath
+		_ = filePath
 		m.boardProjects = []string{projectName}
 		m.message = fmt.Sprintf("Board linked to project %q", projectName)
 	} else {

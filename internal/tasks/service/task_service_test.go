@@ -294,14 +294,16 @@ func TestAddPersistsAcrossReload(t *testing.T) {
 func TestArchivePerDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	dir1 := filepath.Join(tmpDir, "tasks1")
+	// Use standard "tasks" dir name so workspace root is correctly derived
+	dir1 := filepath.Join(tmpDir, "tasks")
 	os.MkdirAll(dir1, 0755)
-	os.WriteFile(filepath.Join(dir1, "todo.txt"), []byte(
+	// todo.txt lives at the workspace root (new layout)
+	os.WriteFile(filepath.Join(tmpDir, "todo.txt"), []byte(
 		"Pending task\nx 2026-02-01 Completed task\n",
 	), 0644)
 
 	taskDirs := []scanner.TaskDirInfo{
-		{DirPath: dir1},
+		{DirPath: dir1, TodoPath: filepath.Join(tmpDir, "todo.txt")},
 	}
 
 	svc, err := NewTaskService(taskDirs)
@@ -314,11 +316,10 @@ func TestArchivePerDirectory(t *testing.T) {
 		t.Fatalf("archive error: %v", err)
 	}
 
-	// archive/tasks/todo.txt should now exist under the workspace root (parent of dir1)
-	workspaceRoot := filepath.Dir(dir1)
-	archiveFile := filepath.Join(workspaceRoot, "archive", "tasks", "todo.txt")
+	// archive/todo.txt should now exist under the workspace root
+	archiveFile := filepath.Join(tmpDir, "archive", "todo.txt")
 	if _, err := os.Stat(archiveFile); err != nil {
-		t.Errorf("expected archive/tasks/todo.txt to be created after archive, got: %v", err)
+		t.Errorf("expected archive/todo.txt to be created after archive, got: %v", err)
 	}
 
 	// Reload and verify: 1 pending in todo.txt, 1 done in archive

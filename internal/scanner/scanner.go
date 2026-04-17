@@ -24,14 +24,16 @@ type BoardInfo struct {
 
 // TaskDirInfo describes a discovered tasks/ directory
 type TaskDirInfo struct {
-	DirPath string // absolute path to the tasks/ directory
+	DirPath  string // absolute path to the tasks/ directory (for .md task notes)
+	TodoPath string // explicit path to todo.txt file (at workspace root or archive root)
 }
 
-// ProjectInfo describes a discovered project directory
+// ProjectInfo describes a discovered project file
 type ProjectInfo struct {
-	Name   string
-	Path   string // absolute path to project dir
-	Parent string // parent project name if nested
+	Name     string
+	Path     string // absolute path to the .md file
+	Parent   string // parent project name if nested
+	Archived bool   // true if discovered under archive/projects/
 }
 
 // ScanWorkspace recursively scans a single workspace directory
@@ -82,9 +84,10 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 				}
 			case "tasks":
 				if dir == rootDir {
-					if err := scanTasksDir(absPath, scan); err != nil {
-						return err
-					}
+					scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{
+						DirPath:  absPath,
+						TodoPath: filepath.Join(rootDir, "todo.txt"),
+					})
 				}
 			case "archive":
 				if dir == rootDir {
@@ -93,7 +96,7 @@ func walkWorkspace(dir, rootDir, projectContext string, scan *WorkspaceScan) err
 					}
 				}
 			case "projects":
-				if err := scanProjectsDir(absPath, rootDir, projectContext, scan); err != nil {
+				if err := scanProjectsDir(absPath, projectContext, scan); err != nil {
 					return err
 				}
 			case "cards":
@@ -134,24 +137,26 @@ func scanBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	return nil
 }
 
-// scanTasksDir registers a tasks/ directory.
-func scanTasksDir(tasksDir string, scan *WorkspaceScan) error {
-	scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{DirPath: tasksDir})
-	return nil
-}
-
 // scanArchiveDir scans archive/ for mirrored subdirectories (e.g. archive/tasks/, archive/boards/).
 func scanArchiveDir(archiveDir string, scan *WorkspaceScan) error {
 	tasksDir := filepath.Join(archiveDir, "tasks")
 	if _, err := os.Stat(tasksDir); err == nil {
-		if err := scanTasksDir(tasksDir, scan); err != nil {
-			return err
-		}
+		scan.TaskDirs = append(scan.TaskDirs, TaskDirInfo{
+			DirPath:  tasksDir,
+			TodoPath: filepath.Join(archiveDir, "todo.txt"),
+		})
 	}
 
 	boardsDir := filepath.Join(archiveDir, "boards")
 	if _, err := os.Stat(boardsDir); err == nil {
 		if err := scanArchivedBoardsDir(boardsDir, scan); err != nil {
+			return err
+		}
+	}
+
+	projectsDir := filepath.Join(archiveDir, "projects")
+	if _, err := os.Stat(projectsDir); err == nil {
+		if err := scanArchivedProjectsDir(projectsDir, scan); err != nil {
 			return err
 		}
 	}
@@ -181,34 +186,58 @@ func scanArchivedBoardsDir(boardsDir string, scan *WorkspaceScan) error {
 	return nil
 }
 
-// scanProjectsDir scans a projects/ directory, where each subdirectory is a project
-func scanProjectsDir(projectsDir, rootDir, parentProject string, scan *WorkspaceScan) error {
+// scanProjectsDir scans a projects/ directory for flat .md project files.
+// Each .md file (e.g. alpha.md) represents a project named by its stem.
+func scanProjectsDir(projectsDir, parentProject string, scan *WorkspaceScan) error {
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if entry.IsDir() {
+			continue // flat structure — subdirectories are not projects
+		}
+		if !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
-		if shouldSkipDir(entry.Name()) {
-			continue
-		}
-
-		projectName := entry.Name()
-		projectPath := filepath.Join(projectsDir, projectName)
-
+		name := strings.TrimSuffix(entry.Name(), ".md")
 		scan.Projects = append(scan.Projects, ProjectInfo{
-			Name:   projectName,
-			Path:   projectPath,
+			Name:   name,
+			Path:   filepath.Join(projectsDir, entry.Name()),
 			Parent: parentProject,
 		})
+	}
 
-		// Recurse into the project directory with this project as context
-		if err := walkWorkspace(projectPath, rootDir, projectName, scan); err != nil {
-			return err
+	return nil
+}
+
+// scanArchivedProjectsDir scans archive/projects/ for flat .md project files.
+func scanArchivedProjectsDir(projectsDir string, scan *WorkspaceScan) error {
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
 		}
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".md")
+		scan.Projects = append(scan.Projects, ProjectInfo{
+			Name:     name,
+			Path:     filepath.Join(projectsDir, entry.Name()),
+			Archived: true,
+		})
 	}
 
 	return nil
