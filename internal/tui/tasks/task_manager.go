@@ -1076,6 +1076,23 @@ func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, t
 		if count == 0 {
 			return m, messages.StatusCmd("No tasks selected to convert", messages.LevelWarning)
 		}
+		if len(m.boards) == 0 {
+			return m, messages.StatusCmd("No workspace available", messages.LevelWarning)
+		}
+		// Default: convert without board assignment
+		m.convertBoardPath = ""
+		m.confirmationModal = NewConfirmationModal(
+			fmt.Sprintf("Convert %d task(s) to tasknotes?", count),
+			"Tasks will be created as unassigned tasknotes",
+			50,
+		)
+		m.inputContext.TransitionTo(ModeConfirmation)
+		return m, nil
+	case "b":
+		count := len(m.convertSelection)
+		if count == 0 {
+			return m, messages.StatusCmd("No tasks selected to convert", messages.LevelWarning)
+		}
 		var realBoards []kanbanmodels.Board
 		for _, b := range m.boards {
 			if b.Path != "" {
@@ -1083,30 +1100,18 @@ func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, t
 			}
 		}
 		if len(realBoards) == 0 {
-			// No real boards — convert to default (unassigned) location
-			if len(m.boards) == 0 {
-				return m, messages.StatusCmd("No workspace available", messages.LevelWarning)
-			}
-			m.convertBoardPath = ""
-			m.confirmationModal = NewConfirmationModal(
-				fmt.Sprintf("Convert %d task(s) to complex?", count),
-				"Tasks will be created as unassigned tasknotes",
-				50,
-			)
-			m.inputContext.TransitionTo(ModeConfirmation)
-			return m, nil
+			return m, messages.StatusCmd("No boards available", messages.LevelWarning)
 		}
 		if len(realBoards) == 1 {
 			m.convertBoardPath = realBoards[0].Path
 			m.confirmationModal = NewConfirmationModal(
-				fmt.Sprintf("Convert %d task(s) to complex?", count),
-				fmt.Sprintf("Tasks will be moved to board \"%s\"", realBoards[0].Name),
+				fmt.Sprintf("Convert %d task(s) to tasknotes?", count),
+				fmt.Sprintf("Tasks will be assigned to board \"%s\"", realBoards[0].Name),
 				50,
 			)
 			m.inputContext.TransitionTo(ModeConfirmation)
 			return m, nil
 		}
-		// Multiple boards — open picker
 		boardNames := make([]string, len(realBoards))
 		for i, b := range realBoards {
 			boardNames[i] = b.Name
