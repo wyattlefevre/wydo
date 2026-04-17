@@ -406,9 +406,22 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 		r.ensureProject(pi.Name, pi.Path, pi.Parent, pi.Archived)
 	}
 
+	// Build a normalized-name → physical project lookup so that task +tags
+	// whose normalized form matches a physical project are not duplicated as
+	// new virtual projects (e.g. "+my-project" should resolve to "My Project").
+	normalizedPhysical := make(map[string]*Project)
+	for _, p := range r.projects {
+		if p.FilePath != "" {
+			normalizedPhysical[data.NormalizeProjectName(p.Name)] = p
+		}
+	}
+
 	// 2. From task +tags (virtual projects)
 	for _, t := range tasks {
 		for _, p := range t.Projects {
+			if _, ok := normalizedPhysical[data.NormalizeProjectName(p)]; ok {
+				continue // already represented by a physical project
+			}
 			r.ensureProject(p, "", "", false)
 		}
 	}
