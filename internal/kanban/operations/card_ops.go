@@ -393,6 +393,7 @@ func CreateTaskNoteFromTask(board *models.Board, title string, projects []string
 	if err := fs.WriteNewTaskNote(tn, cardPath); err != nil {
 		return models.TaskNote{}, err
 	}
+	tn.FilePath = cardPath
 
 	board.Columns[0].TaskNotes = append(board.Columns[0].TaskNotes, tn)
 	return tn, nil
