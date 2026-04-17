@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,6 +227,7 @@ func AppendTaskToFile(rawLine, todoFilePath string) (*Task, error) {
 	}
 
 	lineCount := 0
+	needsNewline := false
 	file, err := os.Open(todoFilePath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("error opening %s: %v", todoFilePath, err)
@@ -235,6 +237,16 @@ func AppendTaskToFile(rawLine, todoFilePath string) (*Task, error) {
 		for scanner.Scan() {
 			if strings.TrimSpace(scanner.Text()) != "" {
 				lineCount++
+			}
+		}
+		// Check whether the file ends with a newline so we can ensure the
+		// appended task starts on its own line.
+		if info, statErr := file.Stat(); statErr == nil && info.Size() > 0 {
+			if _, seekErr := file.Seek(-1, io.SeekEnd); seekErr == nil {
+				last := make([]byte, 1)
+				if _, readErr := file.Read(last); readErr == nil {
+					needsNewline = last[0] != '\n'
+				}
 			}
 		}
 		file.Close()
@@ -248,6 +260,12 @@ func AppendTaskToFile(rawLine, todoFilePath string) (*Task, error) {
 		return nil, fmt.Errorf("error opening %s for append: %v", todoFilePath, err)
 	}
 	defer f.Close()
+
+	if needsNewline {
+		if _, err := fmt.Fprint(f, "\n"); err != nil {
+			return nil, fmt.Errorf("error writing newline to %s: %v", todoFilePath, err)
+		}
+	}
 
 	_, err = fmt.Fprintln(f, task.String())
 	if err != nil {
