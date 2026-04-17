@@ -9,7 +9,6 @@ import (
 	"wydo/internal/kanban/fs"
 	"wydo/internal/kanban/operations"
 	"wydo/internal/tasks/data"
-	"wydo/internal/tui/kanban"
 	"wydo/internal/tui/messages"
 	taskview "wydo/internal/tui/tasks"
 	"wydo/internal/workspace"
@@ -150,13 +149,6 @@ func (m DetailModel) startItemCreation() (DetailModel, tea.Cmd) {
 		m.createTaskInput = input
 		m.mode = detailModeNewTaskName
 		return m, input.Focus()
-
-	case colCards:
-		selector := kanban.NewBoardSelectorModel(m.allBoards, "", "Select Board")
-		selector.SetSize(m.width, m.height)
-		m.createBoardPicker = &selector
-		m.mode = detailModeNewBoardPick
-		return m, nil
 	}
 	m.mode = detailModeNormal
 	return m, nil
@@ -211,7 +203,7 @@ func (m DetailModel) finishNoteCreation(name string) (DetailModel, tea.Cmd) {
 	if strings.TrimSpace(name) == "" {
 		return m, nil
 	}
-	if m.pendingProject == nil || m.pendingProject.DirPath == "" {
+	if m.pendingProject == nil || m.pendingProject.FilePath == "" {
 		name := ""
 		if m.pendingProject != nil {
 			name = m.pendingProject.Name
@@ -225,7 +217,7 @@ func (m DetailModel) finishNoteCreation(name string) (DetailModel, tea.Cmd) {
 	filename = strings.TrimSuffix(filename, ".md")
 	filename = filename + ".md"
 
-	filePath := filepath.Join(m.pendingProject.DirPath, filename)
+	filePath := filepath.Join(filepath.Dir(m.pendingProject.FilePath), filename)
 
 	if err := os.WriteFile(filePath, []byte(""), 0644); err != nil {
 		logs.Logger.Printf("Error creating note file: %v", err)

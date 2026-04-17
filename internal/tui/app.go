@@ -217,8 +217,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
 				children := ws.Projects.ChildrenOf(msg.ProjectName)
 				var indexPreview string
-				if proj != nil && proj.DirPath != "" {
-					indexPreview = workspace.ReadIndexPreview(proj.DirPath, proj.Name)
+				if proj != nil && proj.FilePath != "" {
+					indexPreview = workspace.ReadIndexPreview(proj.FilePath)
 				}
 				allProjectItems := collectAllProjects(m.workspaces)
 				allTags := taskview.ExtractUniqueTags(ws.Tasks)
@@ -402,14 +402,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CreateSubProjectMsg:
 		for _, ws := range m.workspaces {
 			if ws.RootDir == msg.WsDir {
-				targetDir := filepath.Join(msg.ParentProject.DirPath, "projects", msg.Name)
-				if err := os.MkdirAll(targetDir, 0o755); err != nil {
-					logs.Logger.Printf("Error creating sub-project dir: %v", err)
+				projectsDir := filepath.Dir(msg.ParentProject.FilePath)
+				if err := os.MkdirAll(projectsDir, 0o755); err != nil {
+					logs.Logger.Printf("Error creating projects dir: %v", err)
 					break
 				}
-				indexPath := filepath.Join(targetDir, msg.Name+".md")
-				if err := os.WriteFile(indexPath, []byte("# "+msg.Name+"\n"), 0o644); err != nil {
-					logs.Logger.Printf("Error writing sub-project index: %v", err)
+				projectFile := filepath.Join(projectsDir, msg.Name+".md")
+				if err := os.WriteFile(projectFile, []byte("# "+msg.Name+"\n"), 0o644); err != nil {
+					logs.Logger.Printf("Error writing project file: %v", err)
 				}
 				break
 			}
@@ -741,9 +741,9 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 		p := seen[name]
 		dirPath := ""
 		if p != nil {
-			dirPath = p.DirPath
+			dirPath = p.FilePath
 		}
-		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: depth, DirPath: dirPath})
+		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: depth, FilePath: dirPath})
 		for _, child := range children[name] {
 			dfs(child, depth+1)
 		}
@@ -767,9 +767,9 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 		p := seen[name]
 		dirPath := ""
 		if p != nil {
-			dirPath = p.DirPath
+			dirPath = p.FilePath
 		}
-		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: 0, DirPath: dirPath})
+		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: 0, FilePath: dirPath})
 	}
 
 	return result

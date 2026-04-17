@@ -32,7 +32,7 @@ func CreateBoard(rootDir, name string) (models.Board, error) {
 		Name:     dirName,
 		Path:     boardPath,
 		WSRoot:   rootDir,
-		Statuses: []string{"To Do", "In Progress"},
+		Statuses: []string{"To Do", "In Progress", "Done"},
 		Columns: []models.Column{
 			{Name: "To Do", TaskNotes: []models.TaskNote{}},
 			{Name: "In Progress", TaskNotes: []models.TaskNote{}},

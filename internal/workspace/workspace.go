@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"wydo/internal/kanban/fs"
+	kanbanfs "wydo/internal/kanban/fs"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/notes"
 	"wydo/internal/scanner"
@@ -41,10 +41,11 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 	// Ensure archive directory structure exists
 	_ = os.MkdirAll(filepath.Join(scan.RootDir, "archive", "tasks"), 0755)
 	_ = os.MkdirAll(filepath.Join(scan.RootDir, "archive", "boards"), 0755)
+	_ = os.MkdirAll(filepath.Join(scan.RootDir, "archive", "projects"), 0755)
 
 	// Load boards
 	for _, bi := range scan.Boards {
-		board, err := fs.ReadBoardFull(bi.Path, scan.RootDir)
+		board, err := kanbanfs.ReadBoardFull(bi.Path, scan.RootDir)
 		if err != nil {
 			continue
 		}
@@ -53,6 +54,10 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 		}
 		ws.Boards = append(ws.Boards, board)
 	}
+
+	// Prepend synthetic "default" board (shows unassigned task notes)
+	defaultBoard := kanbanfs.BuildDefaultBoard(scan.RootDir)
+	ws.Boards = append([]kanbanmodels.Board{defaultBoard}, ws.Boards...)
 
 	// Load tasks via task service
 	taskSvc, err := service.NewTaskService(scan.TaskDirs)
@@ -90,11 +95,11 @@ func Load(scan *scanner.WorkspaceScan) (*Workspace, error) {
 	return ws, nil
 }
 
-// MoveProjectToParent moves a project's directory under a new parent project (or to root).
+// MoveProjectToParent moves a project's .md file under a new parent project (or to root).
 // If newParent is nil, moves to the first ProjectsDir of the workspace (root-level).
-// Updates project.DirPath and project.Parent in memory; caller must emit DataRefreshMsg.
+// Updates project.FilePath and project.Parent in memory; caller must emit DataRefreshMsg.
 func (ws *Workspace) MoveProjectToParent(project *Project, newParent *Project) error {
-	if project.DirPath == "" {
+	if project.FilePath == "" {
 		return fmt.Errorf("cannot move virtual project %q", project.Name)
 	}
 	var targetBase string
@@ -107,22 +112,22 @@ func (ws *Workspace) MoveProjectToParent(project *Project, newParent *Project) e
 			targetBase = filepath.Join(ws.RootDir, "projects")
 		}
 	} else {
-		if newParent.DirPath == "" {
+		if newParent.FilePath == "" {
 			return fmt.Errorf("cannot move under virtual project %q", newParent.Name)
 		}
-		targetBase = filepath.Join(newParent.DirPath, "projects")
+		targetBase = filepath.Join(filepath.Dir(newParent.FilePath), "projects")
 	}
-	targetDir := filepath.Join(targetBase, project.Name)
-	if targetDir == project.DirPath {
+	targetPath := filepath.Join(targetBase, project.Name+".md")
+	if targetPath == project.FilePath {
 		return nil // already in the right place
 	}
 	if err := os.MkdirAll(targetBase, 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(project.DirPath, targetDir); err != nil {
+	if err := os.Rename(project.FilePath, targetPath); err != nil {
 		return err
 	}
-	project.DirPath = targetDir
+	project.FilePath = targetPath
 	if newParent == nil {
 		project.Parent = ""
 	} else {
@@ -131,7 +136,7 @@ func (ws *Workspace) MoveProjectToParent(project *Project, newParent *Project) e
 	return nil
 }
 
-// RenameProject renames a project, updating the directory on disk (if physical),
+// RenameProject renames a project, updating the .md file on disk (if physical),
 // all task +tag references, and all card frontmatter project references.
 func (ws *Workspace) RenameProject(oldName, newName string) error {
 	// Validate old project exists
@@ -143,27 +148,30 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 	// Check if the target project already exists (merge case)
 	targetProject := ws.Projects.Get(newName)
 
-	// Handle directory logic
-	if project.DirPath != "" {
-		if targetProject == nil || targetProject.DirPath == "" {
-			// Source has dir, target has no dir: simple rename
-			parentDir := filepath.Dir(project.DirPath)
-			newPath := filepath.Join(parentDir, newName)
-			if err := os.Rename(project.DirPath, newPath); err != nil {
-				return fmt.Errorf("rename directory: %w", err)
+	// Handle file logic
+	if project.FilePath != "" {
+		if targetProject == nil || targetProject.FilePath == "" {
+			// Source has file, target has no file: simple rename
+			newFilePath := filepath.Join(filepath.Dir(project.FilePath), newName+".md")
+			if err := os.Rename(project.FilePath, newFilePath); err != nil {
+				return fmt.Errorf("rename project file: %w", err)
 			}
-			// Rename the index note if it matches the old project name
-			oldIndex := filepath.Join(newPath, oldName+".md")
-			newIndex := filepath.Join(newPath, newName+".md")
-			if _, err := os.Stat(oldIndex); err == nil {
-				if err := os.Rename(oldIndex, newIndex); err != nil {
-					return fmt.Errorf("rename index note: %w", err)
+			project.FilePath = newFilePath
+		} else {
+			// Both have files: append source content to target, delete source
+			srcContent, err := os.ReadFile(project.FilePath)
+			if err != nil {
+				return fmt.Errorf("read source project file: %w", err)
+			}
+			dstContent, _ := os.ReadFile(targetProject.FilePath)
+			if len(srcContent) > 0 {
+				combined := append(dstContent, srcContent...)
+				if err := os.WriteFile(targetProject.FilePath, combined, 0644); err != nil {
+					return fmt.Errorf("merge project files: %w", err)
 				}
 			}
-		} else {
-			// Both have dirs: merge source into target, then remove source
-			if err := mergeDirs(project.DirPath, targetProject.DirPath); err != nil {
-				return fmt.Errorf("merge directories: %w", err)
+			if err := os.Remove(project.FilePath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove source project file: %w", err)
 			}
 		}
 	}
@@ -196,10 +204,10 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 				hasOld := false
 				hasNew := false
 				for _, p := range tn.Projects {
-					if strings.EqualFold(p, oldName) {
+					if strings.EqualFold(kanbanmodels.StripWikilink(p), oldName) {
 						hasOld = true
 					}
-					if strings.EqualFold(p, newName) {
+					if strings.EqualFold(kanbanmodels.StripWikilink(p), newName) {
 						hasNew = true
 					}
 				}
@@ -210,16 +218,16 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 					// TaskNote already references target — just remove the old name
 					filtered := tn.Projects[:0]
 					for _, p := range tn.Projects {
-						if !strings.EqualFold(p, oldName) {
+						if !strings.EqualFold(kanbanmodels.StripWikilink(p), oldName) {
 							filtered = append(filtered, p)
 						}
 					}
 					tn.Projects = filtered
 				} else {
-					// Replace old with new
+					// Replace old with new (as wikilink)
 					for pi, p := range tn.Projects {
-						if strings.EqualFold(p, oldName) {
-							tn.Projects[pi] = newName
+						if strings.EqualFold(kanbanmodels.StripWikilink(p), oldName) {
+							tn.Projects[pi] = kanbanmodels.WrapWikilink(newName)
 							break
 						}
 					}
@@ -228,7 +236,7 @@ func (ws *Workspace) RenameProject(oldName, newName string) error {
 				if cardPath == "" {
 					cardPath = filepath.Join(ws.RootDir, "tasks", tn.Filename)
 				}
-				if err := fs.WriteTaskNote(*tn, cardPath); err != nil {
+				if err := kanbanfs.WriteTaskNote(*tn, cardPath); err != nil {
 					return fmt.Errorf("write task note %s: %w", tn.Filename, err)
 				}
 			}
@@ -245,7 +253,7 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 	if project == nil {
 		return fmt.Errorf("project %q not found", projectName)
 	}
-	if project.DirPath != "" {
+	if project.FilePath != "" {
 		return fmt.Errorf("DeleteVirtualProject called on physical project %q", projectName)
 	}
 
@@ -275,7 +283,7 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 				tn := &ws.Boards[bi].Columns[ci].TaskNotes[cdi]
 				var hasProject bool
 				for _, p := range tn.Projects {
-					if strings.EqualFold(p, projectName) {
+					if strings.EqualFold(kanbanmodels.StripWikilink(p), projectName) {
 						hasProject = true
 						break
 					}
@@ -285,7 +293,7 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 				}
 				filtered := tn.Projects[:0]
 				for _, p := range tn.Projects {
-					if !strings.EqualFold(p, projectName) {
+					if !strings.EqualFold(kanbanmodels.StripWikilink(p), projectName) {
 						filtered = append(filtered, p)
 					}
 				}
@@ -294,7 +302,7 @@ func DeleteVirtualProject(ws *Workspace, projectName string) error {
 				if cardPath == "" {
 					cardPath = filepath.Join(ws.RootDir, "tasks", tn.Filename)
 				}
-				if err := fs.WriteTaskNote(*tn, cardPath); err != nil {
+				if err := kanbanfs.WriteTaskNote(*tn, cardPath); err != nil {
 					return fmt.Errorf("write task note %s: %w", tn.Filename, err)
 				}
 			}
@@ -364,7 +372,7 @@ func mergeDirs(src, dst string) error {
 	return os.Remove(src)
 }
 
-// ProjectDate is a labeled date stored in a project's index frontmatter
+// ProjectDate is a labeled date stored in a project's frontmatter
 type ProjectDate struct {
 	Label string
 	Date  time.Time
@@ -373,11 +381,13 @@ type ProjectDate struct {
 // Project represents a discovered project
 type Project struct {
 	Name     string
-	DirPath  string // from projects/ directory, "" if virtual
+	FilePath string // path to <name>.md; "" if virtual
 	Parent   string
 	Archived bool
-	Dates    []ProjectDate        // from index frontmatter
-	URLs     []kanbanmodels.TaskNoteURL // from index frontmatter
+	Dates    []ProjectDate              // from frontmatter
+	URLs     []kanbanmodels.TaskNoteURL // from frontmatter
+	Due      *time.Time                 // due date (key: "due")
+	Priority int                        // 1-6 (A-F), 0 = unset
 }
 
 // ProjectRegistry manages project discovery and cross-entity queries within a workspace
@@ -391,24 +401,25 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 		projects: make(map[string]*Project),
 	}
 
-	// 1. From directory structure
+	// 1. From flat .md file structure
 	for _, pi := range scan.Projects {
-		r.ensureProject(pi.Name, pi.Path, pi.Parent)
+		r.ensureProject(pi.Name, pi.Path, pi.Parent, pi.Archived)
 	}
 
 	// 2. From task +tags (virtual projects)
 	for _, t := range tasks {
 		for _, p := range t.Projects {
-			r.ensureProject(p, "", "")
+			r.ensureProject(p, "", "", false)
 		}
 	}
 
-	// 3. From task note frontmatter projects field
+	// 3. From task note frontmatter projects field (strip wikilinks)
 	for _, board := range boards {
 		for _, col := range board.Columns {
 			for _, tn := range col.TaskNotes {
 				for _, p := range tn.Projects {
-					r.ensureProject(p, "", "")
+					plainName := kanbanmodels.StripWikilink(p)
+					r.ensureProject(plainName, "", "", false)
 				}
 			}
 		}
@@ -418,7 +429,7 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 	if wsRoot != "" {
 		virtualArchived := readVirtualArchive(wsRoot)
 		for _, p := range r.projects {
-			if p.DirPath == "" && virtualArchived[p.Name] {
+			if p.FilePath == "" && virtualArchived[p.Name] {
 				p.Archived = true
 			}
 		}
@@ -427,40 +438,48 @@ func BuildProjectRegistry(scan *scanner.WorkspaceScan, tasks []data.Task, boards
 	return r
 }
 
-func (r *ProjectRegistry) ensureProject(name, dirPath, parent string) {
+func (r *ProjectRegistry) ensureProject(name, filePath, parent string, archived bool) {
 	if existing, ok := r.projects[name]; ok {
-		// Upgrade virtual project with directory info
-		if dirPath != "" && existing.DirPath == "" {
-			existing.DirPath = dirPath
-			archived, dates, urls := readProjectFrontmatter(dirPath, name)
-			existing.Archived = archived
+		// Upgrade virtual project with file info
+		if filePath != "" && existing.FilePath == "" {
+			existing.FilePath = filePath
+			dates, urls, due, priority := readProjectFrontmatter(filePath)
 			existing.Dates = dates
 			existing.URLs = urls
+			existing.Due = due
+			existing.Priority = priority
+			if archived {
+				existing.Archived = true
+			}
 		}
 		if parent != "" && existing.Parent == "" {
 			existing.Parent = parent
 		}
 		return
 	}
-	var archived bool
 	var dates []ProjectDate
 	var urls []kanbanmodels.TaskNoteURL
-	if dirPath != "" {
-		archived, dates, urls = readProjectFrontmatter(dirPath, name)
+	var due *time.Time
+	var priority int
+	if filePath != "" {
+		dates, urls, due, priority = readProjectFrontmatter(filePath)
 	}
 	r.projects[name] = &Project{
 		Name:     name,
-		DirPath:  dirPath,
+		FilePath: filePath,
 		Parent:   parent,
 		Archived: archived,
 		Dates:    dates,
 		URLs:     urls,
+		Due:      due,
+		Priority: priority,
 	}
 }
 
 // projectIndexFM is the shared YAML frontmatter structure for project index files
 type projectIndexFM struct {
-	Archived bool `yaml:"archived"`
+	Due      string `yaml:"due,omitempty"`
+	Priority string `yaml:"priority,omitempty"`
 	Dates    []struct {
 		Label string `yaml:"label"`
 		Date  string `yaml:"date"`
@@ -468,17 +487,16 @@ type projectIndexFM struct {
 	URLs []kanbanmodels.TaskNoteURL `yaml:"urls,omitempty"`
 }
 
-// readProjectFrontmatter reads the project index file and returns archived status, dates, and URLs.
-func readProjectFrontmatter(dirPath, name string) (archived bool, dates []ProjectDate, urls []kanbanmodels.TaskNoteURL) {
-	indexPath := filepath.Join(dirPath, name+".md")
-	content, err := os.ReadFile(indexPath)
+// readProjectFrontmatter reads the project .md file and returns dates, URLs, due date, and priority.
+func readProjectFrontmatter(filePath string) (dates []ProjectDate, urls []kanbanmodels.TaskNoteURL, due *time.Time, priority int) {
+	content, err := os.ReadFile(filePath)
 	if err != nil {
-		return false, nil, nil
+		return
 	}
 
 	lines := bytes.Split(content, []byte("\n"))
 	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
-		return false, nil, nil
+		return
 	}
 
 	var frontmatterEnd int
@@ -489,13 +507,13 @@ func readProjectFrontmatter(dirPath, name string) (archived bool, dates []Projec
 		}
 	}
 	if frontmatterEnd == 0 {
-		return false, nil, nil
+		return
 	}
 
 	frontmatterBytes := bytes.Join(lines[1:frontmatterEnd], []byte("\n"))
 	var fm projectIndexFM
 	if err := yaml.Unmarshal(frontmatterBytes, &fm); err != nil {
-		return false, nil, nil
+		return
 	}
 
 	for _, d := range fm.Dates {
@@ -506,14 +524,27 @@ func readProjectFrontmatter(dirPath, name string) (archived bool, dates []Projec
 		dates = append(dates, ProjectDate{Label: d.Label, Date: t})
 	}
 
-	return fm.Archived, dates, fm.URLs
+	if fm.Due != "" {
+		if t, err := time.Parse("2006-01-02", fm.Due); err == nil {
+			due = &t
+		}
+	}
+
+	if fm.Priority != "" && len(fm.Priority) == 1 {
+		r := rune(fm.Priority[0])
+		if r >= 'A' && r <= 'F' {
+			priority = int(r-'A') + 1
+		}
+	}
+
+	urls = fm.URLs
+	return
 }
 
-// writeProjectFrontmatter serializes the project's archived flag and dates back to the index file,
-// preserving the body content.
+// writeProjectFrontmatter serializes the project's metadata back to the .md file,
+// preserving the body content and updating a sentinel meta block.
 func writeProjectFrontmatter(project *Project) error {
-	indexPath := filepath.Join(project.DirPath, project.Name+".md")
-	content, err := os.ReadFile(indexPath)
+	content, err := os.ReadFile(project.FilePath)
 	if err != nil {
 		// File doesn't exist — create it
 		content = []byte(fmt.Sprintf("# %s\n", project.Name))
@@ -532,12 +563,15 @@ func writeProjectFrontmatter(project *Project) error {
 	}
 
 	// Build new frontmatter — only emit if something is non-zero
-	needsFM := project.Archived || len(project.Dates) > 0 || len(project.URLs) > 0
+	needsFM := len(project.Dates) > 0 || len(project.URLs) > 0 || project.Due != nil || project.Priority > 0
 	var buf bytes.Buffer
 	if needsFM {
 		buf.WriteString("---\n")
-		if project.Archived {
-			buf.WriteString("archived: true\n")
+		if project.Due != nil {
+			buf.WriteString(fmt.Sprintf("due: %s\n", project.Due.Format("2006-01-02")))
+		}
+		if project.Priority > 0 && project.Priority <= 6 {
+			buf.WriteString(fmt.Sprintf("priority: %s\n", string(rune('A'+project.Priority-1))))
 		}
 		if len(project.Dates) > 0 {
 			buf.WriteString("dates:\n")
@@ -557,19 +591,80 @@ func writeProjectFrontmatter(project *Project) error {
 		}
 		buf.WriteString("---\n\n")
 	}
-	buf.Write(body)
 
-	return os.WriteFile(indexPath, buf.Bytes(), 0644)
+	// Update sentinel body block for human readability
+	const sentinelStart = "<!-- wydo:meta:start -->"
+	const sentinelEnd = "<!-- wydo:meta:end -->"
+	bodyStr := string(body)
+	sentinelBlock := buildSentinelBlock(project)
+	if strings.Contains(bodyStr, sentinelStart) {
+		// Replace existing block
+		startIdx := strings.Index(bodyStr, sentinelStart)
+		endIdx := strings.Index(bodyStr, sentinelEnd)
+		if endIdx >= startIdx {
+			bodyStr = bodyStr[:startIdx] + sentinelBlock + bodyStr[endIdx+len(sentinelEnd):]
+		}
+	} else if sentinelBlock != "" {
+		// Append block
+		bodyStr = strings.TrimRight(bodyStr, "\n") + "\n\n" + sentinelBlock + "\n"
+	}
+
+	buf.WriteString(bodyStr)
+	return os.WriteFile(project.FilePath, buf.Bytes(), 0644)
 }
 
-// SetProjectArchived sets the archived state for a project by updating its index file frontmatter.
-// Returns an error for virtual projects (no DirPath).
-func SetProjectArchived(project *Project, archived bool) error {
-	if project.DirPath == "" {
+// buildSentinelBlock constructs the <!-- wydo:meta:start/end --> block for human readability.
+// Returns "" if there is nothing to display.
+func buildSentinelBlock(project *Project) string {
+	if project.Due == nil && len(project.URLs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<!-- wydo:meta:start -->\n")
+	if project.Due != nil {
+		b.WriteString(fmt.Sprintf("**Due:** %s\n", project.Due.Format("2006-01-02")))
+	}
+	if len(project.URLs) > 0 {
+		b.WriteString("**URLs:**\n")
+		for _, u := range project.URLs {
+			if u.Label != "" {
+				b.WriteString(fmt.Sprintf("- [%s](%s)\n", u.Label, u.URL))
+			} else {
+				b.WriteString(fmt.Sprintf("- %s\n", u.URL))
+			}
+		}
+	}
+	b.WriteString("<!-- wydo:meta:end -->")
+	return b.String()
+}
+
+// SetProjectArchived moves the project .md file to/from the archive/projects/ directory.
+// Returns an error for virtual projects (no FilePath).
+func SetProjectArchived(project *Project, archived bool, wsRoot string) error {
+	if project.FilePath == "" {
 		return fmt.Errorf("cannot archive virtual project %q", project.Name)
 	}
+	if archived {
+		archivePath := filepath.Join(wsRoot, "archive", "projects", project.Name+".md")
+		if err := os.MkdirAll(filepath.Dir(archivePath), 0755); err != nil {
+			return err
+		}
+		if err := os.Rename(project.FilePath, archivePath); err != nil {
+			return err
+		}
+		project.FilePath = archivePath
+	} else {
+		activePath := filepath.Join(wsRoot, "projects", project.Name+".md")
+		if err := os.MkdirAll(filepath.Dir(activePath), 0755); err != nil {
+			return err
+		}
+		if err := os.Rename(project.FilePath, activePath); err != nil {
+			return err
+		}
+		project.FilePath = activePath
+	}
 	project.Archived = archived
-	return writeProjectFrontmatter(project)
+	return nil
 }
 
 const virtualArchiveFilename = ".wydo-virtual-archive.txt"
@@ -581,12 +676,12 @@ func virtualArchivePath(wsRoot string) string {
 // readVirtualArchive returns the set of archived virtual project names.
 // Returns empty map if file does not exist.
 func readVirtualArchive(wsRoot string) map[string]bool {
-	data, err := os.ReadFile(virtualArchivePath(wsRoot))
+	fileData, err := os.ReadFile(virtualArchivePath(wsRoot))
 	if err != nil {
 		return make(map[string]bool)
 	}
 	result := make(map[string]bool)
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(string(fileData), "\n") {
 		if name := strings.TrimSpace(line); name != "" {
 			result[name] = true
 		}
@@ -634,20 +729,20 @@ func RemoveFromVirtualArchive(wsRoot, name string) error {
 	return writeVirtualArchive(wsRoot, existing)
 }
 
-// WriteProjectDates sets the project's dates and persists them to the index file frontmatter.
-// Returns an error for virtual projects (no DirPath).
+// WriteProjectDates sets the project's dates and persists them to the .md file.
+// Returns an error for virtual projects (no FilePath).
 func WriteProjectDates(project *Project, dates []ProjectDate) error {
-	if project.DirPath == "" {
+	if project.FilePath == "" {
 		return fmt.Errorf("cannot write dates for virtual project %q", project.Name)
 	}
 	project.Dates = dates
 	return writeProjectFrontmatter(project)
 }
 
-// WriteProjectURLs sets the project's URLs and persists them to the index file frontmatter.
-// Returns an error for virtual projects (no DirPath).
+// WriteProjectURLs sets the project's URLs and persists them to the .md file.
+// Returns an error for virtual projects (no FilePath).
 func WriteProjectURLs(project *Project, urls []kanbanmodels.TaskNoteURL) error {
-	if project.DirPath == "" {
+	if project.FilePath == "" {
 		return fmt.Errorf("cannot write URLs for virtual project %q", project.Name)
 	}
 	project.URLs = urls
@@ -665,11 +760,10 @@ func (r *ProjectRegistry) ChildrenOf(name string) []*Project {
 	return result
 }
 
-// ReadIndexPreview returns the first 4 non-empty body lines of the project index file.
+// ReadIndexPreview returns the first 4 non-empty body lines of the project .md file.
 // Strips YAML frontmatter. Returns "" if no file or empty body.
-func ReadIndexPreview(dirPath, name string) string {
-	indexPath := filepath.Join(dirPath, name+".md")
-	content, err := os.ReadFile(indexPath)
+func ReadIndexPreview(filePath string) string {
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return ""
 	}
@@ -727,13 +821,18 @@ func (r *ProjectRegistry) TasksForProject(name string, allTasks []data.Task) []d
 }
 
 // NotesForProject returns notes whose FilePath is under the project's directory.
-// Returns nil for virtual projects (no DirPath).
+// Returns nil for virtual projects (no FilePath) or flat file projects (no subdirectory).
 func (r *ProjectRegistry) NotesForProject(name string, allNotes []notes.Note) []notes.Note {
 	proj := r.projects[name]
-	if proj == nil || proj.DirPath == "" {
+	if proj == nil || proj.FilePath == "" {
 		return nil
 	}
-	prefix := proj.DirPath + "/"
+	// Flat file projects have no subdirectory to search
+	projDir := filepath.Dir(proj.FilePath)
+	if filepath.Base(projDir) == "projects" || filepath.Base(projDir) == "archive" {
+		return nil
+	}
+	prefix := projDir + "/"
 	var result []notes.Note
 	for _, n := range allNotes {
 		if strings.HasPrefix(n.FilePath, prefix) {
@@ -743,7 +842,7 @@ func (r *ProjectRegistry) NotesForProject(name string, allNotes []notes.Note) []
 	return result
 }
 
-// ProjectsDirs collects unique parent directories of existing project DirPaths
+// ProjectsDirs collects unique parent directories of existing project FilePaths
 // where filepath.Base(parent) == "projects". Always includes <workspaceRoot>/projects/
 // as a fallback.
 func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
@@ -751,10 +850,10 @@ func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
 	var dirs []string
 
 	for _, p := range r.projects {
-		if p.DirPath == "" {
+		if p.FilePath == "" {
 			continue
 		}
-		parent := filepath.Dir(p.DirPath)
+		parent := filepath.Dir(p.FilePath)
 		if filepath.Base(parent) == "projects" && !seen[parent] {
 			seen[parent] = true
 			dirs = append(dirs, parent)
@@ -770,12 +869,7 @@ func (r *ProjectRegistry) ProjectsDirs(workspaceRoot string) []string {
 }
 
 // BoardsForProject returns boards whose task notes include cards for the given project.
-// Returns nil for virtual projects (no DirPath).
 func (r *ProjectRegistry) BoardsForProject(name string, allBoards []kanbanmodels.Board) []kanbanmodels.Board {
-	proj := r.projects[name]
-	if proj == nil || proj.DirPath == "" {
-		return nil
-	}
 	seen := make(map[string]bool)
 	var result []kanbanmodels.Board
 	for _, b := range allBoards {
@@ -785,7 +879,7 @@ func (r *ProjectRegistry) BoardsForProject(name string, allBoards []kanbanmodels
 		for _, col := range b.Columns {
 			for _, tn := range col.TaskNotes {
 				for _, p := range tn.Projects {
-					if strings.EqualFold(p, name) {
+					if strings.EqualFold(kanbanmodels.StripWikilink(p), name) {
 						result = append(result, b)
 						seen[b.Path] = true
 						goto nextBoard
@@ -818,9 +912,10 @@ func (r *ProjectRegistry) ProjectsForBoard(boardPath string, allBoards []kanbanm
 	for _, col := range board.Columns {
 		for _, tn := range col.TaskNotes {
 			for _, p := range tn.Projects {
-				if !seen[p] {
-					seen[p] = true
-					result = append(result, p)
+				plain := kanbanmodels.StripWikilink(p)
+				if !seen[plain] {
+					seen[plain] = true
+					result = append(result, plain)
 				}
 			}
 		}
@@ -838,7 +933,7 @@ func (r *ProjectRegistry) TaskNotesForProject(name string, boards []kanbanmodels
 		for _, col := range board.Columns {
 			for _, tn := range col.TaskNotes {
 				for _, p := range tn.Projects {
-					if strings.EqualFold(p, name) {
+					if strings.EqualFold(kanbanmodels.StripWikilink(p), name) {
 						result = append(result, tn)
 						break
 					}

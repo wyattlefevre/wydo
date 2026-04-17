@@ -215,13 +215,14 @@ func sortStrings(s []string) {
 	}
 }
 
-// CollectAllProjects gathers all unique projects across all task notes in a board
+// CollectAllProjects gathers all unique projects across all task notes in a board.
+// Wikilinks are stripped so callers receive plain project names.
 func CollectAllProjects(board *models.Board) []string {
 	projectSet := make(map[string]bool)
 	for _, col := range board.Columns {
 		for _, tn := range col.TaskNotes {
 			for _, project := range tn.Projects {
-				projectSet[project] = true
+				projectSet[models.StripWikilink(project)] = true
 			}
 		}
 	}
@@ -249,7 +250,8 @@ func UpdateTaskNoteTags(board *models.Board, columnIndex, cardIndex int, tags []
 	return fs.WriteTaskNote(*tn, taskNotePath(board, *tn))
 }
 
-// UpdateTaskNoteProjects updates a task note's projects and persists to disk
+// UpdateTaskNoteProjects updates a task note's projects and persists to disk.
+// Each project name is stored as a wikilink (e.g. [[project-name]]).
 func UpdateTaskNoteProjects(board *models.Board, columnIndex, cardIndex int, projects []string) error {
 	if columnIndex < 0 || columnIndex >= len(board.Columns) {
 		return fmt.Errorf("invalid column index")
@@ -259,7 +261,11 @@ func UpdateTaskNoteProjects(board *models.Board, columnIndex, cardIndex int, pro
 		return fmt.Errorf("invalid card index")
 	}
 	tn := &column.TaskNotes[cardIndex]
-	tn.Projects = projects
+	wrapped := make([]string, len(projects))
+	for i, p := range projects {
+		wrapped[i] = models.WrapWikilink(p)
+	}
+	tn.Projects = wrapped
 	return fs.WriteTaskNote(*tn, taskNotePath(board, *tn))
 }
 
@@ -356,11 +362,17 @@ func CreateTaskNoteFromTask(board *models.Board, title string, projects []string
 	baseFilename := ToSnakeCase(title)
 	filename := UniqueFilename(baseFilename, tasksDir, "")
 
+	// Wrap project names as wikilinks
+	wrappedProjects := make([]string, len(projects))
+	for i, p := range projects {
+		wrappedProjects[i] = models.WrapWikilink(p)
+	}
+
 	tn := models.TaskNote{
 		Filename:      filename,
 		Title:         title,
 		Tags:          tags,
-		Projects:      projects,
+		Projects:      wrappedProjects,
 		Content:       "# " + title + "\n",
 		DueDate:       dueDate,
 		ScheduledDate: scheduledDate,
@@ -406,7 +418,7 @@ func EnsureBoardProjects(board *models.Board, colIndex, cardIndex int, boardProj
 
 	for _, bp := range boardProjects {
 		if !hasProject(tn.Projects, bp) {
-			tn.Projects = append(tn.Projects, bp)
+			tn.Projects = append(tn.Projects, models.WrapWikilink(bp))
 		}
 	}
 
@@ -432,7 +444,7 @@ func MoveTaskNoteToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoa
 	// Add source board projects if missing
 	for _, bp := range boardProjects {
 		if !hasProject(tn.Projects, bp) {
-			tn.Projects = append(tn.Projects, bp)
+			tn.Projects = append(tn.Projects, models.WrapWikilink(bp))
 		}
 	}
 
@@ -473,7 +485,7 @@ func MoveTaskNoteToBoard(srcBoard *models.Board, colIndex, cardIndex int, dstBoa
 
 func hasProject(projects []string, name string) bool {
 	for _, p := range projects {
-		if strings.EqualFold(p, name) {
+		if strings.EqualFold(models.StripWikilink(p), name) {
 			return true
 		}
 	}

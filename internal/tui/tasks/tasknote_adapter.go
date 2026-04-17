@@ -6,9 +6,9 @@ import (
 	"wydo/internal/tasks/data"
 )
 
-// taskNoteToTask converts a TaskNote from a board column into a data.Task
+// TaskNoteToTask converts a TaskNote from a board column into a data.Task
 // suitable for display in the Tasks view.
-func taskNoteToTask(tn models.TaskNote, board models.Board, col models.Column) data.Task {
+func TaskNoteToTask(tn models.TaskNote, board models.Board, col models.Column) data.Task {
 	t := data.Task{
 		ID:         fmt.Sprintf("tn:%s:%s", board.Name, tn.Filename),
 		Name:       tn.Title,

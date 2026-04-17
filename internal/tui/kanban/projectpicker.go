@@ -11,7 +11,7 @@ import (
 type ProjectPickerItem struct {
 	Name    string
 	Depth   int
-	DirPath string
+	FilePath string
 }
 
 // ProjectPickerModel is a fuzzy-searchable multi-select project picker.

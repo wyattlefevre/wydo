@@ -213,10 +213,12 @@ func (m *PickerModel) SetBoards(boards []models.Board) {
 }
 
 func (m *PickerModel) applyFilter() {
-	var active, archived []int
+	var defaults, active, archived []int
 	if m.searchQuery == "" {
 		for i := range m.boards {
-			if m.boards[i].Archived {
+			if m.boards[i].Path == "" {
+				defaults = append(defaults, i)
+			} else if m.boards[i].Archived {
 				if m.showArchived {
 					archived = append(archived, i)
 				}
@@ -231,7 +233,9 @@ func (m *PickerModel) applyFilter() {
 		}
 		matches := fuzzy.Find(m.searchQuery, names)
 		for _, match := range matches {
-			if m.boards[match.Index].Archived {
+			if m.boards[match.Index].Path == "" {
+				defaults = append(defaults, match.Index)
+			} else if m.boards[match.Index].Archived {
 				if m.showArchived {
 					archived = append(archived, match.Index)
 				}
@@ -240,8 +244,8 @@ func (m *PickerModel) applyFilter() {
 			}
 		}
 	}
-	// Active boards first, archived at the end
-	m.filtered = append(active, archived...)
+	// Default boards pinned first, then active, then archived
+	m.filtered = append(append(defaults, active...), archived...)
 	if m.selected >= len(m.filtered) {
 		m.selected = max(0, len(m.filtered)-1)
 	}
@@ -398,7 +402,11 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 
 	case "r":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
-			m.renameIdx = m.filtered[m.selected]
+			idx := m.filtered[m.selected]
+			if m.boards[idx].Path == "" {
+				break // default board cannot be renamed
+			}
+			m.renameIdx = idx
 			m.mode = modeRename
 			m.textInput.Placeholder = "New board name..."
 			m.textInput.SetValue(m.boards[m.renameIdx].Name)
@@ -410,6 +418,9 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 	case "a":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
 			idx := m.filtered[m.selected]
+			if m.boards[idx].Path == "" {
+				break // default board cannot be archived
+			}
 			if m.boards[idx].Archived {
 				// Unarchive: no confirmation needed
 				if err := operations.ToggleBoardArchive(&m.boards[idx]); err != nil {
@@ -431,7 +442,11 @@ func (m PickerModel) updateList(msg tea.KeyMsg) (PickerModel, tea.Cmd) {
 
 	case "d":
 		if len(m.filtered) > 0 && m.selected < len(m.filtered) {
-			m.deleteIdx = m.filtered[m.selected]
+			idx := m.filtered[m.selected]
+			if m.boards[idx].Path == "" {
+				break // default board cannot be deleted
+			}
+			m.deleteIdx = idx
 			m.mode = modeDeleteConfirm
 			m.err = nil
 		}
@@ -689,8 +704,13 @@ func (m PickerModel) viewList() string {
 					style = theme.ListItemSelected
 				}
 				nameCol := style.Width(maxNameWidth).Render(board.Name)
-				parentDir := filepath.Dir(board.Path)
-				line := nameCol + "  " + pathStyle.Render(abbreviatePath(parentDir))
+				var pathDisplay string
+				if board.Path == "" {
+					pathDisplay = "(default)"
+				} else {
+					pathDisplay = abbreviatePath(filepath.Dir(board.Path))
+				}
+				line := nameCol + "  " + pathStyle.Render(pathDisplay)
 				lines = append(lines, line)
 			}
 		}

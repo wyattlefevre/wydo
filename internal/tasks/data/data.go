@@ -44,11 +44,11 @@ func UpdateTask(tasks []Task, updatedTask Task) []Task {
 	return tasks
 }
 
-// LoadTasksFromDir loads todo.txt from a tasks/ directory.
-// Returns empty (no error) if todo.txt does not exist yet.
-func LoadTasksFromDir(dirPath string, allowMismatch bool) ([]Task, error) {
-	filePath := filepath.Join(dirPath, "todo.txt")
-	tasks, err := loadTaskFile(filePath, allowMismatch, make(map[string]Project))
+// LoadTasksFromPaths loads todo.txt from an explicit todoPath.
+// dirPath is the tasks/ directory (for context); todoPath is the actual file to read.
+// Returns empty (no error) if todoPath does not exist yet.
+func LoadTasksFromPaths(dirPath, todoPath string, allowMismatch bool) ([]Task, error) {
+	tasks, err := loadTaskFile(todoPath, allowMismatch, make(map[string]Project))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -56,9 +56,16 @@ func LoadTasksFromDir(dirPath string, allowMismatch bool) ([]Task, error) {
 		if _, ok := err.(*ParseTaskMismatchError); ok {
 			return nil, err
 		}
-		return nil, fmt.Errorf("error reading %s: %v", filePath, err)
+		return nil, fmt.Errorf("error reading %s: %v", todoPath, err)
 	}
 	return tasks, nil
+}
+
+// LoadTasksFromDir loads todo.txt from a tasks/ directory.
+// Backward-compatible shim; prefer LoadTasksFromPaths for new code.
+// Returns empty (no error) if todo.txt does not exist yet.
+func LoadTasksFromDir(dirPath string, allowMismatch bool) ([]Task, error) {
+	return LoadTasksFromPaths(dirPath, filepath.Join(dirPath, "todo.txt"), allowMismatch)
 }
 
 // WriteTasksToFile writes tasks that belong to a specific file
@@ -162,8 +169,9 @@ func loadTaskFile(filePath string, allowMismatch bool, projects map[string]Proje
 		nonEmptyCount++
 		hashId := HashTaskLine(fmt.Sprintf("%d:%s", nonEmptyCount, filePath))
 		task := ParseTask(line, hashId, filePath)
-		// Mark as archived if the file lives inside an archive/ directory
-		task.Archived = filepath.Base(filepath.Dir(filepath.Dir(filePath))) == "archive"
+		// Mark as archived if the file lives inside (or directly under) an archive/ directory.
+		// Handles both <ws>/archive/tasks/todo.txt (old) and <ws>/archive/todo.txt (new).
+		task.Archived = isArchivedFilePath(filePath)
 		for _, project := range task.Projects {
 			if _, exists := projects[project]; !exists {
 				projects[project] = Project{Name: project}
@@ -191,6 +199,16 @@ func DeleteTask(tasks []Task, id string) []Task {
 		}
 	}
 	return tasks
+}
+
+// isArchivedFilePath returns true if the file path lives under an archive/ directory.
+// Handles both the old layout (<ws>/archive/tasks/todo.txt) and the new layout (<ws>/archive/todo.txt).
+func isArchivedFilePath(p string) bool {
+	d1 := filepath.Dir(p)
+	if filepath.Base(d1) == "archive" {
+		return true
+	}
+	return filepath.Base(filepath.Dir(d1)) == "archive"
 }
 
 // AppendTaskToFile appends a single task line to a file.

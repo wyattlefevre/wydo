@@ -62,16 +62,16 @@ func TestProjectRegistry_FromDirectories(t *testing.T) {
 	if alpha == nil {
 		t.Fatal("expected alpha project")
 	}
-	if alpha.DirPath == "" {
-		t.Error("expected alpha to have a DirPath from projects/ directory")
+	if alpha.FilePath == "" {
+		t.Error("expected alpha to have a FilePath from projects/ directory")
 	}
 
 	homeRemodel := registry.Get("home-remodel")
 	if homeRemodel == nil {
 		t.Fatal("expected home-remodel project")
 	}
-	if homeRemodel.DirPath == "" {
-		t.Error("expected home-remodel to have a DirPath from projects/ directory")
+	if homeRemodel.FilePath == "" {
+		t.Error("expected home-remodel to have a FilePath from projects/ directory")
 	}
 }
 
@@ -111,8 +111,8 @@ func TestProjectRegistry_MergesAllSources(t *testing.T) {
 	if alpha == nil {
 		t.Fatal("expected alpha project")
 	}
-	if alpha.DirPath == "" {
-		t.Error("alpha should have DirPath from directory")
+	if alpha.FilePath == "" {
+		t.Error("alpha should have FilePath from directory")
 	}
 }
 
@@ -162,11 +162,11 @@ func TestCardsForProject(t *testing.T) {
 func TestRenameProject_Virtual(t *testing.T) {
 	// Create a temp workspace with tasks referencing a virtual project (no directory)
 	tmp := t.TempDir()
-	tasksDir := filepath.Join(tmp, "tasks")
-	if err := os.MkdirAll(tasksDir, 0755); err != nil {
+	// Create tasks/ dir so scanner registers it; todo.txt lives at workspace root
+	if err := os.MkdirAll(filepath.Join(tmp, "tasks"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	todoFile := filepath.Join(tasksDir, "todo.txt")
+	todoFile := filepath.Join(tmp, "todo.txt")
 	if err := os.WriteFile(todoFile, []byte("Buy milk +virtualproj\nDo stuff +virtualproj @home\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -185,8 +185,8 @@ func TestRenameProject_Virtual(t *testing.T) {
 	if proj == nil {
 		t.Fatal("expected virtualproj in registry")
 	}
-	if proj.DirPath != "" {
-		t.Errorf("expected virtual project (empty DirPath), got %q", proj.DirPath)
+	if proj.FilePath != "" {
+		t.Errorf("expected virtual project (empty FilePath), got %q", proj.FilePath)
 	}
 
 	// Verify tasks have the project
@@ -245,8 +245,8 @@ func TestWorkspaceIsolation(t *testing.T) {
 	}
 
 	// Verify they point to different directories
-	if alpha1.DirPath == alpha2.DirPath {
-		t.Error("alpha projects in different workspaces should have different DirPaths")
+	if alpha1.FilePath == alpha2.FilePath {
+		t.Error("alpha projects in different workspaces should have different FilePaths")
 	}
 
 	// Verify tasks don't cross
@@ -265,9 +265,8 @@ func TestWorkspaceIsolation(t *testing.T) {
 func TestMergeProject_VirtualProjects(t *testing.T) {
 	// Two virtual projects (no directories) — merging consolidates task +tags
 	tmp := t.TempDir()
-	tasksDir := filepath.Join(tmp, "tasks")
-	os.MkdirAll(tasksDir, 0755)
-	todoFile := filepath.Join(tasksDir, "todo.txt")
+	os.MkdirAll(filepath.Join(tmp, "tasks"), 0755)
+	todoFile := filepath.Join(tmp, "todo.txt")
 	os.WriteFile(todoFile, []byte("Task A +alpha\nTask B +beta\nTask C +alpha +beta\n"), 0644)
 
 	scan, _ := scanner.ScanWorkspace(tmp)
@@ -310,28 +309,21 @@ func TestMergeProject_VirtualProjects(t *testing.T) {
 }
 
 func TestMergeProject_BothPhysical(t *testing.T) {
-	// Both source and target have directories — contents should be merged
+	// Both source and target have flat .md files — source content appended to target, source removed
 	tmp := t.TempDir()
 
-	// Create projects/ dir with alpha and beta
+	// Create projects/ dir with alpha.md and beta.md
 	projDir := filepath.Join(tmp, "projects")
-	alphaDir := filepath.Join(projDir, "alpha")
-	betaDir := filepath.Join(projDir, "beta")
-	os.MkdirAll(alphaDir, 0755)
-	os.MkdirAll(betaDir, 0755)
+	os.MkdirAll(projDir, 0755)
+	alphaFile := filepath.Join(projDir, "alpha.md")
+	betaFile := filepath.Join(projDir, "beta.md")
 
-	// Alpha has file1.txt and notes.txt
-	os.WriteFile(filepath.Join(alphaDir, "file1.txt"), []byte("alpha file1\n"), 0644)
-	os.WriteFile(filepath.Join(alphaDir, "notes.txt"), []byte("alpha notes\n"), 0644)
-
-	// Beta has file2.txt and notes.txt
-	os.WriteFile(filepath.Join(betaDir, "file2.txt"), []byte("beta file2\n"), 0644)
-	os.WriteFile(filepath.Join(betaDir, "notes.txt"), []byte("beta notes\n"), 0644)
+	os.WriteFile(alphaFile, []byte("# alpha\nalpha content\n"), 0644)
+	os.WriteFile(betaFile, []byte("# beta\nbeta content\n"), 0644)
 
 	// Create tasks referencing both
-	tasksDir := filepath.Join(tmp, "tasks")
-	os.MkdirAll(tasksDir, 0755)
-	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Task 1 +alpha\nTask 2 +beta\n"), 0644)
+	os.MkdirAll(filepath.Join(tmp, "tasks"), 0755)
+	os.WriteFile(filepath.Join(tmp, "todo.txt"), []byte("Task 1 +alpha\nTask 2 +beta\n"), 0644)
 
 	scan, _ := scanner.ScanWorkspace(tmp)
 	ws, _ := Load(scan)
@@ -340,42 +332,36 @@ func TestMergeProject_BothPhysical(t *testing.T) {
 		t.Fatalf("merge error: %v", err)
 	}
 
-	// Alpha dir should no longer exist
-	if _, err := os.Stat(alphaDir); !os.IsNotExist(err) {
-		t.Error("alpha directory should have been removed after merge")
+	// Alpha file should no longer exist
+	if _, err := os.Stat(alphaFile); !os.IsNotExist(err) {
+		t.Error("alpha.md should have been removed after merge")
 	}
 
-	// Beta dir should contain file1.txt, file2.txt, and notes.txt
-	if _, err := os.Stat(filepath.Join(betaDir, "file1.txt")); err != nil {
-		t.Error("beta should contain file1.txt from alpha")
+	// Beta file should still exist with merged content
+	betaContent, err := os.ReadFile(betaFile)
+	if err != nil {
+		t.Fatal("beta.md should still exist after merge")
 	}
-	if _, err := os.Stat(filepath.Join(betaDir, "file2.txt")); err != nil {
-		t.Error("beta should still contain file2.txt")
+	if !strings.Contains(string(betaContent), "beta content") {
+		t.Error("beta.md should still contain beta content")
 	}
-
-	// notes.txt should have appended content (both are .txt)
-	notesContent, _ := os.ReadFile(filepath.Join(betaDir, "notes.txt"))
-	if !strings.Contains(string(notesContent), "beta notes") {
-		t.Error("notes.txt should still contain beta notes")
-	}
-	if !strings.Contains(string(notesContent), "alpha notes") {
-		t.Error("notes.txt should contain appended alpha notes")
+	if !strings.Contains(string(betaContent), "alpha content") {
+		t.Error("beta.md should contain appended alpha content")
 	}
 }
 
 func TestMergeProject_OnlySourceHasDir(t *testing.T) {
-	// Source has a directory, target is virtual — directory gets renamed
+	// Source has a flat .md file, target is virtual — file gets renamed
 	tmp := t.TempDir()
 
 	projDir := filepath.Join(tmp, "projects")
-	alphaDir := filepath.Join(projDir, "alpha")
-	os.MkdirAll(alphaDir, 0755)
-	os.WriteFile(filepath.Join(alphaDir, "readme.txt"), []byte("hello\n"), 0644)
+	os.MkdirAll(projDir, 0755)
+	alphaFile := filepath.Join(projDir, "alpha.md")
+	os.WriteFile(alphaFile, []byte("# alpha\nhello\n"), 0644)
 
 	// Create tasks: one for alpha, one for beta (virtual)
-	tasksDir := filepath.Join(tmp, "tasks")
-	os.MkdirAll(tasksDir, 0755)
-	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Task 1 +alpha\nTask 2 +beta\n"), 0644)
+	os.MkdirAll(filepath.Join(tmp, "tasks"), 0755)
+	os.WriteFile(filepath.Join(tmp, "todo.txt"), []byte("Task 1 +alpha\nTask 2 +beta\n"), 0644)
 
 	scan, _ := scanner.ScanWorkspace(tmp)
 	ws, _ := Load(scan)
@@ -384,30 +370,27 @@ func TestMergeProject_OnlySourceHasDir(t *testing.T) {
 		t.Fatalf("merge error: %v", err)
 	}
 
-	// Alpha dir should be gone, beta dir should exist
-	if _, err := os.Stat(alphaDir); !os.IsNotExist(err) {
-		t.Error("alpha directory should be gone")
+	// Alpha file should be gone, beta file should exist
+	if _, err := os.Stat(alphaFile); !os.IsNotExist(err) {
+		t.Error("alpha.md should be gone after rename")
 	}
-	betaDir := filepath.Join(projDir, "beta")
-	if _, err := os.Stat(filepath.Join(betaDir, "readme.txt")); err != nil {
-		t.Error("beta directory should contain readme.txt from alpha")
+	betaFile := filepath.Join(projDir, "beta.md")
+	if _, err := os.Stat(betaFile); err != nil {
+		t.Error("beta.md should exist after rename")
 	}
 }
 
-func TestRenameProject_IndexNoteRenamed(t *testing.T) {
-	// When a project directory is renamed, its index note (oldName.md) should
-	// be renamed to newName.md inside the new directory.
+func TestRenameProject_FileRenamed(t *testing.T) {
+	// When a flat project file is renamed, alpha.md → beta.md
 	tmp := t.TempDir()
 
 	projDir := filepath.Join(tmp, "projects")
-	alphaDir := filepath.Join(projDir, "alpha")
-	os.MkdirAll(alphaDir, 0755)
-	os.WriteFile(filepath.Join(alphaDir, "alpha.md"), []byte("# alpha\n"), 0644)
-	os.WriteFile(filepath.Join(alphaDir, "other.txt"), []byte("other\n"), 0644)
+	os.MkdirAll(projDir, 0755)
+	alphaFile := filepath.Join(projDir, "alpha.md")
+	os.WriteFile(alphaFile, []byte("# alpha\ncontent\n"), 0644)
 
-	tasksDir := filepath.Join(tmp, "tasks")
-	os.MkdirAll(tasksDir, 0755)
-	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Task 1 +alpha\n"), 0644)
+	os.MkdirAll(filepath.Join(tmp, "tasks"), 0755)
+	os.WriteFile(filepath.Join(tmp, "todo.txt"), []byte("Task 1 +alpha\n"), 0644)
 
 	scan, _ := scanner.ScanWorkspace(tmp)
 	ws, _ := Load(scan)
@@ -416,21 +399,15 @@ func TestRenameProject_IndexNoteRenamed(t *testing.T) {
 		t.Fatalf("rename error: %v", err)
 	}
 
-	betaDir := filepath.Join(projDir, "beta")
-
-	// Old index note should not exist
-	if _, err := os.Stat(filepath.Join(betaDir, "alpha.md")); !os.IsNotExist(err) {
+	// Old file should not exist
+	if _, err := os.Stat(alphaFile); !os.IsNotExist(err) {
 		t.Error("alpha.md should have been renamed")
 	}
 
-	// New index note should exist
-	if _, err := os.Stat(filepath.Join(betaDir, "beta.md")); err != nil {
+	// New file should exist
+	betaFile := filepath.Join(projDir, "beta.md")
+	if _, err := os.Stat(betaFile); err != nil {
 		t.Error("beta.md should exist after rename")
-	}
-
-	// Other files should be untouched
-	if _, err := os.Stat(filepath.Join(betaDir, "other.txt")); err != nil {
-		t.Error("other.txt should still exist")
 	}
 }
 
@@ -449,8 +426,8 @@ func TestMergeProject_CardDedup(t *testing.T) {
 	cardFile := filepath.Join(tasksDir, "test-card.md")
 	os.WriteFile(cardFile, []byte("---\nprojects:\n  - alpha\n  - beta\nboard: testboard\nstatus: Todo\n---\n# Test Card\nContent here\n"), 0644)
 
-	// Tasks referencing alpha
-	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Task 1 +alpha\n"), 0644)
+	// Tasks referencing alpha (todo.txt at workspace root)
+	os.WriteFile(filepath.Join(tmp, "todo.txt"), []byte("Task 1 +alpha\n"), 0644)
 
 	scan, _ := scanner.ScanWorkspace(tmp)
 	ws, _ := Load(scan)
@@ -529,12 +506,11 @@ func TestBuildProjectRegistry_LoadsVirtualArchive(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create a task referencing "virtualproj"
-	tasksDir := filepath.Join(tmp, "tasks")
-	os.MkdirAll(tasksDir, 0755)
-	os.WriteFile(filepath.Join(tasksDir, "todo.txt"), []byte("Do something +virtualproj\n"), 0644)
+	os.MkdirAll(filepath.Join(tmp, "tasks"), 0755)
+	os.WriteFile(filepath.Join(tmp, "todo.txt"), []byte("Do something +virtualproj\n"), 0644)
 
-	// Create a physical project "physicalproj"
-	projDir := filepath.Join(tmp, "projects", "physicalproj")
+	// Create a physical project "physicalproj" as a flat .md file
+	projDir := filepath.Join(tmp, "projects")
 	os.MkdirAll(projDir, 0755)
 	os.WriteFile(filepath.Join(projDir, "physicalproj.md"), []byte("# physicalproj\n"), 0644)
 
@@ -572,9 +548,8 @@ func TestBuildProjectRegistry_LoadsVirtualArchive(t *testing.T) {
 func TestDeleteVirtualProject(t *testing.T) {
 	tmp := t.TempDir()
 
-	tasksDir := filepath.Join(tmp, "tasks")
-	os.MkdirAll(tasksDir, 0755)
-	todoFile := filepath.Join(tasksDir, "todo.txt")
+	os.MkdirAll(filepath.Join(tmp, "tasks"), 0755)
+	todoFile := filepath.Join(tmp, "todo.txt")
 	os.WriteFile(todoFile, []byte("Buy milk +foo +bar\nDo stuff +foo\nOther task +bar\n"), 0644)
 
 	scan, err := scanner.ScanWorkspace(tmp)
@@ -591,7 +566,7 @@ func TestDeleteVirtualProject(t *testing.T) {
 	if foo == nil {
 		t.Fatal("expected foo in registry")
 	}
-	if foo.DirPath != "" {
+	if foo.FilePath != "" {
 		t.Errorf("expected foo to be virtual")
 	}
 
