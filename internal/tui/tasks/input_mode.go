@@ -43,6 +43,9 @@ const (
 
 	// Delete selection mode
 	ModeDelete // 'd' pressed - selecting tasks to delete
+
+	// Convert selection mode
+	ModeConvertComplex // 'c' pressed - selecting simple tasks to convert to TaskNotes
 )
 
 // InputModeContext holds the current mode and related context
@@ -153,6 +156,8 @@ func (c *InputModeContext) String() string {
 		return "Archive"
 	case ModeDelete:
 		return "Delete"
+	case ModeConvertComplex:
+		return "Convert"
 	default:
 		return "Unknown"
 	}

@@ -16,6 +16,21 @@ var boardNameStyle = lipgloss.NewStyle().Foreground(theme.Secondary)
 var columnNameStyle = lipgloss.NewStyle().Foreground(theme.Primary)
 var simpleBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
 
+// ApplyRowBackground applies a full-row background highlight (theme.Surface)
+// to s, padding it to width visual characters.
+func ApplyRowBackground(s string, width int) string {
+	const (
+		bgSeq = "\x1b[48;5;236m"
+		reset = "\x1b[0m"
+	)
+	result := bgSeq + strings.ReplaceAll(s, reset, reset+bgSeq)
+	w := lipgloss.Width(result)
+	if w < width {
+		result += strings.Repeat(" ", width-w)
+	}
+	return result + reset
+}
+
 const statusWidth = 7
 
 // StyledTaskLine renders a task in a simple, readable format.

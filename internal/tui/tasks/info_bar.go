@@ -178,6 +178,9 @@ func (m *InfoBarModel) RenderHintsRaw() string {
 	case ModeDelete:
 		return "space:select  a:select all  enter:delete  esc:cancel"
 
+	case ModeConvertComplex:
+		return "space:select  a:select all  enter:convert  esc:cancel"
+
 	case ModeConfirmation:
 		return "y/enter:yes  n/esc:no"
 

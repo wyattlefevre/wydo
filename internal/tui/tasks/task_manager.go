@@ -28,22 +28,6 @@ var (
 	cursorStyle        = theme.Cursor
 )
 
-// applyRowBackground applies a background color to an already ANSI-styled string.
-// It re-emits the background sequence after every internal reset so the highlight
-// covers the entire row, including spans that have their own foreground colors.
-func applyRowBackground(s string, width int) string {
-	const (
-		// \x1b[48;5;236m — ANSI 256-color background for theme.Surface (color 236)
-		bgSeq = "\x1b[48;5;236m"
-		reset = "\x1b[0m"
-	)
-	result := bgSeq + strings.ReplaceAll(s, reset, reset+bgSeq)
-	w := lipgloss.Width(result)
-	if w < width {
-		result += strings.Repeat(" ", width-w)
-	}
-	return result + reset
-}
 
 // TaskUpdateMsg is sent when a task is updated
 type TaskUpdateMsg struct {
@@ -92,6 +76,12 @@ type ArchiveSelectionRequestMsg struct {
 	IDs []string
 }
 
+// ConvertToComplexSelectionMsg is sent when selected simple tasks should be converted to TaskNotes.
+type ConvertToComplexSelectionMsg struct {
+	Tasks     []data.Task
+	BoardPath string
+}
+
 // TaskManagerModel manages the task list view with filtering, sorting, and grouping
 type TaskManagerModel struct {
 	// Data
@@ -131,6 +121,10 @@ type TaskManagerModel struct {
 
 	// Delete mode selection
 	deleteSelection map[string]bool
+
+	// Convert mode selection
+	convertSelection map[string]bool
+	convertBoardPath string
 
 	// Pending delete (for confirmation modal)
 	pendingDeleteTaskID string
@@ -363,6 +357,8 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 			return m.handleArchiveMode(msg)
 		case ModeDelete:
 			return m.handleDeleteMode(msg)
+		case ModeConvertComplex:
+			return m.handleConvertMode(msg)
 		}
 	}
 
@@ -509,6 +505,16 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 			} else {
 				prefix = box + " "
 			}
+		} else if m.inputContext.Mode == ModeConvertComplex {
+			box := "[ ]"
+			if m.convertSelection[task.ID] {
+				box = "[x]"
+			}
+			if i == m.cursor {
+				prefix = cursorStyle.Render(box + " ")
+			} else {
+				prefix = box + " "
+			}
 		} else {
 			prefix = "  "
 			if i == m.cursor {
@@ -517,7 +523,7 @@ func (m *TaskManagerModel) renderFlatTasks() string {
 		}
 		line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw)
 		if i == m.cursor {
-			line = applyRowBackground(line, m.width)
+			line = shared.ApplyRowBackground(line, m.width)
 		}
 		b.WriteString(line + "\n")
 	}
@@ -597,6 +603,16 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 					} else {
 						prefix = box + " "
 					}
+				} else if m.inputContext.Mode == ModeConvertComplex {
+					box := "[ ]"
+					if m.convertSelection[task.ID] {
+						box = "[x]"
+					}
+					if taskIndex == m.cursor {
+						prefix = cursorStyle.Render(box + " ")
+					} else {
+						prefix = box + " "
+					}
 				} else {
 					prefix = "  "
 					if taskIndex == m.cursor {
@@ -605,7 +621,7 @@ func (m *TaskManagerModel) renderGroupedTasks() string {
 				}
 				line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw)
 				if taskIndex == m.cursor {
-					line = applyRowBackground(line, m.width)
+					line = shared.ApplyRowBackground(line, m.width)
 				}
 				b.WriteString(line + "\n")
 				linesRendered++
@@ -728,6 +744,16 @@ func (m *TaskManagerModel) renderSectionedTasks() string {
 						} else {
 							prefix = box + " "
 						}
+					} else if m.inputContext.Mode == ModeConvertComplex {
+						box := "[ ]"
+						if m.convertSelection[task.ID] {
+							box = "[x]"
+						}
+						if taskIndex == m.cursor {
+							prefix = cursorStyle.Render(box + " ")
+						} else {
+							prefix = box + " "
+						}
 					} else {
 						prefix = "  "
 						if taskIndex == m.cursor {
@@ -736,7 +762,7 @@ func (m *TaskManagerModel) renderSectionedTasks() string {
 					}
 					line := prefix + shared.StyledTaskLine(task, m.width-lipgloss.Width(prefix), bnw)
 					if taskIndex == m.cursor {
-						line = applyRowBackground(line, m.width)
+						line = shared.ApplyRowBackground(line, m.width)
 					}
 					b.WriteString(line + "\n")
 					linesRendered++
@@ -837,6 +863,10 @@ func (m TaskManagerModel) handleNormalMode(msg tea.KeyMsg) (TaskManagerModel, te
 	case "d":
 		m.deleteSelection = make(map[string]bool)
 		m.inputContext.TransitionTo(ModeDelete)
+	case "c":
+		m.convertSelection = make(map[string]bool)
+		m.inputContext.TransitionTo(ModeConvertComplex)
+		m.refreshDisplayTasks()
 	case "1":
 		m.togglePreset(PresetStack)
 		return m, nil
@@ -1018,6 +1048,65 @@ func (m TaskManagerModel) handleDeleteMode(msg tea.KeyMsg) (TaskManagerModel, te
 	return m, nil
 }
 
+func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		m.moveCursor(1)
+	case "k", "up":
+		m.moveCursor(-1)
+	case " ":
+		task := m.selectedTask()
+		if task != nil {
+			m.convertSelection[task.ID] = !m.convertSelection[task.ID]
+			if !m.convertSelection[task.ID] {
+				delete(m.convertSelection, task.ID)
+			}
+		}
+	case "a":
+		allSelected := len(m.convertSelection) == len(m.displayTasks) && len(m.displayTasks) > 0
+		if allSelected {
+			m.convertSelection = make(map[string]bool)
+		} else {
+			for _, t := range m.displayTasks {
+				m.convertSelection[t.ID] = true
+			}
+		}
+	case "enter":
+		count := len(m.convertSelection)
+		if count == 0 {
+			return m, messages.StatusCmd("No tasks selected to convert", messages.LevelWarning)
+		}
+		if len(m.boards) == 0 {
+			return m, messages.StatusCmd("No boards available", messages.LevelWarning)
+		}
+		if len(m.boards) == 1 {
+			m.convertBoardPath = m.boards[0].Path
+			m.confirmationModal = NewConfirmationModal(
+				fmt.Sprintf("Convert %d task(s) to complex?", count),
+				fmt.Sprintf("Tasks will be moved to board \"%s\"", m.boards[0].Name),
+				50,
+			)
+			m.inputContext.TransitionTo(ModeConfirmation)
+			return m, nil
+		}
+		// Multiple boards — open picker
+		boardNames := make([]string, len(m.boards))
+		for i, b := range m.boards {
+			boardNames[i] = b.Name
+		}
+		m.fuzzyPicker = NewFuzzyPicker(boardNames, "Convert to Board", false, false)
+		m.pickerContext = "convert-to-board"
+		m.inputContext.TransitionTo(ModeBoardPicker)
+		return m, nil
+	case "esc":
+		m.convertSelection = nil
+		m.convertBoardPath = ""
+		m.inputContext.Reset()
+		m.refreshDisplayTasks()
+	}
+	return m, nil
+}
+
 func (m TaskManagerModel) handleSearchMode(msg tea.KeyMsg) (TaskManagerModel, tea.Cmd) {
 	// Handle filter typing mode
 	if m.searchFilterMode {
@@ -1122,6 +1211,11 @@ func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 		}
 		if m.inputContext.Mode == ModeDelete {
 			m.deleteSelection = nil
+		}
+		if m.inputContext.Mode == ModeConvertComplex {
+			m.convertSelection = nil
+			m.convertBoardPath = ""
+			m.refreshDisplayTasks()
 		}
 		m.inputContext.Back()
 		if m.inputContext.Mode == ModeNormal {
@@ -1387,7 +1481,13 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 	m.fuzzyPicker = nil
 
 	if msg.Cancelled {
+		if m.pickerContext == "convert-to-board" {
+			m.convertSelection = nil
+			m.convertBoardPath = ""
+			m.refreshDisplayTasks()
+		}
 		m.inputContext.Reset()
+		m.pickerContext = ""
 		return m, nil
 	}
 
@@ -1443,6 +1543,30 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 				}
 			}
 		}
+	case "convert-to-board":
+		if len(msg.Selected) > 0 {
+			for _, b := range m.boards {
+				if b.Name == msg.Selected[0] {
+					m.convertBoardPath = b.Path
+					count := len(m.convertSelection)
+					m.confirmationModal = NewConfirmationModal(
+						fmt.Sprintf("Convert %d task(s) to complex?", count),
+						fmt.Sprintf("Tasks will be moved to board \"%s\"", b.Name),
+						50,
+					)
+					m.pickerContext = ""
+					m.inputContext.TransitionTo(ModeConfirmation)
+					return m, nil
+				}
+			}
+		}
+		// Nothing selected — cancel
+		m.convertSelection = nil
+		m.convertBoardPath = ""
+		m.refreshDisplayTasks()
+		m.inputContext.Reset()
+		m.pickerContext = ""
+		return m, nil
 	}
 
 	m.refreshDisplayTasks()
@@ -1525,6 +1649,17 @@ func (m *TaskManagerModel) refreshDisplayTasks() {
 			}
 		}
 		filtered = nonArchived
+	}
+
+	// In convert mode, show only simple tasks (not TaskNotes)
+	if m.inputContext.Mode == ModeConvertComplex {
+		var simpleTasks []data.Task
+		for _, t := range filtered {
+			if !t.IsTaskNote {
+				simpleTasks = append(simpleTasks, t)
+			}
+		}
+		filtered = simpleTasks
 	}
 
 	// Always apply workspace meta-grouping
@@ -1752,6 +1887,8 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		m.pendingDeleteTaskID = ""
 		m.archiveSelection = nil
 		m.deleteSelection = nil
+		m.convertSelection = nil
+		m.convertBoardPath = ""
 		return m, nil
 	}
 
@@ -1785,6 +1922,22 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		m.deleteSelection = nil
 		return m, func() tea.Msg {
 			return DeleteSelectionRequestMsg{IDs: ids}
+		}
+	}
+
+	// Convert-selection flow
+	if len(m.convertSelection) > 0 && m.convertBoardPath != "" {
+		var tasksToConvert []data.Task
+		for _, t := range m.tasks {
+			if m.convertSelection[t.ID] {
+				tasksToConvert = append(tasksToConvert, t)
+			}
+		}
+		boardPath := m.convertBoardPath
+		m.convertSelection = nil
+		m.convertBoardPath = ""
+		return m, func() tea.Msg {
+			return ConvertToComplexSelectionMsg{Tasks: tasksToConvert, BoardPath: boardPath}
 		}
 	}
 

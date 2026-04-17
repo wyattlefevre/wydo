@@ -133,37 +133,13 @@ func (m DetailModel) updateSubProjectPicker(msg tea.KeyMsg) (DetailModel, tea.Cm
 	return m.startItemCreation()
 }
 
-// startItemCreation branches on the selected column to start the right flow.
+// startItemCreation starts the task creation flow.
 func (m DetailModel) startItemCreation() (DetailModel, tea.Cmd) {
-	switch colKind(m.selectedCol) {
-	case colNotes:
-		input := taskview.NewTextInput("Note filename", "my-note", nil)
-		input.SetWidth(m.width)
-		m.createNoteInput = input
-		m.mode = detailModeNewNoteName
-		return m, input.Focus()
-
-	case colTasks:
-		input := taskview.NewTextInput("Task name", "do something...", nil)
-		input.SetWidth(m.width)
-		m.createTaskInput = input
-		m.mode = detailModeNewTaskName
-		return m, input.Focus()
-	}
-	m.mode = detailModeNormal
-	return m, nil
-}
-
-// updateNewNoteInput forwards keys to the note name text input.
-// TextInputResultMsg arrives in Update() and is dispatched to handleTextInputResult.
-func (m DetailModel) updateNewNoteInput(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
-	if m.createNoteInput == nil {
-		m.mode = detailModeNormal
-		return m, nil
-	}
-	result, cmd := m.createNoteInput.Update(msg)
-	m.createNoteInput = result.(*taskview.TextInputModel)
-	return m, cmd
+	input := taskview.NewTextInput("Task name", "do something...", nil)
+	input.SetWidth(m.width)
+	m.createTaskInput = input
+	m.mode = detailModeNewTaskName
+	return m, input.Focus()
 }
 
 // updateNewTaskInput forwards keys to the task name text input.
@@ -180,51 +156,15 @@ func (m DetailModel) updateNewTaskInput(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 // handleTextInputResult is called when TextInputResultMsg arrives in Update().
 func (m DetailModel) handleTextInputResult(msg taskview.TextInputResultMsg) (DetailModel, tea.Cmd) {
 	if msg.Cancelled {
-		m.createNoteInput = nil
 		m.createTaskInput = nil
 		m.mode = detailModeNormal
 		return m, nil
 	}
-	switch m.mode {
-	case detailModeNewNoteName:
-		return m.finishNoteCreation(msg.Value)
-	case detailModeNewTaskName:
+	if m.mode == detailModeNewTaskName {
 		return m.finishTaskNameEntry(msg.Value)
 	}
 	m.mode = detailModeNormal
 	return m, nil
-}
-
-// finishNoteCreation creates the note file and opens it in $EDITOR.
-func (m DetailModel) finishNoteCreation(name string) (DetailModel, tea.Cmd) {
-	m.createNoteInput = nil
-	m.mode = detailModeNormal
-
-	if strings.TrimSpace(name) == "" {
-		return m, nil
-	}
-	if m.pendingProject == nil || m.pendingProject.FilePath == "" {
-		name := ""
-		if m.pendingProject != nil {
-			name = m.pendingProject.Name
-		}
-		logs.Logger.Printf("Cannot create note: project %q has no directory", name)
-		return m, nil
-	}
-
-	// Normalize filename.
-	filename := strings.TrimSpace(name)
-	filename = strings.TrimSuffix(filename, ".md")
-	filename = filename + ".md"
-
-	filePath := filepath.Join(filepath.Dir(m.pendingProject.FilePath), filename)
-
-	if err := os.WriteFile(filePath, []byte(""), 0644); err != nil {
-		logs.Logger.Printf("Error creating note file: %v", err)
-		return m, nil
-	}
-
-	return m, openNoteInEditor(filePath)
 }
 
 // finishTaskNameEntry opens the task editor with the project pre-populated.

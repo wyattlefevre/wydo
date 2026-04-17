@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -12,7 +11,6 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 	kanbanmodels "wydo/internal/kanban/models"
 	"wydo/internal/kanban/operations"
-	"wydo/internal/notes"
 	"wydo/internal/tasks/data"
 	"wydo/internal/tui/kanban"
 	"wydo/internal/tui/messages"
@@ -25,23 +23,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const detailIndicatorWidth = 3
-
 type colKind int
 
 const (
-	colNotes colKind = iota
-	colTasks
+	colTasks colKind = iota
 	colCount
 )
-
-var colNames = [colCount]string{"Notes", "Tasks"}
 
 type rowKind int
 
 const (
 	rowKindGroup rowKind = iota
-	rowKindNote
 	rowKindTask
 )
 
@@ -50,8 +42,7 @@ type detailRow struct {
 	depth       int
 	projectName string
 
-	// Only one populated based on kind:
-	note notes.Note
+	// Only populated when kind == rowKindTask:
 	task data.Task
 }
 
@@ -63,7 +54,6 @@ const (
 	detailModeURLPicker                 // picking a URL to open
 	detailModeDateEditor                // editing project dates
 	detailModeSubProjectPick            // picking which sub-project to add item to
-	detailModeNewNoteName               // text input for note filename
 	detailModeNewTaskName               // text input for task name
 	detailModeNewTaskEditor             // task editor modal
 	detailModeNewBoardPick              // board selector for new card
@@ -77,18 +67,15 @@ type DetailModel struct {
 	wsDir        string
 	project      *workspace.Project
 	registry     *workspace.ProjectRegistry
-	indexPreview string
 	width, height int
 
 	// Pre-computed per-project data (keyed by project name)
-	projectNotes map[string][]notes.Note
 	projectTasks map[string][]data.Task
 	allDescendants []*workspace.Project
 
 	// Raw all-data
 	allBoards []kanbanmodels.Board
 	allTasks  []data.Task
-	allNotes  []notes.Note
 
 	// Column state
 	columns        [colCount][]detailRow
@@ -109,7 +96,6 @@ type DetailModel struct {
 
 	// Creation flow state (all nil when not in use)
 	createSubProjectPicker *createSubProjectPickerModel
-	createNoteInput        *taskview.TextInputModel
 	createTaskInput        *taskview.TextInputModel
 	createTaskEditor       *taskview.TaskEditorModel
 	createBoardPicker      *kanban.BoardSelectorModel
@@ -281,7 +267,7 @@ func (p projectURLPicker) View() string {
 	return lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Center, box)
 }
 
-func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskNotes []kanbanmodels.TaskNote, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, indexPreview string, allTasks []data.Task, allNotes []notes.Note, allProjectItems []kanban.ProjectPickerItem, allTags []string) DetailModel {
+func NewDetailModel(name, wsDir string, tasks []data.Task, taskNotes []kanbanmodels.TaskNote, boards []kanbanmodels.Board, allBoards []kanbanmodels.Board, project *workspace.Project, registry *workspace.ProjectRegistry, children []*workspace.Project, allTasks []data.Task, allProjectItems []kanban.ProjectPickerItem, allTags []string) DetailModel {
 	// Build board+column lookup for TaskNote → Task conversion.
 	tnBoard := make(map[string]kanbanmodels.Board)
 	tnCol := make(map[string]kanbanmodels.Column)
@@ -299,10 +285,8 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 		wsDir:           wsDir,
 		project:         project,
 		registry:        registry,
-		indexPreview:    indexPreview,
 		allBoards:       allBoards,
 		allTasks:        allTasks,
-		allNotes:        allNotes,
 		allProjectItems: allProjectItems,
 		allTags:         allTags,
 	}
@@ -310,7 +294,6 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 		m.collapsedGroups[i] = make(map[string]bool)
 	}
 
-	m.projectNotes = make(map[string][]notes.Note)
 	m.projectTasks = make(map[string][]data.Task)
 
 	appendTaskNotes := func(p string, tns []kanbanmodels.TaskNote) {
@@ -325,40 +308,19 @@ func NewDetailModel(name, wsDir string, n []notes.Note, tasks []data.Task, taskN
 
 	if registry != nil {
 		m.allDescendants = collectAllDescendants(registry, name)
-		m.projectNotes[name] = prependIndexNote(registry.Get(name), registry.NotesForProject(name, allNotes))
 		m.projectTasks[name] = registry.TasksForProject(name, allTasks)
 		appendTaskNotes(name, registry.TaskNotesForProject(name, allBoards))
 		for _, desc := range m.allDescendants {
-			m.projectNotes[desc.Name] = prependIndexNote(desc, registry.NotesForProject(desc.Name, allNotes))
 			m.projectTasks[desc.Name] = registry.TasksForProject(desc.Name, allTasks)
 			appendTaskNotes(desc.Name, registry.TaskNotesForProject(desc.Name, allBoards))
 		}
 	} else {
-		m.projectNotes[name] = prependIndexNote(project, n)
 		m.projectTasks[name] = tasks
 		appendTaskNotes(name, taskNotes)
 	}
 
 	m.rebuildAllColumns()
 	return m
-}
-
-// prependIndexNote prepends the project's index file (name.md) to the front of the
-// notes slice if the file exists, so it always appears first in the Notes column.
-func prependIndexNote(proj *workspace.Project, rest []notes.Note) []notes.Note {
-	if proj == nil || proj.FilePath == "" {
-		return rest
-	}
-	indexPath := proj.FilePath
-	if _, err := os.Stat(indexPath); err != nil {
-		return rest
-	}
-	idx := notes.Note{
-		Title:    proj.Name,
-		FilePath: indexPath,
-		RelPath:  proj.Name + ".md",
-	}
-	return append([]notes.Note{idx}, rest...)
 }
 
 // collectAllDescendants returns all descendants in depth-first order.
@@ -405,15 +367,8 @@ func (m *DetailModel) appendProjectRows(rows *[]detailRow, p *workspace.Project,
 		}
 	}
 
-	switch col {
-	case colNotes:
-		for _, n := range m.projectNotes[p.Name] {
-			*rows = append(*rows, detailRow{kind: rowKindNote, depth: depth, projectName: p.Name, note: n})
-		}
-	case colTasks:
-		for _, t := range m.projectTasks[p.Name] {
-			*rows = append(*rows, detailRow{kind: rowKindTask, depth: depth, projectName: p.Name, task: t})
-		}
+	for _, t := range m.projectTasks[p.Name] {
+		*rows = append(*rows, detailRow{kind: rowKindTask, depth: depth, projectName: p.Name, task: t})
 	}
 
 	if m.registry == nil {
@@ -543,7 +498,7 @@ func (m DetailModel) IsTyping() bool {
 	if m.mode == detailModeDateEditor && m.dateEditor != nil && m.dateEditor.IsTyping() {
 		return true
 	}
-	if m.mode == detailModeNewNoteName || m.mode == detailModeNewTaskName {
+	if m.mode == detailModeNewTaskName {
 		return true
 	}
 	return false
@@ -561,8 +516,6 @@ func (m DetailModel) Update(msg tea.Msg) (DetailModel, tea.Cmd) {
 			return m.updateDateEditor(msg)
 		case detailModeSubProjectPick:
 			return m.updateSubProjectPicker(msg)
-		case detailModeNewNoteName:
-			return m.updateNewNoteInput(msg)
 		case detailModeNewTaskName:
 			return m.updateNewTaskInput(msg)
 		case detailModeNewTaskEditor:
@@ -589,6 +542,11 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 	switch msg.String() {
 	case "n":
 		return m.handleNew()
+
+	case "o":
+		if m.project != nil && m.project.FilePath != "" {
+			return m, openNoteInEditor(m.project.FilePath)
+		}
 
 	case "esc", "q":
 		return m, func() tea.Msg { return messages.FocusSidebarMsg{} }
@@ -732,8 +690,6 @@ func (m DetailModel) handleKey(msg tea.KeyMsg) (DetailModel, tea.Cmd) {
 			return m, nil
 		}
 		switch row.kind {
-		case rowKindNote:
-			return m, openNoteInEditor(row.note.FilePath)
 		case rowKindTask:
 			task := row.task
 			if task.IsTaskNote {
@@ -867,9 +823,6 @@ func (m DetailModel) View() string {
 	if m.mode == detailModeSubProjectPick && m.createSubProjectPicker != nil {
 		return m.createSubProjectPicker.View()
 	}
-	if m.mode == detailModeNewNoteName && m.createNoteInput != nil {
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.createNoteInput.View())
-	}
 	if m.mode == detailModeNewTaskName && m.createTaskInput != nil {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.createTaskInput.View())
 	}
@@ -887,13 +840,6 @@ func (m DetailModel) View() string {
 
 	lines = append(lines, titleStyle.Render(fmt.Sprintf("Project: %s", m.name)))
 	lines = append(lines, "")
-
-	if m.indexPreview != "" {
-		for _, line := range strings.Split(m.indexPreview, "\n") {
-			lines = append(lines, pathStyle.Render("  "+line))
-		}
-		lines = append(lines, "")
-	}
 
 	// Build URL lines (left half of header row)
 	var urlLines []string
@@ -974,21 +920,8 @@ func (m DetailModel) View() string {
 	startCol, endCol, colWidth := m.calculateVisibleColumns()
 
 	var colViews []string
-
-	if startCol > 0 {
-		colViews = append(colViews, m.renderHorizIndicator("◀", fixedColHeight))
-	} else {
-		colViews = append(colViews, m.renderHorizIndicator(" ", fixedColHeight))
-	}
-
 	for i := startCol; i < endCol; i++ {
 		colViews = append(colViews, m.renderColumn(i, fixedColHeight, colWidth))
-	}
-
-	if endCol < int(colCount) {
-		colViews = append(colViews, m.renderHorizIndicator("▶", fixedColHeight))
-	} else {
-		colViews = append(colViews, m.renderHorizIndicator(" ", fixedColHeight))
 	}
 
 	colArea := lipgloss.JoinHorizontal(lipgloss.Top, colViews...)
@@ -1005,25 +938,8 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 
 	var s strings.Builder
 
-	// Title line — truncate to column width
-	var title string
-	if col == colTasks {
-		done := m.totalColDoneCount(col)
-		total := m.totalColCount(col)
-		title = fmt.Sprintf("%s (%d/%d)", colNames[col], done, total)
-	} else {
-		title = fmt.Sprintf("%s (%d)", colNames[col], m.totalColCount(col))
-	}
-	title = xansi.Truncate(title, colWidth, "")
-	if focused {
-		s.WriteString(sectionActiveStyle.Render(title))
-	} else {
-		s.WriteString(sectionHeaderStyle.Render(title))
-	}
-	s.WriteString("\n")
-
-	// availableForRows = fixedHeight - title(1) - topIndicator(1) - bottomIndicator(1)
-	availableForRows := fixedHeight - 3
+	// availableForRows = fixedHeight - topIndicator(1) - bottomIndicator(1)
+	availableForRows := fixedHeight - 2
 	if availableForRows < 1 {
 		availableForRows = 1
 	}
@@ -1077,8 +993,6 @@ func (m DetailModel) renderColumn(colIdx int, fixedHeight int, colWidth int) str
 func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colWidth int, boardNameWidth int) string {
 	indent := strings.Repeat("  ", row.depth)
 
-	var rendered string
-
 	switch row.kind {
 	case rowKindGroup:
 		expanded := !m.collapsedGroups[col][row.projectName]
@@ -1086,62 +1000,41 @@ func (m DetailModel) renderRow(row detailRow, isSelected bool, col colKind, colW
 		if expanded {
 			marker = "▼"
 		}
-		var countStr string
-		if col == colTasks {
-			done := m.subtreeDoneCount(row.projectName, col)
-			total := m.subtreeCount(row.projectName, col)
-			countStr = fmt.Sprintf("%d/%d", done, total)
-		} else {
-			countStr = fmt.Sprintf("%d", m.subtreeCount(row.projectName, col))
-		}
+		done := m.subtreeDoneCount(row.projectName, col)
+		total := m.subtreeCount(row.projectName, col)
+		countStr := fmt.Sprintf("%d/%d", done, total)
 		content := fmt.Sprintf("%s%s %s (%s)", indent, marker, row.projectName, countStr)
 		if isSelected {
-			rendered = colItemSelectedStyle.Render(content)
-		} else {
-			rendered = childProjectStyle.Render(content)
+			rendered := shared.ApplyRowBackground(colItemSelectedStyle.Render(content), colWidth)
+			return rendered
 		}
-
-	case rowKindNote:
-		display := row.note.Title
-		if display == "" {
-			display = filepath.Base(row.note.FilePath)
-		}
-		if isSelected {
-			rendered = colItemSelectedStyle.Render(display)
-		} else {
-			rendered = colItemStyle.Render(display)
-		}
+		return xansi.Truncate(childProjectStyle.Render(content), colWidth, "")
 
 	case rowKindTask:
-		rendered = shared.StyledTaskLine(row.task, colWidth, boardNameWidth)
+		prefix := "  "
+		if isSelected {
+			prefix = theme.Cursor.Render("> ")
+		}
+		prefixWidth := lipgloss.Width(prefix)
+		line := prefix + shared.StyledTaskLine(row.task, colWidth-prefixWidth, boardNameWidth)
+		if isSelected {
+			line = shared.ApplyRowBackground(line, colWidth)
+		}
+		return line
 
 	default:
 		return ""
 	}
-
-	return xansi.Truncate(rendered, colWidth, "")
 }
 
 // subtreeCount counts total items in the subtree of projName for the given column kind.
 func (m *DetailModel) subtreeCount(projName string, col colKind) int {
 	if m.registry == nil {
-		switch col {
-		case colNotes:
-			return len(m.projectNotes[projName])
-		case colTasks:
-			return len(m.projectTasks[projName])
-		}
-		return 0
+		return len(m.projectTasks[projName])
 	}
 	var count func(name string) int
 	count = func(name string) int {
-		var n int
-		switch col {
-		case colNotes:
-			n = len(m.projectNotes[name])
-		case colTasks:
-			n = len(m.projectTasks[name])
-		}
+		n := len(m.projectTasks[name])
 		for _, child := range m.registry.ChildrenOf(name) {
 			n += count(child.Name)
 		}
@@ -1150,36 +1043,6 @@ func (m *DetailModel) subtreeCount(projName string, col colKind) int {
 	return count(projName)
 }
 
-// totalColCount returns total items across all projects for a column.
-func (m *DetailModel) totalColCount(col colKind) int {
-	total := 0
-	switch col {
-	case colNotes:
-		for _, v := range m.projectNotes {
-			total += len(v)
-		}
-	case colTasks:
-		for _, v := range m.projectTasks {
-			total += len(v)
-		}
-	}
-	return total
-}
-
-// totalColDoneCount returns done items across all projects for a column.
-func (m *DetailModel) totalColDoneCount(col colKind) int {
-	total := 0
-	if col == colTasks {
-		for _, tasks := range m.projectTasks {
-			for _, t := range tasks {
-				if t.Done {
-					total++
-				}
-			}
-		}
-	}
-	return total
-}
 
 // subtreeDoneCount counts done items in the subtree of projName for the given column kind.
 func (m *DetailModel) subtreeDoneCount(projName string, col colKind) int {
@@ -1203,16 +1066,6 @@ func (m *DetailModel) subtreeDoneCount(projName string, col colKind) int {
 	return count(projName)
 }
 
-func (m DetailModel) renderHorizIndicator(symbol string, height int) string {
-	style := lipgloss.NewStyle().
-		Width(3).
-		Height(height).
-		Align(lipgloss.Center, lipgloss.Center)
-	if symbol != " " {
-		style = style.Bold(true)
-	}
-	return style.Render(symbol)
-}
 
 func (m *DetailModel) adjustScrollPosition() {
 	col := m.selectedCol
@@ -1221,7 +1074,7 @@ func (m *DetailModel) adjustScrollPosition() {
 		return
 	}
 	cursor := m.colCursorPos[col]
-	visibleRows := m.height - len(strings.Split(m.indexPreview, "\n")) - 7
+	visibleRows := m.height - 7
 	if visibleRows < 3 {
 		visibleRows = 3
 	}
@@ -1239,7 +1092,7 @@ func (m *DetailModel) adjustScrollPosition() {
 // each column should occupy so they fill the available screen width evenly.
 func (m DetailModel) calculateVisibleColumns() (start, end, colWidth int) {
 	const minColWidth = 20
-	availableWidth := m.width - detailIndicatorWidth*2
+	availableWidth := m.width
 	if availableWidth < minColWidth {
 		availableWidth = minColWidth
 	}

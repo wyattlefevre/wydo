@@ -211,21 +211,16 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, ws := range m.workspaces {
 			if ws.RootDir == msg.WorkspaceRootDir {
 				proj := ws.Projects.Get(msg.ProjectName)
-				projNotes := ws.Projects.NotesForProject(msg.ProjectName, ws.Notes)
 				projTasks := ws.Projects.TasksForProject(msg.ProjectName, ws.Tasks)
 				projCards := ws.Projects.TaskNotesForProject(msg.ProjectName, ws.Boards)
 				projBoards := ws.Projects.BoardsForProject(msg.ProjectName, ws.Boards)
 				children := ws.Projects.ChildrenOf(msg.ProjectName)
-				var indexPreview string
-				if proj != nil && proj.FilePath != "" {
-					indexPreview = workspace.ReadIndexPreview(proj.FilePath)
-				}
 				allProjectItems := collectAllProjects(m.workspaces)
 				allTags := taskview.ExtractUniqueTags(ws.Tasks)
 				detail := projectsview.NewDetailModel(
 					msg.ProjectName, msg.WorkspaceRootDir,
-					projNotes, projTasks, projCards, projBoards, ws.Boards,
-					proj, ws.Projects, children, indexPreview, ws.Tasks, ws.Notes,
+					projTasks, projCards, projBoards, ws.Boards,
+					proj, ws.Projects, children, ws.Tasks,
 					allProjectItems, allTags,
 				)
 				m.projectsView.LoadDetail(detail)
@@ -387,6 +382,69 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg {
 			return taskview.DeleteCompleteMsg{Count: len(msg.IDs)}
 		}
+
+	case taskview.ConvertToComplexSelectionMsg:
+		var boardPtr *kanbanmodels.Board
+		for i := range m.boards {
+			if m.boards[i].Path == msg.BoardPath {
+				boardPtr = &m.boards[i]
+				break
+			}
+		}
+		if boardPtr == nil {
+			return m, m.setStatus(fmt.Sprintf("Board not found: %s", msg.BoardPath), LevelError)
+		}
+		board := *boardPtr
+
+		converted := 0
+		failed := 0
+		for _, task := range msg.Tasks {
+			var dueDate, scheduledDate *time.Time
+			if d := task.GetDueDate(); d != "" {
+				if t, err := time.Parse("2006-01-02", d); err == nil {
+					dueDate = &t
+				}
+			}
+			if d := task.GetScheduledDate(); d != "" {
+				if t, err := time.Parse("2006-01-02", d); err == nil {
+					scheduledDate = &t
+				}
+			}
+
+			priority := operations.TaskPriorityToTaskNotePriority(rune(task.Priority))
+
+			projects := task.Projects
+			for _, bp := range projectsForBoard(m.workspaces, msg.BoardPath) {
+				found := false
+				for _, p := range projects {
+					if strings.EqualFold(p, bp) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					projects = append(projects, bp)
+				}
+			}
+
+			_, err := operations.CreateTaskNoteFromTask(&board, task.Name, projects, task.Tags, dueDate, scheduledDate, priority)
+			if err != nil {
+				logs.Logger.Printf("Error creating card for task %q: %v", task.Name, err)
+				failed++
+				continue
+			}
+
+			if err := m.taskSvc.Delete(task.ID); err != nil {
+				logs.Logger.Printf("Warning: card created but task deletion failed for %q: %v", task.Name, err)
+			}
+			converted++
+		}
+
+		m.taskManagerView.SetData(m.taskSvc)
+		if failed > 0 {
+			return m, m.setStatus(fmt.Sprintf("Converted %d task(s), %d failed", converted, failed), LevelWarning)
+		}
+		return m, m.setStatus(fmt.Sprintf("Converted %d task(s) to complex on board \"%s\"", converted, board.Name), LevelSuccess)
 
 	case taskview.ArchiveRequestMsg:
 		// Archive all completed tasks
