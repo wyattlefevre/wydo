@@ -1076,22 +1076,28 @@ func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, t
 		if count == 0 {
 			return m, messages.StatusCmd("No tasks selected to convert", messages.LevelWarning)
 		}
-		if len(m.boards) == 0 {
+		var realBoards []kanbanmodels.Board
+		for _, b := range m.boards {
+			if b.Path != "" {
+				realBoards = append(realBoards, b)
+			}
+		}
+		if len(realBoards) == 0 {
 			return m, messages.StatusCmd("No boards available", messages.LevelWarning)
 		}
-		if len(m.boards) == 1 {
-			m.convertBoardPath = m.boards[0].Path
+		if len(realBoards) == 1 {
+			m.convertBoardPath = realBoards[0].Path
 			m.confirmationModal = NewConfirmationModal(
 				fmt.Sprintf("Convert %d task(s) to complex?", count),
-				fmt.Sprintf("Tasks will be moved to board \"%s\"", m.boards[0].Name),
+				fmt.Sprintf("Tasks will be moved to board \"%s\"", realBoards[0].Name),
 				50,
 			)
 			m.inputContext.TransitionTo(ModeConfirmation)
 			return m, nil
 		}
 		// Multiple boards — open picker
-		boardNames := make([]string, len(m.boards))
-		for i, b := range m.boards {
+		boardNames := make([]string, len(realBoards))
+		for i, b := range realBoards {
 			boardNames[i] = b.Name
 		}
 		m.fuzzyPicker = NewFuzzyPicker(boardNames, "Convert to Board", false, false)
@@ -1854,22 +1860,28 @@ func (m TaskManagerModel) startMoveToBoard() (TaskManagerModel, tea.Cmd) {
 	if task.Done {
 		return m, messages.StatusCmd("Cannot move completed tasks to a board", messages.LevelWarning)
 	}
-	if len(m.boards) == 0 {
+	var realBoards []kanbanmodels.Board
+	for _, b := range m.boards {
+		if b.Path != "" {
+			realBoards = append(realBoards, b)
+		}
+	}
+	if len(realBoards) == 0 {
 		return m, messages.StatusCmd("No boards available", messages.LevelWarning)
 	}
 
 	// Single board — skip picker
-	if len(m.boards) == 1 {
+	if len(realBoards) == 1 {
 		t := *task
-		boardPath := m.boards[0].Path
+		boardPath := realBoards[0].Path
 		return m, func() tea.Msg {
 			return MoveTaskToBoardMsg{Task: t, BoardPath: boardPath}
 		}
 	}
 
 	// Multiple boards — open picker
-	boardNames := make([]string, len(m.boards))
-	for i, b := range m.boards {
+	boardNames := make([]string, len(realBoards))
+	for i, b := range realBoards {
 		boardNames[i] = b.Name
 	}
 	m.fuzzyPicker = NewFuzzyPicker(boardNames, "Move to Board", false, false)
