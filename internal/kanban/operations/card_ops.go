@@ -368,6 +368,14 @@ func CreateTaskNoteFromTask(board *models.Board, title string, projects []string
 		wrappedProjects[i] = models.WrapWikilink(p)
 	}
 
+	// Only set Board if this is a real board (Path != "").
+	// The synthetic default board (Path == "") is a UI concept for unassigned notes;
+	// "default" must never be written to file frontmatter.
+	boardName := ""
+	if board.Path != "" {
+		boardName = board.Name
+	}
+
 	tn := models.TaskNote{
 		Filename:      filename,
 		Title:         title,
@@ -377,7 +385,7 @@ func CreateTaskNoteFromTask(board *models.Board, title string, projects []string
 		DueDate:       dueDate,
 		ScheduledDate: scheduledDate,
 		Priority:      priority,
-		Board:         board.Name,
+		Board:         boardName,
 		Status:        board.Columns[0].Name,
 	}
 
