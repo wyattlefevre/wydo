@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"wydo/internal/tasks/data"
 	"wydo/internal/workspace"
 	"wydo/internal/tui/messages"
 	"wydo/internal/tui/shared"
@@ -1090,7 +1091,7 @@ func countTasksForProject(entry projectEntry, workspaces []*workspace.Workspace)
 		}
 		count := 0
 		for _, t := range ws.Tasks {
-			if t.HasProject(entry.Project.Name) {
+			if t.HasProject(data.NormalizeProjectName(entry.Project.Name)) {
 				count++
 			}
 		}

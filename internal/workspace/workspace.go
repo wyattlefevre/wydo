@@ -811,10 +811,14 @@ func (r *ProjectRegistry) Get(name string) *Project {
 
 // TasksForProject returns tasks linked to a specific project
 func (r *ProjectRegistry) TasksForProject(name string, allTasks []data.Task) []data.Task {
+	normalizedName := data.NormalizeProjectName(name)
 	var result []data.Task
 	for _, t := range allTasks {
-		if t.HasProject(name) {
-			result = append(result, t)
+		for _, p := range t.Projects {
+			if data.NormalizeProjectName(p) == normalizedName {
+				result = append(result, t)
+				break
+			}
 		}
 	}
 	return result

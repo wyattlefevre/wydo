@@ -16,6 +16,14 @@ func FormatTagValue(v string) string {
 	return `"` + v + `"`
 }
 
+// NormalizeProjectName converts a workspace project name to a form suitable for
+// use as a todo.txt +project tag: lowercase, spaces replaced with hyphens.
+func NormalizeProjectName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, " ", "-")
+	return name
+}
+
 type Priority rune
 
 const (

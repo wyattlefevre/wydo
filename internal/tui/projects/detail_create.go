@@ -178,7 +178,7 @@ func (m DetailModel) finishTaskNameEntry(name string) (DetailModel, tea.Cmd) {
 
 	projectName := ""
 	if m.pendingProject != nil {
-		projectName = m.pendingProject.Name
+		projectName = data.NormalizeProjectName(m.pendingProject.Name)
 	}
 
 	task := &data.Task{
