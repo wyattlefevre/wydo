@@ -1083,7 +1083,18 @@ func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, t
 			}
 		}
 		if len(realBoards) == 0 {
-			return m, messages.StatusCmd("No boards available", messages.LevelWarning)
+			// No real boards — convert to default (unassigned) location
+			if len(m.boards) == 0 {
+				return m, messages.StatusCmd("No workspace available", messages.LevelWarning)
+			}
+			m.convertBoardPath = ""
+			m.confirmationModal = NewConfirmationModal(
+				fmt.Sprintf("Convert %d task(s) to complex?", count),
+				"Tasks will be created as unassigned tasknotes",
+				50,
+			)
+			m.inputContext.TransitionTo(ModeConfirmation)
+			return m, nil
 		}
 		if len(realBoards) == 1 {
 			m.convertBoardPath = realBoards[0].Path
@@ -1937,8 +1948,8 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 		}
 	}
 
-	// Convert-selection flow
-	if len(m.convertSelection) > 0 && m.convertBoardPath != "" {
+	// Convert-selection flow (convertBoardPath may be "" for default/unassigned location)
+	if len(m.convertSelection) > 0 {
 		var tasksToConvert []data.Task
 		for _, t := range m.tasks {
 			if m.convertSelection[t.ID] {

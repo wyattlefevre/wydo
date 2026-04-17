@@ -392,6 +392,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if boardPtr == nil {
+			if msg.BoardPath == "" {
+				return m, m.setStatus("No workspace available for conversion", LevelError)
+			}
 			return m, m.setStatus(fmt.Sprintf("Board not found: %s", msg.BoardPath), LevelError)
 		}
 		board := *boardPtr
@@ -444,7 +447,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if failed > 0 {
 			return m, m.setStatus(fmt.Sprintf("Converted %d task(s), %d failed", converted, failed), LevelWarning)
 		}
-		return m, m.setStatus(fmt.Sprintf("Converted %d task(s) to complex on board \"%s\"", converted, board.Name), LevelSuccess)
+		if board.Path == "" {
+			return m, m.setStatus(fmt.Sprintf("Converted %d task(s) to tasknotes", converted), LevelSuccess)
+		}
+		return m, m.setStatus(fmt.Sprintf("Converted %d task(s) to tasknotes on board \"%s\"", converted, board.Name), LevelSuccess)
 
 	case taskview.ArchiveRequestMsg:
 		// Archive all completed tasks
