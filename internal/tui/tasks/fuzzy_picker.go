@@ -1,6 +1,8 @@
 package tasks
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"wydo/internal/tui/shared"
 )
@@ -74,4 +76,28 @@ func (m *FuzzyPickerModel) GetSelected() []string {
 // PreSelect marks items as selected before the picker is shown.
 func (m *FuzzyPickerModel) PreSelect(items []string) {
 	m.inner.PreSelect(items)
+}
+
+// NewTagFuzzyPicker creates a multi-select picker for tags with AllowCreate enabled.
+func NewTagFuzzyPicker(existingTags []string) *FuzzyPickerModel {
+	return &FuzzyPickerModel{
+		inner: shared.NewListPickerModel(shared.ListPickerConfig{
+			Title:            "Edit Tags",
+			ItemTypeSingular: "tag",
+			AllItems:         existingTags,
+			MultiSelect:      true,
+			AllowCreate:      true,
+			SanitizeFunc:     sanitizeTagName,
+			Width:            50,
+			MaxVisible:       10,
+		}),
+	}
+}
+
+func sanitizeTagName(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "@")
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, " ", "-")
+	return s
 }

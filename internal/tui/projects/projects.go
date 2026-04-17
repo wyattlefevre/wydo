@@ -1200,23 +1200,16 @@ func (m ProjectsModel) viewDeleteVirtual() string {
 	if m.deleteCardCount != 1 {
 		cardWord = "cards"
 	}
-
-	var lines []string
-	lines = append(lines, titleStyle.Render("Delete Virtual Project"))
-	lines = append(lines, "")
-	lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Delete %q?", name)))
-	lines = append(lines, theme.ListItem.Render(fmt.Sprintf(
-		"Will remove from %d %s and %d %s.",
-		m.deleteTaskCount, taskWord, m.deleteCardCount, cardWord,
-	)))
-	lines = append(lines, "")
-	lines = append(lines, theme.ListItem.Render("[y] Delete   [n/esc] Cancel"))
-	if m.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	body := theme.ListItem.Render(fmt.Sprintf("Delete %q?", name)) + "\n" +
+		theme.ListItem.Render(fmt.Sprintf("Will remove from %d %s and %d %s.",
+			m.deleteTaskCount, taskWord, m.deleteCardCount, cardWord))
+	d := shared.Dialog{
+		Title: "Delete Virtual Project",
+		Body:  body,
+		Hints: theme.Ok.Render("[y]") + " Delete  " + theme.Error.Render("[n/esc]") + " Cancel",
+		Width: 55,
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return shared.PlaceOverlay(m.viewList(), d.View(), m.width, m.height)
 }
 
 func (m ProjectsModel) viewArchiveConfirm() string {
@@ -1224,19 +1217,13 @@ func (m ProjectsModel) viewArchiveConfirm() string {
 	if m.archiveEntry != nil {
 		name = m.archiveEntry.Project.Name
 	}
-
-	var lines []string
-	lines = append(lines, titleStyle.Render("Archive Project"))
-	lines = append(lines, "")
-	lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Archive %q?", name)))
-	lines = append(lines, "")
-	lines = append(lines, theme.ListItem.Render("[y] Archive   [n/esc] Cancel"))
-	if m.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	d := shared.Dialog{
+		Title: "Archive Project",
+		Body:  theme.ListItem.Render(fmt.Sprintf("Archive %q?", name)),
+		Hints: theme.Ok.Render("[y]") + " Archive  " + theme.Error.Render("[n/esc]") + " Cancel",
+		Width: 50,
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return shared.PlaceOverlay(m.viewList(), d.View(), m.width, m.height)
 }
 
 // nextUpcomingDateInSubtree returns the nearest upcoming date from a project and all its descendants.

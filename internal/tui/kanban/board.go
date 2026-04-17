@@ -130,7 +130,7 @@ type BoardModel struct {
 	dueDatePicker          *shared.DatePickerModel
 	scheduledDatePicker    *shared.DatePickerModel
 	priorityInput          *PriorityInputModel
-	deleteConfirm          *DeleteConfirmModel
+	deleteCardTitle        string
 	columnScrollOffsets    []int // scroll position (card index) for each column
 	columnCursorPos        []int // cursor position (card index) for each column
 	columnHorizontalOffset int   // horizontal scroll offset (first visible column index)
@@ -557,13 +557,9 @@ func (m BoardModel) updateNormal(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 	case "D":
 		if m.selectedCol < len(m.board.Columns) && len(m.getVisibleCards(m.selectedCol)) > 0 {
 			realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
-			cardTitle := m.board.Columns[m.selectedCol].TaskNotes[realIdx].Title
-			model := NewDeleteConfirmModel(cardTitle)
-			model.width = m.width
-			model.height = m.height
-			m.deleteConfirm = &model
+			m.deleteCardTitle = m.board.Columns[m.selectedCol].TaskNotes[realIdx].Title
 			m.mode = boardModeConfirmDelete
-			return m, m.deleteConfirm.Init()
+			return m, nil
 		}
 
 	case "s":
@@ -721,15 +717,8 @@ func (m BoardModel) updateMove(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 }
 
 func (m BoardModel) updateConfirmDelete(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
-	if m.deleteConfirm == nil {
-		m.mode = boardModeNormal
-		return m, nil
-	}
-
-	updated, confirmed, cancelled := m.deleteConfirm.Update(msg)
-	*m.deleteConfirm = updated
-
-	if confirmed {
+	switch msg.String() {
+	case "y":
 		realIdx := m.resolveCardIndex(m.selectedCol, m.selectedCard)
 		if err := operations.DeleteTaskNote(&m.board, m.selectedCol, realIdx); err != nil {
 			m.err = err
@@ -750,12 +739,11 @@ func (m BoardModel) updateConfirmDelete(msg tea.KeyMsg) (BoardModel, tea.Cmd) {
 			}
 		}
 		m.mode = boardModeNormal
-		m.deleteConfirm = nil
-	} else if cancelled {
+		m.deleteCardTitle = ""
+	case "n", "esc":
 		m.mode = boardModeNormal
-		m.deleteConfirm = nil
+		m.deleteCardTitle = ""
 	}
-
 	return m, nil
 }
 
@@ -1749,11 +1737,6 @@ func (m BoardModel) View() string {
 		return m.priorityInput.View()
 	}
 
-	// Show delete confirm modal if in confirm delete mode
-	if m.mode == boardModeConfirmDelete && m.deleteConfirm != nil {
-		return m.deleteConfirm.View()
-	}
-
 	// Show board selector if in board move mode
 	if m.mode == boardModeBoardMove && m.boardSelector != nil {
 		return m.boardSelector.View()
@@ -1829,7 +1812,25 @@ func (m BoardModel) View() string {
 
 	// Status messages are shown in the top bar (see AppModel.renderTabBar)
 
-	return s.String()
+	bg := s.String()
+
+	if m.mode == boardModeConfirmDelete {
+		displayTitle := m.deleteCardTitle
+		const maxLen = 44
+		runes := []rune(displayTitle)
+		if len(runes) > maxLen {
+			displayTitle = string(runes[:maxLen-3]) + "..."
+		}
+		d := shared.Dialog{
+			Title: "Delete Card?",
+			Body:  theme.Muted.Render(`"` + displayTitle + `"`) + "\n" + theme.Muted.Render("This action cannot be undone."),
+			Hints: theme.Ok.Render("[y]") + " Delete  " + theme.Error.Render("[n/esc]") + " Cancel",
+			Width: 50,
+		}
+		return shared.PlaceOverlay(bg, d.View(), m.width, m.height)
+	}
+
+	return bg
 }
 
 func (m BoardModel) renderColumn(index int, col models.Column, cards []models.TaskNote, fixedHeight int) string {

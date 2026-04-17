@@ -105,12 +105,12 @@ type TaskManagerModel struct {
 	activePreset ViewPreset
 
 	// Sub-components
-	infoBar           InfoBarModel
-	fuzzyPicker       *FuzzyPickerModel
-	textInput         *TextInputModel
-	taskEditor        *TaskEditorModel
-	confirmationModal *ConfirmationModal
-	datePicker        *shared.DatePickerModel // for direct date editing
+	infoBar       InfoBarModel
+	fuzzyPicker   *FuzzyPickerModel
+	textInput     *TextInputModel
+	taskEditor    *TaskEditorModel
+	confirmDialog *shared.Dialog
+	datePicker    *shared.DatePickerModel // for direct date editing
 	projectPicker     *kanbanview.ProjectPickerModel
 
 	// Direct edit state
@@ -247,14 +247,12 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		return m.handleEditorResult(msg)
 	case StartArchiveMsg:
 		return m.handleStartArchive()
-	case ConfirmationResultMsg:
-		return m.handleConfirmationResult(msg)
 	case ArchiveCompleteMsg:
-		m.confirmationModal = nil
+		m.confirmDialog = nil
 		m.loadTasks()
 		return m, messages.StatusCmd(fmt.Sprintf("Archived %d tasks", msg.Count), messages.LevelSuccess)
 	case DeleteCompleteMsg:
-		m.confirmationModal = nil
+		m.confirmDialog = nil
 		m.loadTasks()
 		return m, messages.StatusCmd(fmt.Sprintf("Deleted %d tasks", msg.Count), messages.LevelSuccess)
 	case taskNoteEditorFinishedMsg:
@@ -310,13 +308,6 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle sub-component updates
-	if m.confirmationModal != nil {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			cmd := m.confirmationModal.Update(keyMsg)
-			return m, cmd
-		}
-	}
 	if m.fuzzyPicker != nil {
 		var cmd tea.Cmd
 		_, cmd = m.fuzzyPicker.Update(msg)
@@ -359,6 +350,14 @@ func (m TaskManagerModel) Update(msg tea.Msg) (TaskManagerModel, tea.Cmd) {
 			return m.handleDeleteMode(msg)
 		case ModeConvertComplex:
 			return m.handleConvertMode(msg)
+		case ModeConfirmation:
+			switch msg.String() {
+			case "y", "enter":
+				return m.handleConfirmationResult(true)
+			case "n":
+				return m.handleConfirmationResult(false)
+			}
+			return m, nil
 		}
 	}
 
@@ -374,16 +373,13 @@ func (m TaskManagerModel) View() string {
 	if m.datePicker != nil {
 		return m.datePicker.View()
 	}
-	if m.confirmationModal != nil {
-		modal := m.confirmationModal.View()
-		return lipgloss.Place(
-			m.infoBar.Width, 30,
-			lipgloss.Center, lipgloss.Center,
-			modal,
-			lipgloss.WithWhitespaceChars(" "),
-		)
+	if m.confirmDialog != nil {
+		return shared.PlaceOverlay(m.renderTaskListFull(), m.confirmDialog.View(), m.width, m.height)
 	}
 	if m.fuzzyPicker != nil {
+		if m.pickerContext == "edit-tag" {
+			return m.renderTaskListFull() // background; overlay handled by OverlayView
+		}
 		return m.renderTaskList() + m.fuzzyPicker.View()
 	}
 	if m.textInput != nil {
@@ -404,10 +400,18 @@ func (m TaskManagerModel) View() string {
 // OverlayView returns the box that should be composited over the full screen by the caller,
 // or "" if no screen-level overlay is active.
 func (m TaskManagerModel) OverlayView() string {
+	// Direct tag edit — picker floats over the task list
+	if m.fuzzyPicker != nil && m.pickerContext == "edit-tag" {
+		return m.fuzzyPicker.View()
+	}
 	if m.textInput != nil {
 		return m.textInput.View()
 	}
 	if m.taskEditor != nil && !m.taskEditor.HasActiveSubComponent() {
+		// Tag picker nested inside editor takes priority over the editor box
+		if pickerView := m.taskEditor.TagPickerView(); pickerView != "" {
+			return pickerView
+		}
 		return m.taskEditor.View()
 	}
 	return ""
@@ -993,11 +997,12 @@ func (m TaskManagerModel) handleArchiveMode(msg tea.KeyMsg) (TaskManagerModel, t
 		if count == 0 {
 			return m, messages.StatusCmd("No tasks selected to archive", messages.LevelWarning)
 		}
-		m.confirmationModal = NewConfirmationModal(
-			fmt.Sprintf("Archive %d task(s)?", count),
-			"Selected tasks will be moved to archive/tasks/todo.txt",
-			50,
-		)
+		m.confirmDialog = &shared.Dialog{
+			Title: fmt.Sprintf("Archive %d task(s)?", count),
+			Body:  "Selected tasks will be moved to archive/tasks/todo.txt",
+			Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+			Width: 50,
+		}
 		m.inputContext.TransitionTo(ModeConfirmation)
 	case "esc":
 		m.archiveSelection = nil
@@ -1035,11 +1040,12 @@ func (m TaskManagerModel) handleDeleteMode(msg tea.KeyMsg) (TaskManagerModel, te
 		if count == 0 {
 			return m, messages.StatusCmd("No tasks selected to delete", messages.LevelWarning)
 		}
-		m.confirmationModal = NewConfirmationModal(
-			fmt.Sprintf("Delete %d task(s)?", count),
-			"This will permanently remove the selected tasks.",
-			50,
-		)
+		m.confirmDialog = &shared.Dialog{
+			Title: fmt.Sprintf("Delete %d task(s)?", count),
+			Body:  "This will permanently remove the selected tasks.",
+			Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+			Width: 50,
+		}
 		m.inputContext.TransitionTo(ModeConfirmation)
 	case "esc":
 		m.deleteSelection = nil
@@ -1081,11 +1087,12 @@ func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, t
 		}
 		// Default: convert without board assignment
 		m.convertBoardPath = ""
-		m.confirmationModal = NewConfirmationModal(
-			fmt.Sprintf("Convert %d task(s) to tasknotes?", count),
-			"Tasks will be created as unassigned tasknotes",
-			50,
-		)
+		m.confirmDialog = &shared.Dialog{
+			Title: fmt.Sprintf("Convert %d task(s) to tasknotes?", count),
+			Body:  "Tasks will be created as unassigned tasknotes",
+			Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+			Width: 50,
+		}
 		m.inputContext.TransitionTo(ModeConfirmation)
 		return m, nil
 	case "b":
@@ -1104,11 +1111,12 @@ func (m TaskManagerModel) handleConvertMode(msg tea.KeyMsg) (TaskManagerModel, t
 		}
 		if len(realBoards) == 1 {
 			m.convertBoardPath = realBoards[0].Path
-			m.confirmationModal = NewConfirmationModal(
-				fmt.Sprintf("Convert %d task(s) to tasknotes?", count),
-				fmt.Sprintf("Tasks will be assigned to board \"%s\"", realBoards[0].Name),
-				50,
-			)
+			m.confirmDialog = &shared.Dialog{
+				Title: fmt.Sprintf("Convert %d task(s) to tasknotes?", count),
+				Body:  fmt.Sprintf("Tasks will be assigned to board \"%s\"", realBoards[0].Name),
+				Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+				Width: 50,
+			}
 			m.inputContext.TransitionTo(ModeConfirmation)
 			return m, nil
 		}
@@ -1205,10 +1213,8 @@ func (m TaskManagerModel) handleSearchMode(msg tea.KeyMsg) (TaskManagerModel, te
 
 func (m TaskManagerModel) handleEscape() (TaskManagerModel, tea.Cmd) {
 	// Close any open sub-component
-	if m.confirmationModal != nil {
-		m.confirmationModal = nil
-		m.inputContext.Reset()
-		return m, nil
+	if m.confirmDialog != nil {
+		return m.handleConfirmationResult(false)
 	}
 	if m.fuzzyPicker != nil {
 		m.fuzzyPicker = nil
@@ -1571,11 +1577,12 @@ func (m TaskManagerModel) handlePickerResult(msg FuzzyPickerResultMsg) (TaskMana
 				if b.Name == msg.Selected[0] {
 					m.convertBoardPath = b.Path
 					count := len(m.convertSelection)
-					m.confirmationModal = NewConfirmationModal(
-						fmt.Sprintf("Convert %d task(s) to complex?", count),
-						fmt.Sprintf("Tasks will be moved to board \"%s\"", b.Name),
-						50,
-					)
+					m.confirmDialog = &shared.Dialog{
+						Title: fmt.Sprintf("Convert %d task(s) to complex?", count),
+						Body:  fmt.Sprintf("Tasks will be moved to board \"%s\"", b.Name),
+						Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+						Width: 50,
+					}
 					m.pickerContext = ""
 					m.inputContext.TransitionTo(ModeConfirmation)
 					return m, nil
@@ -1840,12 +1847,12 @@ func (m TaskManagerModel) handleStartArchive() (TaskManagerModel, tea.Cmd) {
 		return m, messages.StatusCmd("No completed tasks to archive", messages.LevelWarning)
 	}
 
-	// Show confirmation modal
-	m.confirmationModal = NewConfirmationModal(
-		fmt.Sprintf("Archive %d completed task(s)?", count),
-		"This will move completed tasks to archive/tasks/todo.txt",
-		50,
-	)
+	m.confirmDialog = &shared.Dialog{
+		Title: fmt.Sprintf("Archive %d completed task(s)?", count),
+		Body:  "This will move completed tasks to archive/tasks/todo.txt",
+		Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+		Width: 50,
+	}
 	m.inputContext.TransitionTo(ModeConfirmation)
 	return m, nil
 }
@@ -1858,11 +1865,12 @@ func (m TaskManagerModel) handleStartDelete() (TaskManagerModel, tea.Cmd) {
 	}
 
 	m.pendingDeleteTaskID = task.ID
-	m.confirmationModal = NewConfirmationModal(
-		"Delete task?",
-		task.Name,
-		50,
-	)
+	m.confirmDialog = &shared.Dialog{
+		Title: "Delete task?",
+		Body:  task.Name,
+		Hints: theme.Ok.Render("[y/enter]") + " Confirm  " + theme.Error.Render("[n/esc]") + " Cancel",
+		Width: 50,
+	}
 	m.inputContext.TransitionTo(ModeConfirmation)
 	return m, nil
 }
@@ -1906,12 +1914,12 @@ func (m TaskManagerModel) startMoveToBoard() (TaskManagerModel, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmationResult processes the confirmation modal result
-func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (TaskManagerModel, tea.Cmd) {
-	m.confirmationModal = nil
+// handleConfirmationResult processes the confirmation result
+func (m TaskManagerModel) handleConfirmationResult(confirmed bool) (TaskManagerModel, tea.Cmd) {
+	m.confirmDialog = nil
 	m.inputContext.Reset()
 
-	if !msg.Confirmed {
+	if !confirmed {
 		m.pendingDeleteTaskID = ""
 		m.archiveSelection = nil
 		m.deleteSelection = nil
@@ -1984,7 +1992,7 @@ func (m TaskManagerModel) handleConfirmationResult(msg ConfirmationResultMsg) (T
 // IsInModalState returns true if the task manager is in a mode that should
 // block global key handling (editor, picker, input, search, or any non-normal mode)
 func (m *TaskManagerModel) IsInModalState() bool {
-	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.datePicker != nil || m.searchActive || m.confirmationModal != nil {
+	if m.taskEditor != nil || m.fuzzyPicker != nil || m.textInput != nil || m.datePicker != nil || m.searchActive || m.confirmDialog != nil {
 		return true
 	}
 	return m.inputContext.Mode != ModeNormal
@@ -2036,7 +2044,7 @@ func (m TaskManagerModel) startDirectTagEdit() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 	m.directEditTaskID = task.ID
-	m.fuzzyPicker = NewFuzzyPicker(m.allTags, "Select Tags", true, false)
+	m.fuzzyPicker = NewTagFuzzyPicker(m.allTags)
 	m.fuzzyPicker.PreSelect(task.Tags)
 	m.pickerContext = "edit-tag"
 	m.inputContext.TransitionTo(ModeFuzzyPicker)

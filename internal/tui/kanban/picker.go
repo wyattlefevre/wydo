@@ -588,45 +588,38 @@ func (m PickerModel) View() string {
 func (m PickerModel) viewDeleteConfirm() string {
 	board := m.boards[m.deleteIdx]
 	cardCount := boardTotalCards(board)
+	bg := m.viewList()
 
-	var lines []string
+	var d shared.Dialog
 	if cardCount > 0 {
-		lines = append(lines, deleteConfirmTitleStyle.Render("Cannot Delete Board"))
-		lines = append(lines, "")
-		lines = append(lines, theme.ListItem.Render(fmt.Sprintf("%q has %d card(s).", board.Name, cardCount)))
-		lines = append(lines, theme.ListItem.Render("Remove all cards before deleting a board."))
-		lines = append(lines, "")
-		lines = append(lines, theme.ModalHelp.Render("[esc] Cancel"))
+		d = shared.Dialog{
+			Title: "Cannot Delete Board",
+			Body: theme.ListItem.Render(fmt.Sprintf("%q has %d card(s).", board.Name, cardCount)) + "\n" +
+				theme.ListItem.Render("Remove all cards before deleting a board."),
+			Hints: theme.Error.Render("[any key]") + " Dismiss",
+			Width: 52,
+		}
 	} else {
-		lines = append(lines, deleteConfirmTitleStyle.Render("Delete Board"))
-		lines = append(lines, "")
-		lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Permanently delete %q?", board.Name)))
-		lines = append(lines, theme.ListItem.Render("This action cannot be undone."))
-		lines = append(lines, "")
-		lines = append(lines, theme.ModalHelp.Render("[y] Delete   [n/esc] Cancel"))
+		d = shared.Dialog{
+			Title: "Delete Board",
+			Body: theme.ListItem.Render(fmt.Sprintf("Permanently delete %q?", board.Name)) + "\n" +
+				theme.ListItem.Render("This action cannot be undone."),
+			Hints: theme.Ok.Render("[y]") + " Delete  " + theme.Error.Render("[n/esc]") + " Cancel",
+			Width: 52,
+		}
 	}
-	if m.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
-	}
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return shared.PlaceOverlay(bg, d.View(), m.width, m.height)
 }
 
 func (m PickerModel) viewArchiveConfirm() string {
 	board := m.boards[m.archiveIdx]
-	var lines []string
-	lines = append(lines, titleStyle.Render("Archive Board"))
-	lines = append(lines, "")
-	lines = append(lines, theme.ListItem.Render(fmt.Sprintf("Archive %q?", board.Name)))
-	lines = append(lines, "")
-	lines = append(lines, theme.ModalHelp.Render("[y] Archive   [n/esc] Cancel"))
-	if m.err != nil {
-		lines = append(lines, "")
-		lines = append(lines, errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+	d := shared.Dialog{
+		Title: "Archive Board",
+		Body:  theme.ListItem.Render(fmt.Sprintf("Archive %q?", board.Name)),
+		Hints: theme.Ok.Render("[y]") + " Archive  " + theme.Error.Render("[n/esc]") + " Cancel",
+		Width: 50,
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+	return shared.PlaceOverlay(m.viewList(), d.View(), m.width, m.height)
 }
 
 func (m PickerModel) viewSearch() string {

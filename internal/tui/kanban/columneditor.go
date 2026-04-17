@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"wydo/internal/kanban/models"
+	"wydo/internal/tui/shared"
+	"wydo/internal/tui/theme"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -388,22 +390,29 @@ func (m ColumnEditorModel) View() string {
 	switch m.mode {
 	case columnEditorModeRename, columnEditorModeAdd:
 		help = helpStyle.Render("enter: confirm • esc: cancel")
-	case columnEditorModeConfirmDelete:
-		if m.cursorPos < len(m.columns) {
-			cardCount := len(m.columns[m.cursorPos].TaskNotes)
-			if cardCount > 0 {
-				help = warningStyle.Render(fmt.Sprintf("Delete column and move %d cards to adjacent column? (y/n)", cardCount))
-			} else {
-				help = warningStyle.Render("Delete this column? (y/n)")
-			}
-		}
 	default:
 		help = helpStyle.Render("jk: navigate • r: rename • o: add below • O: add above • d: delete • JK: reorder • enter: save • esc: cancel")
 	}
 	s.WriteString(help)
 
 	// Wrap in box
-	content := s.String()
-	box := columnEditorBoxStyle.Render(content)
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	box := columnEditorBoxStyle.Render(s.String())
+	bg := lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+
+	if m.mode == columnEditorModeConfirmDelete && m.cursorPos < len(m.columns) {
+		cardCount := len(m.columns[m.cursorPos].TaskNotes)
+		body := ""
+		if cardCount > 0 {
+			body = theme.Muted.Render(fmt.Sprintf("Will move %d card(s) to adjacent column.", cardCount))
+		}
+		d := shared.Dialog{
+			Title: "Delete Column?",
+			Body:  body,
+			Hints: theme.Ok.Render("[y]") + " Delete  " + theme.Error.Render("[n/esc]") + " Cancel",
+			Width: 50,
+		}
+		return shared.PlaceOverlay(bg, d.View(), m.width, m.height)
+	}
+
+	return bg
 }

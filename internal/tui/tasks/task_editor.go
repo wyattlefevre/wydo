@@ -143,7 +143,7 @@ func (m *TaskEditorModel) handleTaskEditorKeys(msg tea.KeyMsg) (tea.Model, tea.C
 	case "t", "c":
 		// Edit tags
 		m.inputContext.Mode = ModeEditTag
-		m.fuzzyPicker = NewFuzzyPicker(m.allTags, "Select Tags", true, false)
+		m.fuzzyPicker = NewTagFuzzyPicker(m.allTags)
 		m.fuzzyPicker.PreSelect(m.task.Tags)
 		return m, nil
 
@@ -306,8 +306,11 @@ func (m *TaskEditorModel) cyclePriority() {
 // HasActiveSubComponent returns true when a sub-picker (date, project, context, URL)
 // is currently open inside the editor. Callers use this to decide whether the editor
 // should be shown as a full-screen component or composited as an overlay box.
+// The tag picker is excluded because it renders as a screen-level overlay itself.
 func (m *TaskEditorModel) HasActiveSubComponent() bool {
-	return m.urlInput != nil || m.datePicker != nil || m.projectPicker != nil || m.fuzzyPicker != nil
+	tagPickerActive := m.fuzzyPicker != nil && m.inputContext.Mode == ModeEditTag
+	return m.urlInput != nil || m.datePicker != nil || m.projectPicker != nil ||
+		(m.fuzzyPicker != nil && !tagPickerActive)
 }
 
 // View implements tea.Model
@@ -324,8 +327,8 @@ func (m *TaskEditorModel) View() string {
 	if m.projectPicker != nil {
 		return lipgloss.Place(m.Width, m.Height, lipgloss.Center, lipgloss.Center, m.projectPicker.View())
 	}
-	// If sub-component is active, show it
-	if m.fuzzyPicker != nil {
+	// If sub-component is active, show it (tag picker is excluded — it renders as an overlay)
+	if m.fuzzyPicker != nil && m.inputContext.Mode != ModeEditTag {
 		return m.fuzzyPicker.View()
 	}
 
@@ -424,6 +427,15 @@ func (m *TaskEditorModel) View() string {
 	content.WriteString(editorHelpStyle.Render("[enter] save  [esc] cancel"))
 
 	return editorBoxStyle.Width(m.Width).Render(content.String())
+}
+
+// TagPickerView returns the tag picker's view when it is the active overlay,
+// or "" otherwise. Used by task_manager to composite the picker over the background.
+func (m *TaskEditorModel) TagPickerView() string {
+	if m.fuzzyPicker != nil && m.inputContext.Mode == ModeEditTag {
+		return m.fuzzyPicker.View()
+	}
+	return ""
 }
 
 // slicesEqual compares two string slices for equality
