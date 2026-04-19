@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -1448,12 +1447,11 @@ func (m *TaskManagerModel) applyGroupField(ascending bool) {
 	m.inputContext.Reset()
 }
 
-func openTaskNoteEditorCmd(boardPath, filename string) tea.Cmd {
+func openTaskNoteEditorCmd(cardPath string) tea.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vim"
 	}
-	cardPath := filepath.Join(boardPath, "cards", filename)
 	c := exec.Command(editor, cardPath)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return taskNoteEditorFinishedMsg{err: err}
@@ -1466,17 +1464,10 @@ func (m TaskManagerModel) openTaskEditor() (TaskManagerModel, tea.Cmd) {
 		return m, nil
 	}
 	if task.IsTaskNote {
-		parts := strings.SplitN(task.ID, ":", 3)
-		if len(parts) < 3 {
-			return m, messages.StatusCmd("Invalid task note ID", messages.LevelError)
+		if task.File == "" {
+			return m, messages.StatusCmd("Task note has no file path", messages.LevelError)
 		}
-		filename := parts[2]
-		for _, b := range m.boards {
-			if b.Name == task.BoardName {
-				return m, openTaskNoteEditorCmd(b.Path, filename)
-			}
-		}
-		return m, messages.StatusCmd("Board not found: "+task.BoardName, messages.LevelError)
+		return m, openTaskNoteEditorCmd(task.File)
 	}
 
 	m.taskEditor = NewTaskEditor(task, m.allProjectItems, m.allTags)

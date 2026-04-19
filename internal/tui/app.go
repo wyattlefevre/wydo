@@ -401,6 +401,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		converted := 0
 		failed := 0
+		var idsToDelete []string
 		for _, task := range msg.Tasks {
 			var dueDate, scheduledDate *time.Time
 			if d := task.GetDueDate(); d != "" {
@@ -416,19 +417,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			priority := operations.TaskPriorityToTaskNotePriority(rune(task.Priority))
 
-			projects := task.Projects
-			for _, bp := range projectsForBoard(m.workspaces, msg.BoardPath) {
-				found := false
-				for _, p := range projects {
-					if strings.EqualFold(p, bp) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					projects = append(projects, bp)
-				}
-			}
+			projects := mergeProjects(task.Projects, projectsForBoard(m.workspaces, msg.BoardPath))
 
 			_, err := operations.CreateTaskNoteFromTask(&board, task.Name, projects, task.Tags, dueDate, scheduledDate, priority)
 			if err != nil {
@@ -437,10 +426,14 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 
-			if err := m.taskSvc.Delete(task.ID); err != nil {
-				logs.Logger.Printf("Warning: card created but task deletion failed for %q: %v", task.Name, err)
-			}
+			idsToDelete = append(idsToDelete, task.ID)
 			converted++
+		}
+
+		if len(idsToDelete) > 0 {
+			if err := m.taskSvc.DeleteByIDs(idsToDelete); err != nil {
+				logs.Logger.Printf("Error deleting converted tasks: %v", err)
+			}
 		}
 
 		m.taskManagerView.SetData(m.taskSvc)
@@ -836,6 +829,25 @@ func collectAllProjects(workspaces []*workspace.Workspace) []kanbanview.ProjectP
 		result = append(result, kanbanview.ProjectPickerItem{Name: name, Depth: 0, FilePath: dirPath})
 	}
 
+	return result
+}
+
+// mergeProjects returns a new slice containing all items from base plus any
+// items in extra that are not already present (case-insensitive).
+func mergeProjects(base, extra []string) []string {
+	result := append([]string(nil), base...)
+	for _, e := range extra {
+		found := false
+		for _, b := range result {
+			if strings.EqualFold(b, e) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, e)
+		}
+	}
 	return result
 }
 
